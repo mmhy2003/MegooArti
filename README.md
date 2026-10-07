@@ -33,6 +33,12 @@ All configuration is by environment variable.
 | `MEGOOARTI_PORT` | `8000` | Port the HTTP server listens on |
 | `MEGOOARTI_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma-separated reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
 | `MEGOOARTI_SHUTDOWN_GRACE_SECONDS` | `30` | How long in-flight requests may finish after a shutdown signal |
+| `MEGOOARTI_DATA_DIR` | `/var/lib/megooarti` | Directory for files MegooArti writes. Mount a volume here |
+| `MEGOOARTI_SESSION_IDLE_SECONDS` | `3600` | A UI session ends after this long without a request |
+| `MEGOOARTI_SESSION_ABSOLUTE_SECONDS` | `43200` | A UI session ends this long after sign-in, whatever the activity |
+| `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Set `false` only when serving plain HTTP on a host other than `localhost` |
+| `MEGOOARTI_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins allowed per username and per client address in one window |
+| `MEGOOARTI_LOGIN_FAILURE_WINDOW_SECONDS` | `900` | Length of that window |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
@@ -45,6 +51,43 @@ published on `127.0.0.1` only.
 If you raise `MEGOOARTI_SHUTDOWN_GRACE_SECONDS`, raise `stop_grace_period` in
 `docker-compose.yml` (or your orchestrator's equivalent) to a larger value as well;
 otherwise the container is killed before in-flight requests finish.
+
+## First sign-in
+
+On first start MegooArti creates the `admin` account with a random password, writes it
+to `admin.password` in the data directory, and logs it once:
+
+```bash
+docker compose exec backend cat /var/lib/megooarti/admin.password
+```
+
+Sign in with it; you must then choose a new password, after which the file is deleted.
+
+```bash
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<the generated password>"}' \
+  http://localhost:8000/api/v1/auth/login
+```
+
+The response contains a `csrf_token`. Requests that use the session cookie and change
+anything must send it in an `X-CSRF-Token` header.
+
+## Access control
+
+- **Roles** hold permission patterns such as `admin:users:*` or
+  `repository:maven:releases:read`. `*` matches one segment, and a pattern shorter than
+  the permission grants everything beneath it, so `repository:maven` covers every Maven
+  repository. Roles can contain other roles.
+- **Personal API tokens** (`mga_…`) are created under `/api/v1/me/tokens` while signed
+  in with a password. Use one as a bearer token, or as the password in HTTP Basic. A
+  token can be limited to a list of patterns and can expire.
+- **Anonymous access** is off by default. When turned on under `/api/v1/settings`,
+  requests without credentials act as the built-in `anonymous` user; change what they
+  may do by editing that user's roles.
+- Five failed sign-ins for one username, or from one address, within 15 minutes block
+  further attempts until the window ends.
+
+The full API is described at `/api/docs`.
 
 ## Health endpoints
 
