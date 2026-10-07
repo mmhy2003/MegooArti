@@ -1,0 +1,252 @@
+"""The storage facade formats work through.
+
+It enforces the add, edit and delete permissions and the deployment policy, so a format
+cannot bypass them, and it is the only code that ties assets to blobs.
+"""
+
+import hashlib
+import mimetypes
+import re
+from collections.abc import AsyncIterator
+from datetime import timedelta
+
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
+from starlette.responses import Response, StreamingResponse
+
+from megooarti.clock import utcnow
+from megooarti.config import Settings
+from megooarti.errors import ApiError
+from megooarti.repositories import serving
+from megooarti.repositories.formats import ComponentKey, Format
+from megooarti.repositories.models import Asset, Component, Repository
+from megooarti.repositories.paths import normalise_path
+from megooarti.security.authentication import Principal, authorize
+from megooarti.storage import blobs
+from megooarti.storage.backends import BlobBackend, StagedBlob
+from megooarti.storage.models import Blob
+
+# First key of the two-key advisory lock; the second is derived from what is locked.
+_LOCK_NAMESPACE = 0x4D48
+_DOWNLOAD_NOTE_INTERVAL = timedelta(hours=1)
+_MEDIA_TYPE = re.compile(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(;[\x20-\x7e]*)?")
+
+
+def _media_type(declared: str | None, path: str) -> str:
+    """The declared type if it is a well-formed media type, else a guess from the name."""
+    if declared is not None:
+        declared = declared.strip()
+        if len(declared) <= 255 and _MEDIA_TYPE.fullmatch(declared):
+            return declared
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def _verify(
+    staged: StagedBlob, expected_size: int | None, expected_hashes: dict[str, str] | None
+) -> None:
+    if expected_size is not None and staged.size != expected_size:
+        raise ApiError(
+            400,
+            "checksum_mismatch",
+            f"Received {staged.size} bytes but {expected_size} were declared.",
+        )
+    for algorithm, expected in (expected_hashes or {}).items():
+        if getattr(staged, algorithm) != expected.strip().lower():
+            raise ApiError(
+                400, "checksum_mismatch", f"The {algorithm} checksum does not match the content."
+            )
+
+
+class RepositoryContext:
+    """One request's view of one repository."""
+
+    def __init__(
+        self,
+        *,
+        db: AsyncSession,
+        settings: Settings,
+        repository: Repository,
+        principal: Principal | None,
+        format: Format,
+        backend: BlobBackend,
+    ) -> None:
+        self.db = db
+        self.settings = settings
+        self.repository = repository
+        self.principal = principal
+        self.format = format
+        self.backend = backend
+
+    def permission(self, action: str) -> str:
+        return f"repository:{self.repository.format}:{self.repository.name}:{action}"
+
+    async def _lock(self, kind: str, key: str) -> None:
+        """Serialise work on one path or component until this transaction ends."""
+        digest = hashlib.sha256(f"{self.repository.id}:{kind}:{key}".encode()).digest()
+        number = int.from_bytes(digest[:4], "big", signed=True)
+        await self.db.execute(text(f"SELECT pg_advisory_xact_lock({_LOCK_NAMESPACE}, {number})"))
+
+    async def get(self, path: str, *, fresh: bool = False) -> Asset | None:
+        statement = select(Asset).where(
+            Asset.repository_id == self.repository.id, Asset.path == path
+        )
+        if fresh:  # reread from the database even if this session already loaded it
+            statement = statement.execution_options(populate_existing=True)
+        return await self.db.scalar(statement)
+
+    def _check_policy(self, *, replacing: bool) -> None:
+        policy = self.repository.config.get("hosted", {}).get("deployment_policy")
+        if policy == "read_only":
+            raise ApiError(403, "repository_read_only", "This repository is read-only.")
+        if replacing and policy == "disable_redeploy":
+            raise ApiError(
+                409, "redeploy_disabled", "This repository does not allow a path to be replaced."
+            )
+
+    def _check_may_store(self, existing: Asset | None) -> None:
+        action = "add" if existing is None else "edit"
+        authorize(self.principal, self.permission(action), scheme="Basic")
+        self._check_policy(replacing=existing is not None)
+
+    async def _component(self, key: ComponentKey) -> Component:
+        await self._lock("component", f"{key.namespace}\x00{key.name}\x00{key.version}")
+        component = await self.db.scalar(
+            select(Component).where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == key.namespace,
+                Component.name == key.name,
+                Component.version == key.version,
+            )
+        )
+        if component is None:
+            component = Component(
+                repository_id=self.repository.id,
+                namespace=key.namespace,
+                name=key.name,
+                version=key.version,
+            )
+            self.db.add(component)
+            await self.db.flush()
+        return component
+
+    async def put(
+        self,
+        path: str,
+        chunks: AsyncIterator[bytes],
+        *,
+        content_type: str | None = None,
+        expected_size: int | None = None,
+        expected_hashes: dict[str, str] | None = None,
+        kind: str = "asset",
+    ) -> tuple[Asset, bool]:
+        """Store content at a path. Returns the asset and whether it is new.
+
+        The caller commits. Permission and policy are checked before the body is read,
+        so a refused upload is refused early, and again before recording, because the
+        path may have been written while the body arrived.
+        """
+        path = normalise_path(path)
+        self._check_may_store(await self.get(path))
+        await self.db.commit()  # give the connection back while the body arrives
+
+        staged = await self.backend.stage(chunks)
+        try:
+            _verify(staged, expected_size, expected_hashes)
+            await self._lock("path", path)
+            existing = await self.get(path, fresh=True)
+            self._check_may_store(existing)
+            blob = await blobs.record(self.db, self.backend, self.repository.blob_store_id, staged)
+        except BaseException:
+            await self.backend.discard(staged)
+            raise
+
+        now = utcnow()
+        media_type = _media_type(content_type, path)
+        if existing is None:
+            component = await self._component(self.format.describe_component(path))
+            asset = Asset(
+                repository_id=self.repository.id,
+                component_id=component.id,
+                path=path,
+                blob_id=blob.id,
+                content_type=media_type,
+                kind=kind,
+                created_by=self.principal.user.username,
+            )
+            self.db.add(asset)
+            await self.db.flush()
+            return asset, True
+
+        previous = existing.blob_id
+        existing.blob_id = blob.id
+        existing.content_type = media_type
+        existing.updated_at = now
+        existing.last_verified_at = None
+        await self.db.flush()
+        if previous != blob.id:
+            await blobs.dereference(self.db, [previous], now)
+        return existing, False
+
+    async def delete(self, path: str) -> bool:
+        """Remove what is at a path. False if there was nothing. The caller commits."""
+        path = normalise_path(path)
+        authorize(self.principal, self.permission("delete"), scheme="Basic")
+        self._check_policy(replacing=False)
+        await self._lock("path", path)
+        asset = await self.get(path, fresh=True)
+        if asset is None:
+            return False
+        blob_id, component_id = asset.blob_id, asset.component_id
+        await self.db.delete(asset)
+        await self.db.flush()
+        if component_id is not None:
+            remaining = await self.db.scalar(
+                select(Asset.id).where(Asset.component_id == component_id).limit(1)
+            )
+            if remaining is None:
+                await self.db.execute(delete(Component).where(Component.id == component_id))
+        await blobs.dereference(self.db, [blob_id], utcnow())
+        return True
+
+    async def respond(self, path: str, request: Request) -> Response:
+        """The response to a GET or HEAD for a path. The caller has checked `read`."""
+        path = normalise_path(path)
+        found = (
+            await self.db.execute(
+                select(Asset, Blob)
+                .join(Blob, Blob.id == Asset.blob_id)
+                .where(Asset.repository_id == self.repository.id, Asset.path == path)
+            )
+        ).one_or_none()
+        if found is None:
+            raise ApiError(404, "not_found", "No such file.")
+        asset, blob = found
+        item = serving.Servable(
+            sha256=blob.sha256,
+            md5=blob.md5,
+            sha1=blob.sha1,
+            sha512=blob.sha512,
+            size=blob.size,
+            content_type=asset.content_type,
+            last_modified=asset.updated_at,
+            filename=path.rpartition("/")[2],
+        )
+        plan = serving.plan(request.method, request.headers, item)
+
+        now = utcnow()
+        noted = asset.last_downloaded_at
+        if plan.byte_range is not None and (
+            noted is None or now - noted >= _DOWNLOAD_NOTE_INTERVAL
+        ):
+            asset.last_downloaded_at = now
+        await self.db.commit()  # give the connection back before the body is sent
+
+        if plan.byte_range is None:
+            return Response(status_code=plan.status, headers=plan.headers)
+        start, end = plan.byte_range
+        return StreamingResponse(
+            self.backend.open(blob.sha256, start, end),
+            status_code=plan.status,
+            headers=plan.headers,
+        )
