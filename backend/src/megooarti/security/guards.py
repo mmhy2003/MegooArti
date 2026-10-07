@@ -1,11 +1,14 @@
 """Checks that protect the installation from locking itself out."""
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.security.models import RoleMember, RolePermission, User, UserRole
 from megooarti.security.permissions import FULL_ACCESS
+
+# Arbitrary constant, distinct from the migration lock key.
+ADMINISTRATOR_LOCK_KEY = 0x4D45474F50
 
 
 async def ensure_administrator_remains(db: AsyncSession) -> None:
@@ -13,6 +16,11 @@ async def ensure_administrator_remains(db: AsyncSession) -> None:
 
     Call after changing users or roles and before committing.
     """
+    # One checked change at a time. Without this, two requests that each remove the other
+    # administrator would both pass, because neither sees the other's uncommitted change.
+    # The lock is released when the transaction ends.
+    await db.execute(text(f"SELECT pg_advisory_xact_lock({ADMINISTRATOR_LOCK_KEY})"))
+
     # Roles that grant full access: those holding "*" and every role that contains one.
     granting = (
         select(RolePermission.role_id.label("id"))

@@ -1,6 +1,10 @@
+import asyncio
+
 import structlog
+from alembic import command
 
 from megooarti.config import Settings
+from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
 from megooarti.security.bootstrap import password_file
 from tests.accounts import sign_in
@@ -65,3 +69,20 @@ async def test_start_up_skips_the_step_while_the_schema_is_behind(empty_database
         assert (await client.get("/api/v1/status/live")).status_code == 200
 
     assert not password_file(settings).exists()
+
+
+async def test_first_start_happens_once_a_late_migration_finishes(
+    empty_database, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("megooarti.main._FIRST_START_RETRY_SECONDS", 0.05)
+    settings = Settings(_env_file=None, database_url=empty_database, data_dir=tmp_path)
+
+    async with client_for(create_app(settings)):
+        assert not password_file(settings).exists()
+        await asyncio.to_thread(command.upgrade, alembic_config(empty_database), "head")
+        for _ in range(100):
+            if password_file(settings).exists():
+                break
+            await asyncio.sleep(0.05)
+
+        assert password_file(settings).exists()

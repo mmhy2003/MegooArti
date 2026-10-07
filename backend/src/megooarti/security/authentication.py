@@ -52,6 +52,9 @@ class Principal:
         return self.method in ("session", "password")
 
     def allows(self, permission: str) -> bool:
+        if self.is_anonymous and not permission.startswith("repository:"):
+            # Whatever roles the anonymous user is given, nobody administers anonymously.
+            return False
         if not any_grants(self.patterns, permission):
             return False
         return self.scopes is None or any_grants(self.scopes, permission)
@@ -116,11 +119,19 @@ async def _checked[T](
     return result
 
 
+async def _no_match() -> None:
+    """A credential check that has already failed."""
+    return None
+
+
 async def authenticate_password(
     db: AsyncSession, request: Request, username: str, password: str
 ) -> User:
     """The active user with this username and password, or a 401 / 429 error."""
     username = users.normalise_username(username)
+    if "\x00" in username:
+        # PostgreSQL cannot store or compare this character, so it is never an account.
+        return await _checked(db, request, None, _no_match)
 
     async def attempt() -> User | None:
         user = await users.get_user_by_username(db, username)
@@ -151,9 +162,14 @@ async def _authenticate_token(
         tokens.touch(token, now)
         return user, token
 
-    # Token attempts are limited by address only, so a locked-out username does not
-    # stop that user's automation.
-    return await _checked(db, request, None, attempt)
+    # A valid token is accepted even from a blocked address. These secrets carry 256 bits
+    # of randomness, so limiting guesses protects nothing, while refusing valid ones
+    # would let anyone at a shared address stop every pipeline behind it.
+    found = await attempt()
+    if found is not None:
+        return found
+    # Count the failure against the address (never a username) and raise 401 or 429.
+    return await _checked(db, request, None, _no_match)
 
 
 def _decode_basic(credentials: str) -> tuple[str, str]:

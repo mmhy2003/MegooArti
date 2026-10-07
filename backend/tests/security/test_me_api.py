@@ -166,3 +166,14 @@ async def test_one_user_cannot_revoke_another_users_token(client, other_client, 
 
     assert response.status_code == 404
     assert (await client.get(f"{ME}/tokens")).json()["total"] == 1
+
+
+async def test_the_new_password_must_differ_from_the_current_one(client, make_user):
+    await make_user("dana", must_change_password=True)
+    await sign_in(client, "dana")
+
+    response = await change(client, new=PASSWORD)
+
+    assert (response.status_code, error_code(response)) == (422, "validation_error")
+    assert response.json()["error"]["details"][0]["field"] == "password"
+    assert (await client.get(SESSION)).json()["must_change_password"] is True

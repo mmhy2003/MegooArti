@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -134,6 +135,19 @@ def register_error_handlers(app: FastAPI) -> None:
         code = _CODES_BY_STATUS.get(error.status_code, "http_error")
         return error_response(
             request, error.status_code, code, str(error.detail), headers=error.headers
+        )
+
+    @app.exception_handler(DBAPIError)
+    async def handle_database_error(request: Request, error: DBAPIError) -> JSONResponse:
+        # 22021 is text PostgreSQL cannot store, such as a NUL character: bad input,
+        # not a server fault. Every other database error stays an unhandled 500.
+        if getattr(error.orig, "sqlstate", None) != "22021":
+            raise error
+        return error_response(
+            request,
+            422,
+            "validation_error",
+            "The request contains a character that cannot be stored.",
         )
 
     @app.exception_handler(RequestValidationError)

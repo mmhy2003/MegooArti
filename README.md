@@ -85,7 +85,11 @@ anything must send it in an `X-CSRF-Token` header.
   requests without credentials act as the built-in `anonymous` user; change what they
   may do by editing that user's roles.
 - Five failed sign-ins for one username, or from one address, within 15 minutes block
-  further attempts until the window ends.
+  further attempts until the window ends. A valid API token is never refused by this
+  limit. Behind a reverse proxy, set `MEGOOARTI_FORWARDED_ALLOW_IPS` to the proxy's
+  address; otherwise every client appears to come from the proxy and shares one limit.
+- Requests without credentials can only ever be allowed `repository:` permissions,
+  whatever roles the `anonymous` user holds.
 
 The full API is described at `/api/docs`.
 

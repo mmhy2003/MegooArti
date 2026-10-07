@@ -55,6 +55,8 @@ async def change_password(
         if error.status_code != 401:
             raise
         raise _invalid("body.current_password", "The current password is not correct.") from None
+    if body.new_password == body.current_password:
+        raise _invalid("password", "The new password must be different from the current one.")
     keep = None if principal.session is None else principal.session.id
     await users.set_password(
         db, user, body.new_password, must_change_password=False, keep_session_id=keep

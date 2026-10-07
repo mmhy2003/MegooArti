@@ -129,10 +129,12 @@ A route that needs a permission returns `401` when there is no principal or the 
 
 A disabled user cannot authenticate by any method.
 
+An anonymous principal can only ever be allowed `repository:…` permissions. Whatever roles the `anonymous` user is given, including `admin`, a request without credentials is never allowed an administrative permission.
+
 ### 6.2 Passwords
 
 - Hashed with Argon2id (library defaults). On a successful sign-in the hash is upgraded if the parameters have changed.
-- Minimum 8 characters, maximum 256, and not equal to the username.
+- Minimum 8 characters, maximum 256, and not equal to the username. A person changing their own password must choose one different from the current one, so a forced change cannot be satisfied by re-entering the same password.
 - Verification runs off the event loop. When the username is unknown, a dummy hash is verified so that timing does not reveal which usernames exist.
 - Every sign-in failure returns the same message, whatever the cause: unknown user, wrong password, disabled user.
 
@@ -165,6 +167,7 @@ While `must_change_password` is true, a principal authenticated by session or pa
 - Before credentials are checked, if either applicable counter has reached the limit and its window has not ended, the response is `429` with code `too_many_attempts` and a `Retry-After` header giving the seconds left.
 - A successful authentication clears the counters it was checked against, so occasional mistakes by legitimate users of one address do not add up to a block.
 - Failure counts are committed even though the request fails.
+- A request that presents a **valid** API token is never refused by these limits, even from a blocked address. Token values carry 256 bits of randomness, so limiting guesses protects nothing, while refusing valid tokens would let anyone at a shared address (an office, a reverse proxy) stop every pipeline behind it. Invalid tokens are still counted and refused.
 
 ### 6.8 First start
 
@@ -174,7 +177,7 @@ At application start-up, if the schema is at head and the `admin` user has no pa
 2. Write the password to `<MEGOOARTI_DATA_DIR>/admin.password` (owner-readable only).
 3. Log one `initial_admin_password` line containing the password and the file path.
 
-The row lock ensures only one container does this. When the `admin` user's password is next changed, the file is deleted if present. If the schema is not at head, this step is skipped with a warning; readiness already reports the problem.
+The row lock ensures only one container does this. When the `admin` user's password is next changed, the file is deleted if present. If the database is unreachable or the schema is not at head, the application still starts and retries this step every few seconds until it succeeds, so a migration that finishes after the application starts does not leave `admin` without a password.
 
 ## 7. REST API
 
@@ -240,7 +243,7 @@ Users are addressed by ID, roles by name. A role's name cannot be changed.
 
 ### 7.4 Keeping an administrator
 
-After any change to users, role assignments or roles, there must still be at least one active user with a password whose effective patterns include `*`. A change that would break this is rolled back with `409` and code `last_administrator`.
+After any change to users, role assignments or roles, there must still be at least one active user with a password whose effective patterns include `*`. A change that would break this is rolled back with `409` and code `last_administrator`. The check takes a database lock held until the transaction ends, so two simultaneous changes are checked one after the other and cannot each remove the other administrator.
 
 ## 8. Code structure
 

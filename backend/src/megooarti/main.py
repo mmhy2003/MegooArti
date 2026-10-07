@@ -35,14 +35,17 @@ async def _first_start(app: FastAPI) -> None:
     )
 
 
-async def _first_start_when_possible(app: FastAPI) -> None:
+async def _first_start_when_possible(app: FastAPI, last_error: str) -> None:
+    """Keep trying until the database is reachable and migrated."""
     while True:
         await asyncio.sleep(_FIRST_START_RETRY_SECONDS)
         try:
             await _first_start(app)
             return
-        except Exception as error:  # the database is still not reachable
-            log.warning("initial_admin_password_deferred", error=type(error).__name__)
+        except Exception as error:
+            if type(error).__name__ != last_error:  # log a change of cause, not every try
+                last_error = type(error).__name__
+                log.warning("initial_admin_password_deferred", error=last_error)
 
 
 @asynccontextmanager
@@ -50,9 +53,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     retry: asyncio.Task[None] | None = None
     try:
         await _first_start(app)
-    except Exception as error:  # usually: the database is not reachable yet
-        log.warning("initial_admin_password_deferred", error=type(error).__name__)
-        retry = asyncio.create_task(_first_start_when_possible(app))
+    except Exception as error:  # the database is not reachable or not migrated yet
+        cause = type(error).__name__
+        log.warning("initial_admin_password_deferred", error=cause)
+        retry = asyncio.create_task(_first_start_when_possible(app, cause))
     yield
     if retry is not None:
         retry.cancel()

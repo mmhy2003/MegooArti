@@ -234,3 +234,40 @@ async def test_an_idle_session_expires(admin_client, db):
 async def test_a_session_ends_when_its_user_is_disabled(admin_client, db):
     await disable_user(db, "root")
     assert (await admin_client.get(READ)).status_code == 401
+
+
+async def test_a_valid_token_works_even_when_its_address_is_blocked(client, make_user, make_token):
+    root = await make_user("root", roles=["admin"])
+    token = await make_token(root)
+    for number in range(5):
+        await client.get(READ, headers=bearer("mga_" + str(number) * 43))
+
+    blocked = await client.get(READ, headers=bearer("mga_" + "x" * 43))
+    by_token = await client.get(READ, headers=bearer(token))
+    by_basic_token = await client.get(READ, headers=basic("root", token))
+    by_password = await client.get(READ, headers=basic("root", PASSWORD))
+
+    assert blocked.status_code == 429
+    assert by_token.status_code == 200
+    assert by_basic_token.status_code == 200
+    assert by_password.status_code == 429  # passwords stay limited by address
+
+
+async def test_anonymous_requests_never_get_administrative_access(client, db):
+    anonymous = await users.get_user_by_username(db, "anonymous")
+    await users.set_roles(db, anonymous, ["admin"])
+    await enable_anonymous_access(db)
+
+    allowed = await client.get(MAVEN)
+    refused = await client.get(READ)
+
+    assert allowed.json() == {"user": "anonymous", "method": "anonymous"}
+    assert (refused.status_code, error_code(refused)) == (401, "unauthorized")
+
+
+async def test_a_nul_character_in_basic_credentials_is_unauthorized(client):
+    header = "Basic " + base64.b64encode(b"da\x00na:secret").decode()
+
+    response = await client.get(READ, headers={"Authorization": header})
+
+    assert (response.status_code, error_code(response)) == (401, "unauthorized")

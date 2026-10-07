@@ -207,3 +207,11 @@ async def test_managing_users_does_not_include_managing_their_tokens(client, mak
 
     assert allowed.status_code == 200
     assert (refused.status_code, error_code(refused)) == (403, "forbidden")
+
+
+async def test_text_the_database_cannot_store_is_a_validation_error(admin_client, make_user):
+    dana = await make_user("dana")
+
+    response = await admin_client.patch(f"{USERS}/{dana.id}", json={"display_name": "D\x00"})
+
+    assert (response.status_code, error_code(response)) == (422, "validation_error")

@@ -19,6 +19,10 @@ log = structlog.get_logger(__name__)
 _FILE_NAME = "admin.password"
 
 
+class SchemaNotReady(RuntimeError):
+    """The database has not been migrated to this version yet."""
+
+
 def password_file(settings: Settings) -> Path:
     return settings.data_dir / _FILE_NAME
 
@@ -33,11 +37,13 @@ def _write_private(path: Path, content: str) -> None:
 async def ensure_initial_admin_password(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, head_revision: str
 ) -> None:
-    """Set a random password for `admin` if it has none. Safe to call on every start."""
+    """Set a random password for `admin` if it has none. Safe to call on every start.
+
+    Raises SchemaNotReady while migrations have not been applied; the caller retries.
+    """
     async with sessionmaker() as db:
         if await current_revision(await db.connection()) != head_revision:
-            log.warning("initial_admin_password_skipped", reason="the schema is not at head")
-            return
+            raise SchemaNotReady("the schema is not at head")
         # The row lock makes several containers starting together take turns here.
         admin = await db.scalar(
             select(User).where(User.username == "admin", User.builtin.is_(True)).with_for_update()

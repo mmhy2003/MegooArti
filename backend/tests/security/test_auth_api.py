@@ -167,3 +167,11 @@ async def test_failures_for_many_usernames_from_one_address_are_refused(client, 
         await attempt(client, f"guess{number}", "the wrong password")
 
     assert (await attempt(client, "dana", PASSWORD)).status_code == 429
+
+
+async def test_a_nul_character_in_the_username_is_an_ordinary_failure(client, make_user):
+    await make_user("dana")
+
+    response = await attempt(client, "da\x00na", PASSWORD)
+
+    assert (response.status_code, error_code(response)) == (401, "unauthorized")
