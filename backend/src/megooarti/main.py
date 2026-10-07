@@ -9,10 +9,12 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from megooarti import __version__
+from megooarti.clock import utcnow
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
 from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
+from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories.api import router as repositories_router
 from megooarti.repositories.routes import router as content_router
@@ -22,6 +24,7 @@ from megooarti.security.api import me as me_api
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
+from megooarti.storage import blobs
 from megooarti.storage.api import router as blob_stores_router
 from megooarti.system.settings_api import router as settings_router
 from megooarti.system.status import router as status_router
@@ -30,6 +33,8 @@ log = structlog.get_logger(__name__)
 
 API_PREFIX = "/api/v1"
 _FIRST_START_RETRY_SECONDS = 5
+# Arbitrary constant, distinct from the other advisory lock keys.
+_COMPACTION_LOCK_KEY = 0x4D45474F51
 
 
 async def _first_start(app: FastAPI) -> None:
@@ -52,20 +57,45 @@ async def _first_start_when_possible(app: FastAPI, last_error: str) -> None:
                 log.warning("initial_admin_password_deferred", error=last_error)
 
 
+async def _compact(app: FastAPI) -> None:
+    settings = app.state.settings
+
+    async def job() -> None:
+        removed = await blobs.compact(
+            app.state.sessionmaker,
+            settings,
+            now=utcnow(),
+            grace_seconds=settings.blob_grace_seconds,
+        )
+        log.info("compaction_finished", removed=removed)
+
+    await run_exclusively(app.state.engine, _COMPACTION_LOCK_KEY, job)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    retry: asyncio.Task[None] | None = None
+    settings = app.state.settings
+    background: list[asyncio.Task[None]] = []
     try:
         await _first_start(app)
     except Exception as error:  # the database is not reachable or not migrated yet
         cause = type(error).__name__
         log.warning("initial_admin_password_deferred", error=cause)
-        retry = asyncio.create_task(_first_start_when_possible(app, cause))
+        background.append(asyncio.create_task(_first_start_when_possible(app, cause)))
+    if settings.compaction_interval_seconds > 0:
+        background.append(
+            asyncio.create_task(
+                run_periodically(
+                    "compaction", settings.compaction_interval_seconds, lambda: _compact(app)
+                )
+            )
+        )
     yield
-    if retry is not None:
-        retry.cancel()
+    for task in background:
+        task.cancel()
+    for task in background:
         with suppress(asyncio.CancelledError):
-            await retry
+            await task
     await app.state.engine.dispose()
 
 
@@ -97,7 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
-    app.include_router(content_router)
+    app.include_router(content_router)  # /repository/..., outside the JSON API
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep
