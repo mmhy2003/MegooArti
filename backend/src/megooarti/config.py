@@ -1,6 +1,7 @@
 """Deployment configuration, read from MEGOOARTI_* environment variables."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode
 
@@ -30,6 +31,12 @@ class Settings(BaseSettings):
     forwarded_allow_ips: str = "127.0.0.1"
     shutdown_grace_seconds: int = 30
     db_wait_timeout_seconds: float = 60
+    data_dir: Path = Path("/var/lib/megooarti")
+    session_idle_seconds: int = 3600
+    session_absolute_seconds: int = 43200
+    session_cookie_secure: bool = True
+    login_max_failures: int = 5
+    login_failure_window_seconds: int = 900
 
     @field_validator("database_url")
     @classmethod

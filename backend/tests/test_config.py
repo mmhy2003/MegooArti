@@ -84,3 +84,24 @@ def test_libpq_sslmode_is_translated_for_the_asyncpg_driver():
 def test_whitespace_around_the_database_url_is_ignored():
     settings = Settings(_env_file=None, database_url="  postgresql://u:p@db:5432/m\n")
     assert settings.database_url == "postgresql+asyncpg://u:p@db:5432/m"
+
+
+def test_identity_defaults():
+    settings = Settings(_env_file=None, database_url=VALID_URL)
+    assert str(settings.data_dir).replace("\\", "/") == "/var/lib/megooarti"
+    assert settings.session_idle_seconds == 3600
+    assert settings.session_absolute_seconds == 43200
+    assert settings.session_cookie_secure is True
+    assert settings.login_max_failures == 5
+    assert settings.login_failure_window_seconds == 900
+
+
+def test_identity_settings_come_from_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEGOOARTI_DATABASE_URL", VALID_URL)
+    monkeypatch.setenv("MEGOOARTI_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MEGOOARTI_SESSION_COOKIE_SECURE", "false")
+    monkeypatch.setenv("MEGOOARTI_LOGIN_MAX_FAILURES", "9")
+    settings = Settings(_env_file=None)
+    assert settings.data_dir == tmp_path
+    assert settings.session_cookie_secure is False
+    assert settings.login_max_failures == 9

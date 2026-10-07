@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from megooarti import __version__
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
+from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.system.status import router as status_router
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = create_async_engine(
         settings.database_url, pool_pre_ping=True, hide_parameters=True
     )
+    app.state.sessionmaker = create_sessionmaker(app.state.engine)
     app.state.head_revision = head_revision()
     register_error_handlers(app)
     app.include_router(status_router, prefix=API_PREFIX)

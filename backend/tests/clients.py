@@ -14,5 +14,5 @@ async def client_for(app: FastAPI) -> AsyncIterator[AsyncClient]:
     """
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(transport=transport, base_url="https://test") as client:
             yield client

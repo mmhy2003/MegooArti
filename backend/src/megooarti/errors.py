@@ -53,12 +53,14 @@ class ApiError(Exception):
         code: str,
         message: str,
         details: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details or []
+        self.headers = headers
 
 
 def error_response(
@@ -123,7 +125,9 @@ class UnhandledErrorMiddleware:
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def handle_api_error(request: Request, error: ApiError) -> JSONResponse:
-        return error_response(request, error.status_code, error.code, error.message, error.details)
+        return error_response(
+            request, error.status_code, error.code, error.message, error.details, error.headers
+        )
 
     @app.exception_handler(StarletteHTTPException)
     async def handle_http_error(request: Request, error: StarletteHTTPException) -> JSONResponse:

@@ -1,11 +1,19 @@
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from alembic import command
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
@@ -55,13 +63,45 @@ def empty_database(_migration_database_url: str) -> str:
 
 
 @pytest.fixture
-def settings(database_url: str) -> Settings:
-    return Settings(_env_file=None, database_url=database_url)
+def settings(database_url: str, tmp_path: Path) -> Settings:
+    return Settings(_env_file=None, database_url=database_url, data_dir=tmp_path / "data")
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    return create_app(settings)
+async def db_connection(database_url: str) -> AsyncIterator[AsyncConnection]:
+    """One connection whose transaction is rolled back when the test ends."""
+    engine = create_async_engine(database_url, poolclass=NullPool)
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                yield connection
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+def sessionmaker(db_connection: AsyncConnection) -> async_sessionmaker[AsyncSession]:
+    """Sessions on the test connection. Their commits are savepoints, undone with the test."""
+    return async_sessionmaker(
+        bind=db_connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
+
+
+@pytest.fixture
+async def db(sessionmaker: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
+    """A session for arranging and checking data. Commit before calling the application."""
+    async with sessionmaker() as session:
+        yield session
+
+
+@pytest.fixture
+def app(settings: Settings, sessionmaker: async_sessionmaker[AsyncSession]) -> FastAPI:
+    app = create_app(settings)
+    app.state.sessionmaker = sessionmaker
+    return app
 
 
 @pytest.fixture

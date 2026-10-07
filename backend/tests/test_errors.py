@@ -17,6 +17,10 @@ def app(app: FastAPI) -> FastAPI:
     async def conflict() -> None:
         raise ApiError(409, "conflict", "A repository with this name already exists.")
 
+    @router.get("/throttled")
+    async def throttled() -> None:
+        raise ApiError(429, "too_many_attempts", "Slow down.", headers={"Retry-After": "7"})
+
     @router.get("/items/{number}")
     async def item(number: int) -> dict[str, int]:
         return {"number": number}
@@ -77,3 +81,9 @@ async def test_validation_errors_are_documented_in_the_standard_format(client):
 
     assert "default" in document["paths"]["/_test/items/{number}"]["get"]["responses"]
     assert "HTTPValidationError" not in document["components"]["schemas"]
+
+
+async def test_api_error_can_carry_response_headers(client):
+    response = await client.get("/_test/throttled")
+    assert_error(response, 429, "too_many_attempts")
+    assert response.headers["Retry-After"] == "7"
