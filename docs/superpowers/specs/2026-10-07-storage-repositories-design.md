@@ -133,7 +133,7 @@ A format is a class registered under its name. It declares which repository type
 | --- | --- |
 | Validate `format_config` | Accept only an empty object |
 | Handle a request to a hosted repository | `PUT` stores the body at the path; `GET` / `HEAD` serve it; `DELETE` removes it |
-| Describe an upload as a component | Namespace is the directory, name is the path, no version; one asset |
+| Describe an upload as a component | Namespace is the directory, name is the file name, no version; one asset |
 | Map a path to a remote URL (proxy) | `remote_url` + `/` + path |
 | Say whether a path is metadata (proxy) | Never; every path uses `content_max_age_minutes` |
 | Answer a request to a group | The first member, in order, that has the path |
