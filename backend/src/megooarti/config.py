@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = True
     login_max_failures: int = 5
     login_failure_window_seconds: int = 900
+    compaction_interval_seconds: int = 3600
+    blob_grace_seconds: int = 86400
 
     @field_validator("database_url")
     @classmethod

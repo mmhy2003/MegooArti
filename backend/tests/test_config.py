@@ -105,3 +105,9 @@ def test_identity_settings_come_from_the_environment(monkeypatch, tmp_path):
     assert settings.data_dir == tmp_path
     assert settings.session_cookie_secure is False
     assert settings.login_max_failures == 9
+
+
+def test_storage_defaults():
+    settings = Settings(_env_file=None, database_url=VALID_URL)
+    assert settings.compaction_interval_seconds == 3600
+    assert settings.blob_grace_seconds == 86400
