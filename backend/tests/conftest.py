@@ -1,12 +1,13 @@
 import os
 from collections.abc import AsyncIterator, Sequence
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from alembic import command
 from argon2 import PasswordHasher
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
@@ -19,9 +20,9 @@ from sqlalchemy.pool import NullPool
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
-from megooarti.security import passwords, users
+from megooarti.security import passwords, tokens, users
 from megooarti.security.models import User
-from tests.accounts import PASSWORD
+from tests.accounts import PASSWORD, sign_in
 from tests.clients import client_for
 from tests.databases import ensure_database, reset_schema
 
@@ -147,3 +148,39 @@ def make_user(sessionmaker: async_sessionmaker[AsyncSession]):
             return user
 
     return make
+
+
+@pytest.fixture
+def make_token(sessionmaker: async_sessionmaker[AsyncSession]):
+    """Create and commit an API token; returns its secret value."""
+
+    async def make(
+        user: User,
+        name: str = "ci",
+        *,
+        scopes: list[str] | None = None,
+        expires_at: datetime | None = None,
+    ) -> str:
+        async with sessionmaker() as session:
+            _, value = await tokens.create_token(
+                session, user.id, name=name, expires_at=expires_at, scopes=scopes
+            )
+            await session.commit()
+            return value
+
+    return make
+
+
+@pytest.fixture
+async def admin_client(client: AsyncClient, make_user) -> AsyncClient:
+    """The client, signed in as `root`, who has the admin role."""
+    await make_user("root", roles=["admin"])
+    await sign_in(client, "root")
+    return client
+
+
+@pytest.fixture
+async def other_client(app: FastAPI, client: AsyncClient) -> AsyncIterator[AsyncClient]:
+    """A second client with no cookies, talking to the same running application."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as http:
+        yield http

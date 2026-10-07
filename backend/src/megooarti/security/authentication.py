@@ -1,0 +1,279 @@
+"""Who is making this request, and are they allowed to do this?"""
+
+import asyncio
+import base64
+import secrets
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Literal
+
+import structlog
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from megooarti.clock import utcnow
+from megooarti.db.session import get_session
+from megooarti.errors import ApiError
+from megooarti.security import sessions, throttle, tokens, users
+from megooarti.security.keys import TOKEN_PREFIX
+from megooarti.security.models import ApiToken, User, UserSession
+from megooarti.security.passwords import hash_password, needs_rehash, verify_password
+from megooarti.security.permissions import any_grants
+from megooarti.system.settings_store import get_setting
+
+log = structlog.get_logger(__name__)
+
+SESSION_COOKIE = "megooarti_session"
+CSRF_HEADER = "X-CSRF-Token"
+INVALID_CREDENTIALS = "Invalid credentials."
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_CHALLENGE = {"WWW-Authenticate": 'Bearer realm="MegooArti"'}
+
+Method = Literal["session", "password", "token", "anonymous"]
+
+
+@dataclass(frozen=True)
+class Principal:
+    """The identity a request acts as."""
+
+    user: User
+    method: Method
+    patterns: frozenset[str]
+    scopes: frozenset[str] | None = None
+    session: UserSession | None = None
+
+    @property
+    def is_anonymous(self) -> bool:
+        return self.method == "anonymous"
+
+    @property
+    def is_interactive(self) -> bool:
+        """Signed in as a person (cookie or password), not with an API token."""
+        return self.method in ("session", "password")
+
+    def allows(self, permission: str) -> bool:
+        if not any_grants(self.patterns, permission):
+            return False
+        return self.scopes is None or any_grants(self.scopes, permission)
+
+
+def unauthorized(message: str = "Authentication is required.") -> ApiError:
+    return ApiError(401, "unauthorized", message, headers=_CHALLENGE)
+
+
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+async def build_principal(
+    db: AsyncSession,
+    user: User,
+    method: Method,
+    *,
+    token: ApiToken | None = None,
+    session: UserSession | None = None,
+) -> Principal:
+    scopes = None if token is None or token.scopes is None else frozenset(token.scopes)
+    return Principal(user, method, await users.user_patterns(db, user), scopes, session)
+
+
+async def _checked[T](
+    db: AsyncSession,
+    request: Request,
+    username: str | None,
+    attempt: Callable[[], Awaitable[T | None]],
+) -> T:
+    """Run one credential check under the failed-sign-in limits."""
+    settings = request.app.state.settings
+    now = utcnow()
+    subjects = throttle.subjects(username, client_ip(request))
+    standing = await throttle.standing(
+        db,
+        subjects,
+        now=now,
+        max_failures=settings.login_max_failures,
+        window_seconds=settings.login_failure_window_seconds,
+    )
+    if standing.blocked_for:
+        log.warning("login_throttled", username=username, ip=client_ip(request))
+        raise ApiError(
+            429,
+            "too_many_attempts",
+            "Too many failed sign-in attempts. Try again later.",
+            headers={"Retry-After": str(standing.blocked_for)},
+        )
+
+    result = await attempt()
+    if result is None:
+        await throttle.record_failure(
+            db, subjects, now=now, window_seconds=settings.login_failure_window_seconds
+        )
+        await db.commit()  # the count must outlive this failed request
+        log.info("login_failed", username=username, ip=client_ip(request))
+        raise unauthorized(INVALID_CREDENTIALS)
+    if standing.has_failures:
+        await throttle.clear(db, subjects)
+    return result
+
+
+async def authenticate_password(
+    db: AsyncSession, request: Request, username: str, password: str
+) -> User:
+    """The active user with this username and password, or a 401 / 429 error."""
+    username = users.normalise_username(username)
+
+    async def attempt() -> User | None:
+        user = await users.get_user_by_username(db, username)
+        stored = None if user is None else user.password_hash
+        matched = await asyncio.to_thread(verify_password, stored, password)
+        if user is None or not matched or user.status != "active":
+            return None
+        if needs_rehash(user.password_hash):
+            user.password_hash = await asyncio.to_thread(hash_password, password)
+        return user
+
+    return await _checked(db, request, username, attempt)
+
+
+async def _authenticate_token(
+    db: AsyncSession, request: Request, value: str, username: str | None = None
+) -> tuple[User, ApiToken]:
+    async def attempt() -> tuple[User, ApiToken] | None:
+        now = utcnow()
+        token = await tokens.find_token(db, value, now)
+        if token is None:
+            return None
+        user = await users.get_user(db, token.user_id)
+        if user is None or user.status != "active":
+            return None
+        if username is not None and user.username != users.normalise_username(username):
+            return None
+        tokens.touch(token, now)
+        return user, token
+
+    # Token attempts are limited by address only, so a locked-out username does not
+    # stop that user's automation.
+    return await _checked(db, request, None, attempt)
+
+
+def _decode_basic(credentials: str) -> tuple[str, str]:
+    try:
+        decoded = base64.b64decode(credentials.strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise unauthorized("The Authorization header is malformed.") from None
+    username, separator, secret = decoded.partition(":")
+    if not separator:
+        raise unauthorized("The Authorization header is malformed.")
+    return username, secret
+
+
+async def _from_header(db: AsyncSession, request: Request, header: str) -> Principal:
+    scheme, _, credentials = header.partition(" ")
+    scheme = scheme.lower()
+    if scheme == "bearer":
+        user, token = await _authenticate_token(db, request, credentials.strip())
+        return await build_principal(db, user, "token", token=token)
+    if scheme == "basic":
+        username, secret = _decode_basic(credentials)
+        if secret.startswith(TOKEN_PREFIX):
+            user, token = await _authenticate_token(db, request, secret, username)
+            return await build_principal(db, user, "token", token=token)
+        user = await authenticate_password(db, request, username, secret)
+        return await build_principal(db, user, "password")
+    raise unauthorized("The Authorization scheme is not supported.")
+
+
+async def resolve_principal(request: Request, db: AsyncSession) -> Principal | None:
+    """The principal for this request, or None when there are no credentials.
+
+    Invalid credentials in an Authorization header are an error, never a fall-through
+    to the cookie or to anonymous access.
+    """
+    header = request.headers.get("Authorization")
+    if header:
+        return await _from_header(db, request, header)
+
+    settings = request.app.state.settings
+    cookie = request.cookies.get(SESSION_COOKIE)
+    if cookie:
+        now = utcnow()
+        record = await sessions.find_session(
+            db, cookie, now=now, idle_seconds=settings.session_idle_seconds
+        )
+        if record is not None:
+            user = await users.get_user(db, record.user_id)
+            if user is not None and user.status == "active":
+                sessions.touch(record, now)
+                return await build_principal(db, user, "session", session=record)
+
+    if (await get_setting(db, "anonymous_access"))["enabled"]:
+        anonymous = await users.get_user_by_username(db, "anonymous")
+        if anonymous is not None and anonymous.status == "active":
+            return await build_principal(db, anonymous, "anonymous")
+    return None
+
+
+async def current_principal(
+    request: Request, db: AsyncSession = Depends(get_session)
+) -> Principal | None:
+    """Dependency: who is calling, if anyone. Enforces CSRF for cookie requests."""
+    principal = await resolve_principal(request, db)
+    await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
+    if (
+        principal is not None
+        and principal.session is not None
+        and request.method in _UNSAFE_METHODS
+    ):
+        sent = request.headers.get(CSRF_HEADER, "")
+        expected = principal.session.csrf_token
+        if not secrets.compare_digest(sent.encode(), expected.encode()):
+            raise ApiError(403, "csrf_failed", "The CSRF token is missing or wrong.")
+    return principal
+
+
+def _refuse_pending_password_change(principal: Principal) -> None:
+    if principal.is_interactive and principal.user.must_change_password:
+        raise ApiError(
+            403, "password_change_required", "Change your password before doing anything else."
+        )
+
+
+def require(permission: str) -> Callable[..., Awaitable[Principal]]:
+    """Dependency factory: the caller must hold `permission`."""
+
+    async def dependency(
+        principal: Principal | None = Depends(current_principal),
+    ) -> Principal:
+        if principal is None:
+            raise unauthorized()
+        _refuse_pending_password_change(principal)
+        if not principal.allows(permission):
+            if principal.is_anonymous:
+                raise unauthorized()
+            raise ApiError(403, "forbidden", "You do not have permission to do this.")
+        return principal
+
+    return dependency
+
+
+def require_interactive(
+    *, allow_pending_password_change: bool = False
+) -> Callable[..., Awaitable[Principal]]:
+    """Dependency factory: the caller must be signed in as a person, not with a token."""
+
+    async def dependency(
+        principal: Principal | None = Depends(current_principal),
+    ) -> Principal:
+        if principal is None or principal.is_anonymous:
+            raise unauthorized()
+        if not principal.is_interactive:
+            raise ApiError(
+                403,
+                "interactive_auth_required",
+                "Sign in with your password to do this; an API token is not enough.",
+            )
+        if not allow_pending_password_change:
+            _refuse_pending_password_change(principal)
+        return principal
+
+    return dependency
