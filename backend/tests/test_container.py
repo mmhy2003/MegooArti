@@ -1,5 +1,6 @@
 """Tests of the built image. The `docker` ones run only with `pytest -m docker`."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -110,8 +111,12 @@ def call(method: str, path: str, payload: dict | None = None, headers: dict | No
         return error.code, error.headers, json.loads(error.read() or b"null")
 
 
-@pytest.mark.docker
-def test_the_first_start_administrator_can_sign_in_and_change_the_password(stack):
+@pytest.fixture(scope="module")
+def administrator(stack) -> dict[str, str]:
+    """Sign in as the first-start administrator and change the password, once per module.
+
+    Returns the headers that authenticate later requests as that session.
+    """
     password = compose("exec", "-T", "backend", "cat", DATA_FILE).stdout.strip()
     assert password
 
@@ -132,9 +137,45 @@ def test_the_first_start_administrator_can_sign_in_and_change_the_password(stack
         credentials,
     )
     assert status == 204
+    return credentials
 
-    status, _, listed = call("GET", "/users", headers=credentials)
+
+@pytest.mark.docker
+def test_the_first_start_administrator_can_sign_in_and_change_the_password(administrator):
+    status, _, listed = call("GET", "/users", headers=administrator)
+
     assert status == 200
     assert {user["username"] for user in listed["items"]} == {"admin", "anonymous"}
     still_there = compose("exec", "-T", "backend", "test", "-e", DATA_FILE, check=False)
     assert still_there.returncode != 0
+
+
+@pytest.mark.docker
+def test_a_file_is_uploaded_and_downloaded_with_an_api_token(administrator):
+    status, _, created = call("POST", "/me/tokens", {"name": "container-test"}, administrator)
+    assert status == 201
+    token = {"Authorization": f"Bearer {created['token']}"}
+    status, _, _ = call(
+        "POST", "/repositories", {"name": "files", "format": "raw", "type": "hosted"}, administrator
+    )
+    assert status == 201
+
+    content = os.urandom(3 * 1024 * 1024 + 17)
+    url = f"http://127.0.0.1:{HTTP_PORT}/repository/files/big/blob.bin"
+
+    upload = urllib.request.Request(url, data=content, method="PUT", headers=token)
+    with urllib.request.urlopen(upload, timeout=60) as response:
+        assert response.status == 201
+
+    with urllib.request.urlopen(urllib.request.Request(url, headers=token), timeout=60) as response:
+        assert response.read() == content
+        assert response.headers["X-Checksum-Sha256"] == hashlib.sha256(content).hexdigest()
+
+    part = urllib.request.Request(url, headers={**token, "Range": "bytes=10-19"})
+    with urllib.request.urlopen(part, timeout=60) as response:
+        assert response.status == 206
+        assert response.read() == content[10:20]
+
+    count = "find /var/lib/megooarti/blobs/default/content -type f | wc -l"
+    stored = compose("exec", "-T", "backend", "sh", "-c", count)
+    assert stored.stdout.strip() == "1"

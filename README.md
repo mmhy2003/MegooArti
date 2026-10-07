@@ -39,6 +39,8 @@ All configuration is by environment variable.
 | `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Set `false` only when serving plain HTTP on a host other than `localhost` |
 | `MEGOOARTI_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins allowed per username and per client address in one window |
 | `MEGOOARTI_LOGIN_FAILURE_WINDOW_SECONDS` | `900` | Length of that window |
+| `MEGOOARTI_COMPACTION_INTERVAL_SECONDS` | `3600` | How often unused blob content is removed; `0` disables it |
+| `MEGOOARTI_BLOB_GRACE_SECONDS` | `86400` | How long content is kept after nothing uses it |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
@@ -92,6 +94,43 @@ anything must send it in an `X-CSRF-Token` header.
   whatever roles the `anonymous` user holds.
 
 The full API is described at `/api/docs`.
+
+## Repositories
+
+A **blob store** is where file content is kept; the `default` one is a directory under
+the data directory. A **repository** holds files in one format. So far there is one
+format, `raw` (arbitrary files by path), and one type, `hosted` (files you publish).
+
+Create a repository, then use it with any HTTP client:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' \
+  -d '{"name":"files","format":"raw","type":"hosted"}' \
+  http://localhost:8000/api/v1/repositories
+
+curl -u admin -T ./build/app.tar.gz http://localhost:8000/repository/files/releases/app.tar.gz
+curl -u admin -O http://localhost:8000/repository/files/releases/app.tar.gz
+```
+
+In place of a password, use an API token as the password, or send it as
+`Authorization: Bearer <token>`.
+
+- **Permissions** are `repository:<format>:<name>:<action>`, where the action is `read`,
+  `add` (a new path), `edit` (replace a path) or `delete`. For example
+  `repository:raw:files:read`, or `repository:raw` for everything on every Raw repository.
+- **Deployment policy** per repository: `allow_redeploy` (default), `disable_redeploy`
+  (a path can be written once) or `read_only`.
+- **Uploads are verified.** If the client sends `Content-Length`, or an
+  `X-Checksum-Md5`, `X-Checksum-Sha1` or `X-Checksum-Sha256` header, the received bytes
+  must match or nothing is stored. Downloads carry the same checksum headers.
+- **Downloads** support `Range`, `If-None-Match` and `If-Modified-Since`.
+- **Files always download**; they are never rendered in the browser, because they are
+  served from the same site as the administration API.
+- **Public content.** With anonymous access on, anyone, signed in or not, may do what
+  the `anonymous` user's roles allow on repositories.
+- **Identical content is stored once.** Deleting a file frees its content only after
+  nothing has used it for `MEGOOARTI_BLOB_GRACE_SECONDS`.
+- A repository's name, format, type and blob store cannot be changed after creation.
 
 ## Health endpoints
 
