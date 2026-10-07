@@ -13,6 +13,7 @@ from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
 from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
+from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
