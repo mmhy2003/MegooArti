@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from argon2 import PasswordHasher
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy.engine import make_url
@@ -18,6 +19,7 @@ from sqlalchemy.pool import NullPool
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
+from megooarti.security import passwords
 from tests.clients import client_for
 from tests.databases import ensure_database, reset_schema
 
@@ -108,3 +110,11 @@ def app(settings: Settings, sessionmaker: async_sessionmaker[AsyncSession]) -> F
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     async with client_for(app) as http:
         yield http
+
+
+@pytest.fixture(autouse=True)
+def _cheap_password_hashing(monkeypatch):
+    """Argon2 at production cost would add seconds to the suite."""
+    cheap = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
+    monkeypatch.setattr(passwords, "_hasher", cheap)
+    monkeypatch.setattr(passwords, "_dummy_hash", None)

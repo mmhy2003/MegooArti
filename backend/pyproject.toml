@@ -5,6 +5,7 @@ description = "MegooArti repository and artifact manager (backend)"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",
+    "argon2-cffi>=25.1.0",
     "asyncpg>=0.32.0",
     "fastapi>=0.142.2",
     "pydantic-settings>=2.15.0",
