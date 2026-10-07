@@ -1,7 +1,8 @@
+import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, insert, select
 
 from megooarti.errors import ApiError
 from megooarti.repositories import service
@@ -140,3 +141,50 @@ async def test_list_is_paged_in_name_order(db):
     assert total == 3
     assert [view.name for view in page] == ["Beta", "zeta"]
     assert await db.scalar(select(Repository.name_key).where(Repository.name == "Beta")) == "beta"
+
+
+async def test_a_repository_with_very_many_assets_can_be_deleted(db):
+    repository = await create(db)
+    store = await db.scalar(select(BlobStore))
+    many = 33_000  # more than one statement may carry as arguments
+    blob_ids = [uuid.uuid4() for _ in range(many)]
+    await db.execute(
+        insert(Blob),
+        [
+            {
+                "id": blob_id,
+                "blob_store_id": store.id,
+                "sha256": f"{number:064x}",
+                "md5": "b" * 32,
+                "sha1": "c" * 40,
+                "sha512": "d" * 128,
+                "size": 1,
+                "created_at": NOW,
+            }
+            for number, blob_id in enumerate(blob_ids)
+        ],
+    )
+    await db.execute(
+        insert(Asset),
+        [
+            {
+                "id": uuid.uuid4(),
+                "repository_id": repository.id,
+                "path": f"file-{number}.bin",
+                "blob_id": blob_id,
+                "content_type": "application/octet-stream",
+                "kind": "asset",
+                "attributes": {},
+                "created_by": "dana",
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+            for number, blob_id in enumerate(blob_ids)
+        ],
+    )
+
+    await service.delete_repository(db, repository, NOW)
+
+    assert await db.scalar(select(func.count()).select_from(Asset)) == 0
+    unmarked = select(func.count()).select_from(Blob).where(Blob.unreferenced_since.is_(None))
+    assert await db.scalar(unmarked) == 0

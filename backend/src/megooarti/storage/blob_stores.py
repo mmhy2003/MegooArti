@@ -1,5 +1,6 @@
 """Blob stores: named places where blob content is kept."""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
@@ -32,9 +33,21 @@ def _is_absolute(path: str) -> bool:
     return PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute()
 
 
-def root_of(settings: Settings, store: BlobStore) -> Path:
-    path = store.config["path"]
+def _root(settings: Settings, path: str) -> Path:
     return Path(path) if _is_absolute(path) else settings.data_dir / "blobs" / path
+
+
+def root_of(settings: Settings, store: BlobStore) -> Path:
+    return _root(settings, store.config["path"])
+
+
+def _comparable(root: Path) -> Path:
+    """A root in one spelling, so two ways of writing the same directory compare equal."""
+    return Path(os.path.normcase(os.path.abspath(root)))
+
+
+def _overlap(one: Path, other: Path) -> bool:
+    return one == other or one.is_relative_to(other) or other.is_relative_to(one)
 
 
 def backend_for(settings: Settings, store: BlobStore) -> BlobBackend:
@@ -75,7 +88,7 @@ async def list_blob_stores(
 
 
 async def create_blob_store(
-    db: AsyncSession, *, name: str, type: str, path: str | None
+    db: AsyncSession, settings: Settings, *, name: str, type: str, path: str | None
 ) -> BlobStore:
     if type != "file":
         raise _invalid("type", "The only blob store type is file.")
@@ -86,6 +99,12 @@ async def create_blob_store(
         raise _invalid("path", "The path must not be empty or contain '..'.")
     if await get_blob_store(db, name) is not None:
         raise ApiError(409, "conflict", f"A blob store named {name} already exists.")
+    # Two stores over one directory would share files: compacting one would delete
+    # content the other still serves.
+    root = _comparable(_root(settings, path))
+    for other in await db.scalars(select(BlobStore)):
+        if _overlap(root, _comparable(root_of(settings, other))):
+            raise _invalid("path", f"The directory overlaps the blob store {other.name}.")
     store = BlobStore(name=name, type=type, config={"path": path})
     db.add(store)
     await db.flush()

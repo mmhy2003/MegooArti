@@ -3,6 +3,7 @@
 Pure functions: nothing here touches the database or the blob store.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,6 +30,9 @@ class Plan:
     status: int
     headers: dict[str, str]
     byte_range: tuple[int, int] | None  # inclusive offsets; None means send no body
+
+
+_NUMBER = re.compile(r"[0-9]{1,18}")
 
 
 class RangeNotSatisfiable(Exception):
@@ -90,7 +94,11 @@ def parse_range(header: str, size: int) -> tuple[int, int] | None:
     if unit.strip().lower() != "bytes" or "," in spec:
         return None
     first, dash, last = (part.strip() for part in spec.partition("-"))
-    if not dash or not (first + last).isdigit():
+    # Plain ASCII digits of sane length only: str.isdigit() also accepts characters and
+    # lengths that int() rejects.
+    if not dash or not (first or last):
+        return None
+    if not all(part == "" or _NUMBER.fullmatch(part) for part in (first, last)):
         return None
     if first == "":
         length = int(last)

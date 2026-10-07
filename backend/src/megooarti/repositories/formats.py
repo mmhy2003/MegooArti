@@ -34,7 +34,8 @@ class ComponentKey:
 
 def _declared_size(request: Request) -> int | None:
     value = request.headers.get("Content-Length", "")
-    return int(value) if value.isdigit() else None
+    plain = value.isascii() and value.isdigit() and len(value) <= 18
+    return int(value) if plain else None
 
 
 def _declared_hashes(request: Request) -> dict[str, str]:
@@ -66,7 +67,11 @@ class Format:
     async def handle_hosted(
         self, context: "RepositoryContext", request: Request, path: str
     ) -> Response:
-        """Answer a request to a hosted repository. The route has checked `read`."""
+        """Answer a request to a hosted repository. The route has checked `read`.
+
+        A handler does not commit. The route commits once the handler returns, and
+        nothing is kept if it raises.
+        """
         if request.method in ("GET", "HEAD"):
             return await context.respond(path, request)
         if request.method == "PUT":
@@ -77,12 +82,10 @@ class Format:
                 expected_size=_declared_size(request),
                 expected_hashes=_declared_hashes(request),
             )
-            await context.db.commit()
             return Response(status_code=201 if created else 204)
         if request.method == "DELETE":
             if not await context.delete(path):
                 raise ApiError(404, "not_found", "No such file.")
-            await context.db.commit()
             return Response(status_code=204)
         raise ApiError(
             405,

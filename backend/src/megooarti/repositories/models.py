@@ -58,9 +58,10 @@ class Asset(Base):
     repository_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("repositories.id", ondelete="CASCADE")
     )
-    component_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("components.id", ondelete="CASCADE"), index=True
-    )
+    # No cascade: a component is deleted only by code that has checked, under the
+    # component lock, that no asset is left. Deleting a repository still works, because
+    # the check runs at the end of the statement, after its assets have gone too.
+    component_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("components.id"), index=True)
     path: Mapped[str] = mapped_column(String(1024))
     blob_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("blobs.id", ondelete="RESTRICT"), index=True

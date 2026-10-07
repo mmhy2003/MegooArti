@@ -162,3 +162,28 @@ def test_an_empty_file_has_no_body_and_no_satisfiable_range():
     for value in ("bytes=0-0", "bytes=-5", "bytes=0-"):
         with pytest.raises(ApiError):
             make(item=empty, range=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "bytes=²-",
+        "bytes=-³",
+        "bytes=٣-٩",
+        "bytes=" + "9" * 5000 + "-",
+        "bytes=-" + "9" * 5000,
+        "bytes=0-" + "9" * 5000,
+    ],
+    ids=[
+        "superscript-start",
+        "superscript-suffix",
+        "arabic",
+        "huge-start",
+        "huge-suffix",
+        "huge-end",
+    ],
+)
+def test_digits_that_are_not_plain_or_are_absurdly_long_are_not_understood(value):
+    result = plan("GET", Headers(raw=[(b"range", value.encode("latin-1", "replace"))]), ITEM)
+
+    assert (result.status, result.byte_range) == (200, (0, 999))

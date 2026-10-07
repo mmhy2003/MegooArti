@@ -27,7 +27,9 @@ async def test_describe_reports_usage(db, settings, default_store, backend, stag
 
 
 async def test_create_defaults_the_path_to_the_name(db, settings):
-    store = await blob_stores.create_blob_store(db, name="archive", type="file", path=None)
+    store = await blob_stores.create_blob_store(
+        db, settings, name="archive", type="file", path=None
+    )
 
     assert store.config == {"path": "archive"}
     assert blob_stores.root_of(settings, store) == settings.data_dir / "blobs" / "archive"
@@ -37,15 +39,15 @@ async def test_create_defaults_the_path_to_the_name(db, settings):
 async def test_an_absolute_path_is_used_as_given(db, settings, tmp_path):
     elsewhere = tmp_path / "elsewhere"
     store = await blob_stores.create_blob_store(
-        db, name="big-disk", type="file", path=str(elsewhere)
+        db, settings, name="big-disk", type="file", path=str(elsewhere)
     )
 
     assert blob_stores.root_of(settings, store) == elsewhere
 
 
-async def test_a_duplicate_name_is_a_conflict(db):
+async def test_a_duplicate_name_is_a_conflict(db, settings):
     error = await error_of(
-        blob_stores.create_blob_store(db, name="default", type="file", path=None)
+        blob_stores.create_blob_store(db, settings, name="default", type="file", path=None)
     )
     assert (error.status_code, error.code) == (409, "conflict")
 
@@ -53,13 +55,15 @@ async def test_a_duplicate_name_is_a_conflict(db):
 @pytest.mark.parametrize(
     ("type", "path"), [("s3", None), ("file", "../outside"), ("file", "a/../../b"), ("file", "")]
 )
-async def test_invalid_stores_are_rejected(db, type, path):
-    error = await error_of(blob_stores.create_blob_store(db, name="new", type=type, path=path))
+async def test_invalid_stores_are_rejected(db, settings, type, path):
+    error = await error_of(
+        blob_stores.create_blob_store(db, settings, name="new", type=type, path=path)
+    )
     assert (error.status_code, error.code) == (422, "validation_error")
 
 
 async def test_list_is_paged_in_name_order(db, settings):
-    await blob_stores.create_blob_store(db, name="archive", type="file", path=None)
+    await blob_stores.create_blob_store(db, settings, name="archive", type="file", path=None)
 
     page, total = await blob_stores.list_blob_stores(db, settings, limit=1, offset=1)
 
@@ -85,7 +89,9 @@ async def test_a_store_in_use_cannot_be_deleted(db, default_store):
 
 
 async def test_an_unused_store_is_deleted_with_its_blob_records(db, settings, stage):
-    store = await blob_stores.create_blob_store(db, name="archive", type="file", path=None)
+    store = await blob_stores.create_blob_store(
+        db, settings, name="archive", type="file", path=None
+    )
     await blobs.record(
         db, blob_stores.backend_for(settings, store), store.id, await stage(b"left behind")
     )
@@ -93,3 +99,33 @@ async def test_an_unused_store_is_deleted_with_its_blob_records(db, settings, st
     await blob_stores.delete_blob_store(db, store)
 
     assert await blob_stores.get_blob_store(db, "archive") is None
+
+
+@pytest.mark.parametrize("path", ["default", "./default/", "default/inside"])
+async def test_a_store_may_not_share_or_sit_inside_another_stores_directory(db, settings, path):
+    error = await error_of(
+        blob_stores.create_blob_store(db, settings, name="alias", type="file", path=path)
+    )
+
+    assert (error.status_code, error.code) == (422, "validation_error")
+    assert error.details[0]["field"] == "path"
+
+
+async def test_a_store_may_not_contain_another_stores_directory(db, settings):
+    await blob_stores.create_blob_store(db, settings, name="inner", type="file", path="outer/inner")
+
+    error = await error_of(
+        blob_stores.create_blob_store(db, settings, name="outer", type="file", path="outer")
+    )
+
+    assert (error.status_code, error.code) == (422, "validation_error")
+
+
+async def test_an_absolute_path_is_compared_with_relative_ones(db, settings):
+    same_place = str(settings.data_dir / "blobs" / "default")
+
+    error = await error_of(
+        blob_stores.create_blob_store(db, settings, name="alias", type="file", path=same_place)
+    )
+
+    assert (error.status_code, error.code) == (422, "validation_error")

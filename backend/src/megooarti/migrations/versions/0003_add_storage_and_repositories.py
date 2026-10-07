@@ -130,7 +130,6 @@ def upgrade() -> None:
             ["component_id"],
             ["components.id"],
             name=op.f("fk_assets_component_id_components"),
-            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["blob_id"], ["blobs.id"], name=op.f("fk_assets_blob_id_blobs"), ondelete="RESTRICT"

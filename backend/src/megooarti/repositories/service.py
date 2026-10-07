@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.repositories.formats import format_names, get_format
-from megooarti.repositories.models import Asset, Repository
+from megooarti.repositories.models import Repository
 from megooarti.storage import blobs
 from megooarti.storage.blob_stores import get_blob_store
 from megooarti.storage.models import BlobStore
@@ -139,9 +139,7 @@ async def update_repository(
 
 async def delete_repository(db: AsyncSession, repository: Repository, now: datetime) -> None:
     """Delete a repository and everything in it. Its blobs become unreferenced."""
-    blob_ids = list(
-        await db.scalars(select(Asset.blob_id).where(Asset.repository_id == repository.id))
-    )
     await db.delete(repository)  # the database removes its components and assets
     await db.flush()
-    await blobs.dereference(db, blob_ids, now)
+    # One set-based statement, however many assets there were.
+    await blobs.mark_unreferenced(db, now)

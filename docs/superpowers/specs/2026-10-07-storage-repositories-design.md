@@ -65,6 +65,8 @@ One design, delivered as two plans.
 
 A migration creates the blob store `default` with path `default`. Directories are created when first written to.
 
+No two blob stores may use the same directory, or directories one inside the other; creating one that would is refused. Stores sharing files would let compaction of one delete content the other still serves.
+
 ### 4.2 Files
 
 ```text
@@ -76,7 +78,7 @@ A migration creates the blob store `default` with path `default`. Directories ar
 
 1. The request body is streamed in chunks to a file under `tmp/` while MD5, SHA-1, SHA-256 and SHA-512 are computed. File and hash work runs off the event loop. Memory use is bounded by the chunk size (NFR-2).
 2. If the client declared `Content-Length`, or sent `X-Checksum-Md5`, `X-Checksum-Sha1` or `X-Checksum-Sha256`, the received size and hashes must match. A mismatch, or a connection that ends early, discards the temporary file and stores nothing (NFR-11).
-3. In one database transaction: take a lock for that hash; move the temporary file into place if no file is there; insert the `blobs` row or clear its `unreferenced_since`; create or update the asset. Commit.
+3. In one database transaction: take a lock for that hash; move the temporary file into place if no file is there, and sync its directory so the rename survives a power loss; insert the `blobs` row or clear its `unreferenced_since`; create or update the asset. Commit.
 
 The lock is a transaction-level advisory lock derived from the hash. Compaction takes the same lock, so a blob cannot be removed while an upload of the same content is being recorded. The check in step 3 looks at the file, not the row, so a missing file is always replaced.
 
@@ -86,7 +88,7 @@ Assets are streamed from the blob file in chunks, off the event loop. One byte r
 
 ### 4.5 Deleting and compaction
 
-- Deleting or replacing an asset removes a reference. When the last reference to a blob goes, its `unreferenced_since` is set.
+- Deleting or replacing an asset removes a reference. When the last reference to a blob goes, its `unreferenced_since` is set. This mark is an optimisation: concurrent deletes can each see the other's reference and leave none. Compaction is the source of truth, and begins each run by marking every blob that nothing uses and nothing has marked, which starts its grace period.
 - **Compaction** removes blobs unreferenced for longer than a grace period (default 24 hours): under the blob's lock it re-checks that nothing references it, deletes the row, deletes the file, and commits. It also deletes files under `tmp/` older than 24 hours.
 - Compaction runs inside the application on a fixed interval (default hourly). A session-level advisory lock ensures only one container runs it at a time. An interval of `0` disables it.
 - A file left without a row by a crash is harmless: it is reused if the same content is uploaded again. Finding such files is the Phase 2 integrity task.
@@ -110,7 +112,7 @@ Blob file operations sit behind a small interface (`stage`, `commit`, `discard`,
 | `proxy_state` | `repository_id`, `failures`, `blocked_until`, `last_error`, `last_checked_at` | Plan 3b; shared by all containers |
 | `negative_cache` | `repository_id`, `path`, `expires_at` | Plan 3b |
 
-Deleting a repository deletes its components and assets; their blobs become unreferenced. A repository that is a member of a group cannot be deleted until it is removed from the group.
+Deleting a repository deletes its components and assets; their blobs become unreferenced. Outside that, a component is removed only by code that holds the component's lock and has seen that no asset is left; the database refuses to delete a component that still has assets, so an upload into a component can never lose it to a concurrent delete of a sibling file. A repository that is a member of a group cannot be deleted until it is removed from the group.
 
 **Asset paths** are relative, use `/` separators, and are at most 1024 bytes. A path with an empty segment, a `.` or `..` segment, a backslash, or a control character is rejected with `400 invalid_path`. Paths are case-sensitive.
 
@@ -139,6 +141,10 @@ A format is a class registered under its name. It declares which repository type
 | Answer a request to a group | The first member, in order, that has the path |
 
 Formats never touch tables or files. They receive a **repository context** holding the repository, the principal and a storage facade with `get(path)`, `put(path, stream, ...)`, `delete(path)` and `serve(asset, request)`. The facade enforces the deployment policy and the `add`, `edit` and `delete` permissions, so a format cannot bypass them.
+
+`put` is the simple case: one upload, one asset. A format that publishes several files in one request uses the two halves it is made of: `stage(stream)` receives and verifies content without touching the database, and `store(path, staged)` records it inside the caller's transaction. Staging everything first and then storing everything makes the publish atomic.
+
+Formats do not commit. The route commits once the format's handler returns, and nothing is kept if it raises.
 
 ## 7. Requests for repository content
 

@@ -79,3 +79,20 @@ async def test_old_temporary_files_are_swept(
 
     assert not os.path.exists(abandoned.token)
     assert os.path.exists(in_flight.token)
+
+
+async def test_unused_content_that_was_never_marked_is_marked_then_removed(
+    db, sessionmaker, settings, default_store, backend, stage
+):
+    # Concurrent deletes can each see the other's reference and leave no mark.
+    blob = await recorded(db, backend, default_store, stage, b"never marked", None)
+    await db.commit()
+
+    first = await blobs.compact(sessionmaker, settings, now=NOW, grace_seconds=DAY)
+    marked = await db.scalar(select(Blob.unreferenced_since).where(Blob.id == blob.id))
+    later = NOW + timedelta(seconds=DAY + 1)
+    second = await blobs.compact(sessionmaker, settings, now=later, grace_seconds=DAY)
+
+    assert (first, marked) == (0, NOW)
+    assert second == 1
+    assert not await backend.exists(blob.sha256)

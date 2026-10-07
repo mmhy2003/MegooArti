@@ -17,6 +17,7 @@ from typing import BinaryIO, Protocol
 
 CHUNK_SIZE = 1024 * 1024
 _ALGORITHMS = ("md5", "sha1", "sha256", "sha512")
+_TEMPORARY_PREFIX = "upload-"
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,21 @@ def _finish(handle: BinaryIO) -> None:
     handle.close()
 
 
+def _sync_directory(directory: Path) -> None:
+    """Make a rename into this directory survive a power loss.
+
+    The database commit that follows is durable, so the file it refers to must be too.
+    Windows has no directory sync; the target is the Linux container.
+    """
+    if os.name == "nt":
+        return
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 class FileBlobBackend:
     def __init__(self, root: Path) -> None:
         self._root = root
@@ -71,7 +87,7 @@ class FileBlobBackend:
     async def stage(self, chunks: AsyncIterator[bytes]) -> StagedBlob:
         directory = self._root / "tmp"
         await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
-        temporary = directory / uuid.uuid4().hex
+        temporary = directory / f"{_TEMPORARY_PREFIX}{uuid.uuid4().hex}"
         # MD5 and SHA-1 are published for clients that expect them, not used for security.
         hashers = {name: hashlib.new(name, usedforsecurity=False) for name in _ALGORITHMS}
         size = 0
@@ -104,6 +120,7 @@ class FileBlobBackend:
                 return
             final.parent.mkdir(parents=True, exist_ok=True)
             os.replace(temporary, final)
+            _sync_directory(final.parent)
 
         await asyncio.to_thread(place)
 
@@ -151,8 +168,14 @@ class FileBlobBackend:
                 return 0
             cutoff = time.time() - older_than_seconds
             removed = 0
-            for path in directory.iterdir():
-                if path.is_file() and path.stat().st_mtime < cutoff:
+            # Only files this backend created: a store rooted at a shared directory must
+            # never sweep someone else's files out of its tmp/.
+            for path in directory.glob(f"{_TEMPORARY_PREFIX}*"):
+                try:
+                    expired = path.is_file() and path.stat().st_mtime < cutoff
+                except FileNotFoundError:  # an upload finished while we looked
+                    continue
+                if expired:
                     path.unlink(missing_ok=True)
                     removed += 1
             return removed

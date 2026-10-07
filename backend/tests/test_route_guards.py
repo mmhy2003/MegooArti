@@ -5,6 +5,8 @@ from collections.abc import Iterator
 from fastapi import Depends, FastAPI
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
 
 from megooarti.db.session import get_session
 from megooarti.security.authentication import AUTHENTICATION_DEPENDENCIES
@@ -15,6 +17,9 @@ OPEN = {
     "/api/v1/status/ready",
     "/api/v1/auth/login",  # this is where credentials are presented
 }
+# The API description and its viewer, which FastAPI adds itself. They describe the
+# API's shape, not its data, and are left open by design.
+DOCUMENTATION = {"/api/v1/openapi.json", "/api/docs", "/docs/oauth2-redirect"}
 
 
 def dependency_calls(dependant) -> set:
@@ -25,22 +30,32 @@ def dependency_calls(dependant) -> set:
     return found
 
 
-def api_routes(routes, prefix: str = "") -> Iterator[tuple[str, APIRoute]]:
-    """Every API route with its full path. Included routers are nested, not flattened."""
+def all_routes(routes, prefix: str = "") -> Iterator[tuple[str, object]]:
+    """Every route with its full path. Included routers are nested, not flattened."""
     for route in routes:
-        if isinstance(route, APIRoute):
-            yield prefix + route.path, route
-        elif hasattr(route, "original_router"):
+        if hasattr(route, "original_router"):
             nested = prefix + route.include_context.prefix
-            yield from api_routes(route.original_router.routes, nested)
+            yield from all_routes(route.original_router.routes, nested)
+        else:
+            yield prefix + getattr(route, "path", repr(route)), route
+
+
+def authenticates(route: object) -> bool:
+    """Only an API route with an authentication dependency counts.
+
+    Anything else (a mounted application, a plain or websocket route) is reported,
+    because this check cannot see inside it.
+    """
+    if not isinstance(route, APIRoute):
+        return False
+    return bool(dependency_calls(route.dependant) & AUTHENTICATION_DEPENDENCIES)
 
 
 def unguarded_routes(app: FastAPI) -> list[str]:
     return sorted(
         path
-        for path, route in api_routes(app.routes)
-        if path not in OPEN
-        and not (dependency_calls(route.dependant) & AUTHENTICATION_DEPENDENCIES)
+        for path, route in all_routes(app.routes)
+        if path not in OPEN | DOCUMENTATION and not authenticates(route)
     )
 
 
@@ -49,10 +64,10 @@ def test_every_route_authenticates_unless_it_is_on_the_open_list(app):
 
 
 def test_the_walk_finds_the_routes_of_included_routers(app):
-    paths = {path for path, _ in api_routes(app.routes)}
+    paths = {path for path, _ in all_routes(app.routes)}
 
-    assert OPEN <= paths  # the open list has no stale entries
-    assert {"/api/v1/users/{user_id}", "/api/v1/auth/session"} <= paths
+    assert OPEN | DOCUMENTATION <= paths  # neither list has stale entries
+    assert {"/api/v1/users/{user_id}", "/repository/{name}/{path:path}"} <= paths
 
 
 def test_a_route_that_only_opens_a_database_session_is_reported(app):
@@ -61,3 +76,17 @@ def test_a_route_that_only_opens_a_database_session_is_reported(app):
         return {}
 
     assert unguarded_routes(app) == ["/_test/forgot-to-authenticate"]
+
+
+def test_routes_of_a_kind_the_check_does_not_understand_are_reported(app):
+    async def plain(request):
+        return PlainTextResponse("hello")
+
+    async def socket(websocket):
+        await websocket.close()
+
+    app.add_route("/_test/plain", plain)
+    app.add_api_websocket_route("/_test/socket", socket)
+    app.mount("/_test/mounted", Starlette())
+
+    assert unguarded_routes(app) == ["/_test/mounted", "/_test/plain", "/_test/socket"]

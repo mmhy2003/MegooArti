@@ -331,3 +331,36 @@ async def test_a_download_is_noted_at_most_once_an_hour_and_never_for_head(db, f
 
     assert asset.last_downloaded_at > first - timedelta(hours=2)
     assert asset.updated_at == updated
+
+
+async def test_stage_then_store_joins_the_callers_transaction(db, files, context_for):
+    context = await context_for(files, EVERYTHING)
+
+    staged = await context.stage(body(HELLO))
+    first, created = await context.store("pkg/one.bin", staged)
+    second, _ = await context.store("pkg/two.bin", await context.stage(body(b"other")))
+
+    assert created is True
+    assert await count(db, Asset) == 2
+    await db.rollback()  # a publish of several files that fails part-way leaves nothing
+    assert await count(db, Asset) == 0
+    assert await count(db, Component) == 0
+
+
+async def test_stage_verifies_what_the_client_declared(files, context_for):
+    context = await context_for(files, EVERYTHING)
+
+    error = await error_of(context.stage(body(HELLO), expected_size=len(HELLO) + 1))
+
+    assert (error.status_code, error.code) == (400, "checksum_mismatch")
+    assert temporary_files(context.settings) == []
+
+
+async def test_store_checks_permission_and_policy(files, context_for):
+    context = await context_for(files, someone("repository:raw:files:read"))
+
+    staged = await context.stage(body(HELLO))
+    error = await error_of(context.store("a.bin", staged))
+
+    assert error.code == "forbidden"
+    assert temporary_files(context.settings) == []

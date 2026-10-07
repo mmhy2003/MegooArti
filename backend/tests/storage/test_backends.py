@@ -158,3 +158,28 @@ async def test_sweep_removes_only_old_temporary_files(backend, tmp_path):
 
     assert removed == 1
     assert [str(path) for path in temporary_files(tmp_path / "store")] == [fresh.token]
+
+
+async def test_sweep_leaves_files_it_did_not_create(backend, tmp_path):
+    staged = await backend.stage(pieces(BODY))
+    foreign = tmp_path / "store" / "tmp" / "someone-elses-file.dat"
+    foreign.write_bytes(b"not ours")
+    two_days_ago = time.time() - 2 * 86400
+    os.utime(staged.token, (two_days_ago, two_days_ago))
+    os.utime(foreign, (two_days_ago, two_days_ago))
+
+    removed = await backend.sweep_temporary(older_than_seconds=86400)
+
+    assert removed == 1
+    assert foreign.exists()
+
+
+async def test_commit_makes_the_rename_durable(backend, tmp_path, monkeypatch):
+    synced = []
+    monkeypatch.setattr(backends, "_sync_directory", synced.append)
+
+    staged = await backend.stage(pieces(BODY))
+    await backend.commit(staged)
+
+    sha = staged.sha256
+    assert tmp_path / "store" / "content" / sha[:2] / sha[2:4] in synced

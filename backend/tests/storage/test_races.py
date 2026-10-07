@@ -17,8 +17,8 @@ from megooarti.config import Settings
 from megooarti.db.schema import alembic_config
 from megooarti.repositories import service
 from megooarti.repositories.content import RepositoryContext
-from megooarti.repositories.formats import get_format
-from megooarti.repositories.models import Asset, Repository
+from megooarti.repositories.formats import ComponentKey, Format, get_format
+from megooarti.repositories.models import Asset, Component, Repository
 from megooarti.storage import blobs
 from megooarti.storage.blob_stores import backend_for
 from megooarti.storage.models import Blob, BlobStore
@@ -130,5 +130,52 @@ def test_two_writers_of_one_new_path_create_once_and_replace_once(empty_database
                 select(func.count()).select_from(Blob).where(Blob.unreferenced_since.is_not(None))
             )
             assert marked == 1
+
+    run(empty_database, tmp_path, scenario)
+
+
+class PackagePerDirectory(Format):
+    """A format whose component spans every file in a directory, as real formats do."""
+
+    name = "test-package"
+
+    def describe_component(self, path: str) -> ComponentKey:
+        return ComponentKey(namespace="", name=path.rpartition("/")[0])
+
+
+def test_deleting_one_file_does_not_remove_a_sibling_being_uploaded(empty_database, tmp_path):
+    async def scenario(factory: Factory, settings: Settings) -> None:
+        repository, store = await create_files(factory)
+
+        def context(db: AsyncSession) -> RepositoryContext:
+            return RepositoryContext(
+                db=db,
+                settings=settings,
+                repository=repository,
+                principal=someone("*"),
+                format=PackagePerDirectory(),
+                backend=backend_for(settings, store),
+            )
+
+        async with factory() as db:
+            await context(db).put("pkg/a.pom", body(b"descriptor"))
+            await db.commit()
+
+        async def delete_descriptor() -> bool:
+            async with factory() as db:
+                deleted = await context(db).delete("pkg/a.pom")
+                await db.commit()
+                return deleted
+
+        async with factory() as uploading:
+            await context(uploading).put("pkg/a.jar", body(b"archive"))
+            deleting = asyncio.create_task(delete_descriptor())
+            await asyncio.wait({deleting}, timeout=1)
+            await uploading.commit()
+
+        assert await asyncio.wait_for(deleting, timeout=30) is True
+        async with factory() as db:
+            assert list(await db.scalars(select(Asset.path))) == ["pkg/a.jar"]
+            assert await db.scalar(select(func.count()).select_from(Component)) == 1
 
     run(empty_database, tmp_path, scenario)

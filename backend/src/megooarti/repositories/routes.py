@@ -61,7 +61,11 @@ async def repository_content(
         raise ApiError(503, "repository_offline", "This repository is offline.")
 
     try:
-        return await context.format.handle_hosted(context, request, path)
+        response = await context.format.handle_hosted(context, request, path)
+        # Committing here, not in each format, means a format cannot answer "stored"
+        # for a change that was never committed.
+        await db.commit()
+        return response
     except ClientDisconnect:
         # The client went away mid-upload. Nothing was stored; nobody is left to answer.
         log.info("upload_interrupted", repository=name, path=path)

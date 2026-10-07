@@ -109,8 +109,11 @@ class RepositoryContext:
         authorize(self.principal, self.permission(action), scheme="Basic")
         self._check_policy(replacing=existing is not None)
 
-    async def _component(self, key: ComponentKey) -> Component:
+    async def _lock_component(self, key: ComponentKey) -> None:
         await self._lock("component", f"{key.namespace}\x00{key.name}\x00{key.version}")
+
+    async def _component(self, key: ComponentKey) -> Component:
+        await self._lock_component(key)
         component = await self.db.scalar(
             select(Component).where(
                 Component.repository_id == self.repository.id,
@@ -149,10 +152,46 @@ class RepositoryContext:
         path = normalise_path(path)
         self._check_may_store(await self.get(path))
         await self.db.commit()  # give the connection back while the body arrives
+        staged = await self.stage(
+            chunks, expected_size=expected_size, expected_hashes=expected_hashes
+        )
+        return await self.store(path, staged, content_type=content_type, kind=kind)
 
+    async def stage(
+        self,
+        chunks: AsyncIterator[bytes],
+        *,
+        expected_size: int | None = None,
+        expected_hashes: dict[str, str] | None = None,
+    ) -> StagedBlob:
+        """Receive content into temporary storage and verify it. Uses no database.
+
+        A format that publishes several files in one request stages each of them first,
+        then calls `store` for each inside one transaction, so the publish is atomic.
+        """
         staged = await self.backend.stage(chunks)
         try:
             _verify(staged, expected_size, expected_hashes)
+        except BaseException:
+            await self.backend.discard(staged)
+            raise
+        return staged
+
+    async def store(
+        self,
+        path: str,
+        staged: StagedBlob,
+        *,
+        content_type: str | None = None,
+        kind: str = "asset",
+    ) -> tuple[Asset, bool]:
+        """Record staged content at a path, in the caller's transaction.
+
+        Checks permission and policy under the path lock. Never commits: the caller
+        does, and a rollback undoes everything recorded here.
+        """
+        try:
+            path = normalise_path(path)
             await self._lock("path", path)
             existing = await self.get(path, fresh=True)
             self._check_may_store(existing)
@@ -201,6 +240,12 @@ class RepositoryContext:
         await self.db.delete(asset)
         await self.db.flush()
         if component_id is not None:
+            # The same lock an upload into this component holds, so a sibling that is
+            # being added is seen here instead of losing its component under it.
+            component = await self.db.get(Component, component_id, populate_existing=True)
+            await self._lock_component(
+                ComponentKey(component.namespace, component.name, component.version)
+            )
             remaining = await self.db.scalar(
                 select(Asset.id).where(Asset.component_id == component_id).limit(1)
             )

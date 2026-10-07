@@ -131,6 +131,8 @@ In place of a password, use an API token as the password, or send it as
 - **Identical content is stored once.** Deleting a file frees its content only after
   nothing has used it for `MEGOOARTI_BLOB_GRACE_SECONDS`.
 - A repository's name, format, type and blob store cannot be changed after creation.
+- Each blob store needs a directory of its own: one that overlaps another store's
+  directory is refused.
 
 ## Health endpoints
 

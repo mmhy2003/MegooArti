@@ -75,6 +75,15 @@ async def dereference(db: AsyncSession, blob_ids: Iterable[uuid.UUID], now: date
     )
 
 
+async def mark_unreferenced(db: AsyncSession, now: datetime) -> None:
+    """Start the grace period for every blob that nothing uses and nothing has marked."""
+    await db.execute(
+        update(Blob)
+        .where(Blob.unreferenced_since.is_(None), ~referenced)
+        .values(unreferenced_since=now)
+    )
+
+
 async def compact(
     sessionmaker: async_sessionmaker[AsyncSession],
     settings: Settings,
@@ -90,6 +99,10 @@ async def compact(
     """
     cutoff = now - timedelta(seconds=grace_seconds)
     async with sessionmaker() as db:
+        # The marks left by deletes are an optimisation, and concurrent deletes can miss
+        # one. Compaction is the source of truth for what is unused.
+        await mark_unreferenced(db, now)
+        await db.commit()
         stores = {store.id: store for store in await db.scalars(select(BlobStore))}
         candidates = (
             await db.execute(

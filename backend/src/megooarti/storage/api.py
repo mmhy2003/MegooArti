@@ -59,8 +59,11 @@ async def create_blob_store(
     principal: Principal = Depends(require("admin:blobstores:write")),
     db: AsyncSession = Depends(get_session),
 ) -> BlobStoreView:
-    store = await blob_stores.create_blob_store(db, name=body.name, type=body.type, path=body.path)
-    view = await blob_stores.describe(db, request.app.state.settings, store)
+    settings = request.app.state.settings
+    store = await blob_stores.create_blob_store(
+        db, settings, name=body.name, type=body.type, path=body.path
+    )
+    view = await blob_stores.describe(db, settings, store)
     await db.commit()
     log.info("blob_store_created", blob_store=store.name, by=principal.user.username)
     return view
