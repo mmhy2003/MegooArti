@@ -160,10 +160,10 @@ While `must_change_password` is true, a principal authenticated by session or pa
 
 ### 6.7 Rate limiting failed sign-ins
 
-- Every failed authentication (sign-in endpoint, Basic, bearer) increments `user:<username>` when a username was supplied, and always increments `ip:<client address>`.
+- Every failed authentication (sign-in endpoint, Basic, bearer) increments `ip:<client address>`. A failed **password** attempt also increments `user:<username>`. Token attempts never touch or consult the `user:` counter, so a locked-out username does not stop that user's automation.
 - A counter covers a fixed window that starts at its first failure. Defaults: 5 failures in 900 seconds.
 - Before credentials are checked, if either applicable counter has reached the limit and its window has not ended, the response is `429` with code `too_many_attempts` and a `Retry-After` header giving the seconds left.
-- A successful authentication clears the `user:` counter.
+- A successful authentication clears the counters it was checked against, so occasional mistakes by legitimate users of one address do not add up to a block.
 - Failure counts are committed even though the request fails.
 
 ### 6.8 First start
