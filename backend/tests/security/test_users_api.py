@@ -129,6 +129,9 @@ async def test_you_cannot_disable_or_delete_yourself(admin_client):
 
 async def test_the_last_administrator_cannot_be_demoted(admin_client):
     root_id = await id_of(admin_client, "root")
+    admin_id = await id_of(admin_client, "admin")
+    disabled = await admin_client.patch(f"{USERS}/{admin_id}", json={"status": "disabled"})
+    assert disabled.status_code == 200  # root is still an administrator
 
     response = await admin_client.patch(f"{USERS}/{root_id}", json={"roles": []})
 

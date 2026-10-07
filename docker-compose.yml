@@ -30,6 +30,8 @@ services:
     # Must stay longer than MEGOOARTI_SHUTDOWN_GRACE_SECONDS (default 30), or Docker
     # kills the container while requests are still finishing.
     stop_grace_period: 40s
+    volumes:
+      - backend-data:/var/lib/megooarti
     healthcheck:
       test:
         - CMD
@@ -43,3 +45,4 @@ services:
 
 volumes:
   db-data:
+  backend-data:

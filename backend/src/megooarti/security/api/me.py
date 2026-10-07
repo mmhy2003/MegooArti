@@ -18,6 +18,7 @@ from megooarti.security.authentication import (
     authenticate_password,
     require_interactive,
 )
+from megooarti.security.bootstrap import discard_initial_password
 
 log = structlog.get_logger(__name__)
 
@@ -59,6 +60,7 @@ async def change_password(
         db, user, body.new_password, must_change_password=False, keep_session_id=keep
     )
     await db.commit()
+    discard_initial_password(request.app.state.settings, user)
     log.info("password_changed", username=user.username, by=user.username)
 
 

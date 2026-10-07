@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from megooarti.pagination import Page, PageParams, page
 from megooarti.security import tokens, users
 from megooarti.security.api.schemas import TokenInfo
 from megooarti.security.authentication import Principal, require
+from megooarti.security.bootstrap import discard_initial_password
 from megooarti.security.guards import ensure_administrator_remains
 from megooarti.security.models import User
 from megooarti.security.users import UserView
@@ -151,6 +152,7 @@ async def delete_user(
 async def reset_password(
     user_id: uuid.UUID,
     body: PasswordReset,
+    request: Request,
     principal: Principal = Depends(require("admin:users:write")),
     db: AsyncSession = Depends(get_session),
 ) -> None:
@@ -164,6 +166,7 @@ async def reset_password(
         keep_session_id=None if own_session is None else own_session.id,
     )
     await db.commit()
+    discard_initial_password(request.app.state.settings, user)
     log.info("password_changed", username=user.username, by=principal.user.username)
 
 

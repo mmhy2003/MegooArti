@@ -19,7 +19,11 @@ COPY src ./src
 COPY docker-entrypoint.sh ./
 RUN uv sync --frozen --no-dev \
     && chmod 0755 docker-entrypoint.sh \
-    && useradd --system --uid 10001 --no-create-home megooarti
+    && useradd --system --uid 10001 --no-create-home megooarti \
+    && mkdir -p /var/lib/megooarti \
+    && chown megooarti /var/lib/megooarti
+
+VOLUME /var/lib/megooarti
 
 USER megooarti
 EXPOSE 8000

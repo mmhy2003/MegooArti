@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -88,3 +89,52 @@ def test_container_does_not_run_as_root(stack):
     result = run_in_backend("--entrypoint", "id", "backend", "-u")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "10001"
+
+
+DATA_FILE = "/var/lib/megooarti/admin.password"
+
+
+def call(method: str, path: str, payload: dict | None = None, headers: dict | None = None):
+    """A JSON request to the published backend port: (status, headers, body)."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{HTTP_PORT}/api/v1{path}",
+        method=method,
+        data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **(headers or {})},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raw = response.read()
+            return response.status, response.headers, json.loads(raw) if raw else None
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers, json.loads(error.read() or b"null")
+
+
+@pytest.mark.docker
+def test_the_first_start_administrator_can_sign_in_and_change_the_password(stack):
+    password = compose("exec", "-T", "backend", "cat", DATA_FILE).stdout.strip()
+    assert password
+
+    status, headers, session = call(
+        "POST", "/auth/login", {"username": "admin", "password": password}
+    )
+    assert status == 200
+    assert session["must_change_password"] is True
+    credentials = {
+        "Cookie": headers["Set-Cookie"].split(";")[0],
+        "X-CSRF-Token": session["csrf_token"],
+    }
+
+    status, _, _ = call(
+        "PUT",
+        "/me/password",
+        {"current_password": password, "new_password": "a brand new password"},
+        credentials,
+    )
+    assert status == 204
+
+    status, _, listed = call("GET", "/users", headers=credentials)
+    assert status == 200
+    assert {user["username"] for user in listed["items"]} == {"admin", "anonymous"}
+    still_there = compose("exec", "-T", "backend", "test", "-e", DATA_FILE, check=False)
+    assert still_there.returncode != 0

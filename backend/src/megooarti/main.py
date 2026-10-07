@@ -1,8 +1,10 @@
 """Application factory."""
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
+import structlog
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -16,15 +18,46 @@ from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
+from megooarti.security.bootstrap import ensure_initial_admin_password
 from megooarti.system.settings_api import router as settings_router
 from megooarti.system.status import router as status_router
 
+log = structlog.get_logger(__name__)
+
 API_PREFIX = "/api/v1"
+_FIRST_START_RETRY_SECONDS = 5
+
+
+async def _first_start(app: FastAPI) -> None:
+    # Read app.state at call time: tests replace the sessionmaker after create_app.
+    await ensure_initial_admin_password(
+        app.state.sessionmaker, app.state.settings, app.state.head_revision
+    )
+
+
+async def _first_start_when_possible(app: FastAPI) -> None:
+    while True:
+        await asyncio.sleep(_FIRST_START_RETRY_SECONDS)
+        try:
+            await _first_start(app)
+            return
+        except Exception as error:  # the database is still not reachable
+            log.warning("initial_admin_password_deferred", error=type(error).__name__)
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    retry: asyncio.Task[None] | None = None
+    try:
+        await _first_start(app)
+    except Exception as error:  # usually: the database is not reachable yet
+        log.warning("initial_admin_password_deferred", error=type(error).__name__)
+        retry = asyncio.create_task(_first_start_when_possible(app))
     yield
+    if retry is not None:
+        retry.cancel()
+        with suppress(asyncio.CancelledError):
+            await retry
     await app.state.engine.dispose()
 
 

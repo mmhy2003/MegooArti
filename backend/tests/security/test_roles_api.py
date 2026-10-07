@@ -1,6 +1,7 @@
 import pytest
 
 from megooarti.security import roles as role_service
+from megooarti.security import users
 from tests.accounts import PASSWORD, basic, error_code, sign_in
 
 ROLES = "/api/v1/roles"
@@ -98,6 +99,8 @@ async def test_delete_a_role(admin_client):
 
 async def test_the_role_that_gives_the_last_administrator_access_cannot_go(client, make_user, db):
     await role_service.create_role(db, "super", "", ["*"], [])
+    builtin_admin = await users.get_user_by_username(db, "admin")
+    await users.update_user(db, builtin_admin, {"status": "disabled"})
     await db.commit()
     await make_user("sue", roles=["super"])
     await sign_in(client, "sue")
