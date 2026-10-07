@@ -1,7 +1,7 @@
 # MegooArti — Business Requirements Document
 
 | | |
-|---|---|
+| --- | --- |
 | **Document** | Business Requirements Document (BRD) |
 | **Product** | MegooArti — Repository & Artifact Proxy & Manager |
 | **Version** | 0.1 (draft for review) |
@@ -35,7 +35,7 @@ A repository manager written in Python and TypeScript is approachable for a much
 ### 2.3 Objectives
 
 | ID | Objective |
-|---|---|
+| --- | --- |
 | OBJ-1 | Provide an open-source repository manager that existing package clients can use unmodified. |
 | OBJ-2 | Reach feature parity with Nexus Repository OSS 3.x across three delivery phases. |
 | OBJ-3 | Include OIDC single sign-on and personal API tokens in the open-source edition. |
@@ -46,7 +46,7 @@ A repository manager written in Python and TypeScript is approachable for a much
 ### 2.4 Success metrics
 
 | ID | Metric | Target |
-|---|---|---|
+| --- | --- | --- |
 | SM-1 | Client compatibility test suite (real clients run against a live instance) | 100% pass for every format in a released phase |
 | SM-2 | Time from `docker compose up` on a clean host to the first package served through a proxy repository | Under 10 minutes, following only the README |
 | SM-3 | Upgrade between consecutive releases | No manual database steps; migrations run automatically at container start |
@@ -59,7 +59,7 @@ Community adoption targets (stars, installs, contributors) are deliberately not 
 ## 3. Stakeholders and personas
 
 | Persona | Description | Primary needs |
-|---|---|---|
+| --- | --- | --- |
 | **Platform administrator** | Installs and operates MegooArti for a team or organisation | Simple deployment, repository and storage configuration, access control, cleanup, backup, monitoring |
 | **Developer** | Publishes and consumes packages from a workstation | Works with native tools, fast downloads, searchable UI, self-service API tokens |
 | **CI system** | A pipeline runner (any CI product) that resolves dependencies and publishes build output | Token authentication, reliable proxy cache, predictable URLs, REST API |
@@ -87,7 +87,7 @@ Project stakeholders are the product owner (the maintainer) and the contributor 
 These are not planned in any phase of this BRD. Each may be reconsidered in a later revision.
 
 | Item | Reason |
-|---|---|
+| --- | --- |
 | High-availability clustering (active-active nodes) | Nexus Pro feature; large architectural cost |
 | Staging, build promotion and component tagging | Nexus Pro feature |
 | Repository replication between instances | Nexus Pro feature |
@@ -102,7 +102,7 @@ These are not planned in any phase of this BRD. Each may be reconsidered in a la
 ### 4.3 Delivery phases
 
 | Phase | Platform features | Formats |
-|---|---|---|
+| --- | --- | --- |
 | **1 — MVP** | Hosted, proxy and group repositories; filesystem blob store; browse, search, upload, delete; local users and role-based access control; personal API tokens; anonymous access; REST API; web UI; Docker distribution with automatic migrations | Maven, npm, PyPI, Docker, Raw |
 | **2 — Operations** | S3 blob store; LDAP; OIDC single sign-on; cleanup policies; scheduled tasks; routing rules; content selectors; webhooks; audit log; metrics endpoint | NuGet, Helm, Go, APT, YUM |
 | **3 — Full parity** | Email server settings; outbound HTTP proxy settings; trusted certificates; support bundle; log viewer; remaining admin parity | RubyGems, Cargo, Conan, Conda, R, Git LFS, p2, CocoaPods, Bower |
@@ -116,7 +116,7 @@ Each requirement has an ID, a phase (P1, P2 or P3) and a priority: **Must**, **S
 ### 5.1 Repository management
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | REP-1 | An administrator can create, edit and delete repositories of type hosted, proxy and group for every supported format. | P1 | Must |
 | REP-2 | Each repository has a unique name, a format, a type, an online/offline flag and an assigned blob store. Name, format, type and blob store cannot change after creation. | P1 | Must |
 | REP-3 | Each repository is reachable at a stable, documented URL derived from its name. | P1 | Must |
@@ -139,7 +139,7 @@ Each requirement has an ID, a phase (P1, P2 or P3) and a priority: **Must**, **S
 For every format, "supported" means the format's standard clients can resolve, download and (for hosted repositories) publish packages with no MegooArti-specific configuration beyond the repository URL and credentials.
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | FMT-1 | **Maven**: hosted, proxy and group. Version policy (release, snapshot, mixed) and layout policy (strict, permissive). Checksums and `maven-metadata.xml` are generated and maintained. Timestamped snapshots are supported. | P1 | Must |
 | FMT-2 | **npm**: hosted, proxy and group. Scoped packages, dist-tags, `npm login` / `npm publish` / `npm unpublish` / `npm deprecate`, and package search. Works with npm, pnpm and Yarn. | P1 | Must |
 | FMT-3 | **PyPI**: hosted, proxy and group. The simple index (PEP 503), uploads from `twine`, and installs from `pip`, `uv` and Poetry. | P1 | Must |
@@ -167,7 +167,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.3 Blob storage
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | BLB-1 | An administrator can create, view and delete blob stores. A blob store in use by a repository cannot be deleted. | P1 | Must |
 | BLB-2 | A filesystem blob store writes to a configured directory. | P1 | Must |
 | BLB-3 | An S3 blob store writes to a bucket on Amazon S3 or an S3-compatible service (for example MinIO), with configurable endpoint, region, prefix, credentials and encryption setting. | P2 | Must |
@@ -180,7 +180,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.4 Components, assets and search
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | CMP-1 | Stored content is modelled as components (a named, versioned package) made up of one or more assets (individual files). | P1 | Must |
 | CMP-2 | A user can browse a repository as a folder tree and open any component or asset. | P1 | Must |
 | CMP-3 | An asset's detail view shows its path, size, content type, checksums (MD5, SHA-1, SHA-256, SHA-512), blob store, who uploaded it, and when it was created, last updated and last downloaded. | P1 | Must |
@@ -194,7 +194,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.5 Security and access control
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | SEC-1 | An administrator can create, edit, disable and delete local users, and reset their passwords. | P1 | Must |
 | SEC-2 | On first start, an `admin` account is created with a randomly generated password that is written to a file inside the container and to the start-up log. The administrator must change it at first sign-in. | P1 | Must |
 | SEC-3 | Access is governed by privileges. Privileges are grouped into roles, roles can contain other roles, and users are assigned roles. | P1 | Must |
@@ -218,7 +218,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.6 Cleanup policies, routing rules and tasks
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | CLN-1 | An administrator can define cleanup policies with criteria: time since last update, time since last download, release type (release or pre-release) where the format supports it, and an asset-name pattern. | P2 | Must |
 | CLN-2 | A cleanup policy applies to one format or to all formats, and can be attached to any number of matching repositories. | P2 | Must |
 | CLN-3 | An administrator can preview which components a cleanup policy would remove from a given repository before attaching it. | P2 | Should |
@@ -233,7 +233,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.7 Webhooks and audit
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | EVT-1 | An administrator can register webhooks that send an HTTP `POST` with a JSON payload when events occur. | P2 | Must |
 | EVT-2 | Global webhooks cover repository created, updated and deleted, and audit events. Repository webhooks cover component and asset created, updated and deleted in one repository. | P2 | Must |
 | EVT-3 | Each webhook can have a secret; payloads are signed with HMAC-SHA256 in a request header. | P2 | Must |
@@ -244,7 +244,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.8 REST API
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | API-1 | Every function available in the UI is available through a versioned REST API. The UI uses only this API. | P1 | Must |
 | API-2 | The API is described by an OpenAPI document, and interactive API documentation is served by the application. | P1 | Must |
 | API-3 | The API accepts session authentication (for the UI), HTTP Basic, and personal API tokens as bearer tokens. | P1 | Must |
@@ -255,7 +255,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 5.9 System administration
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | SYS-1 | An administrator can set the instance's public base URL, used in generated links and usage snippets. | P1 | Must |
 | SYS-2 | Unauthenticated liveness and readiness endpoints report whether the application is running and whether it can reach its database and blob stores. | P1 | Must |
 | SYS-3 | A metrics endpoint exposes request, repository, storage and task metrics in Prometheus format, restricted to privileged users or a configured token. | P2 | Must |
@@ -271,7 +271,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 6.1 General
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | UI-1 | The web UI is built with Next.js and covers browsing, search, upload, user self-service (profile, password, API tokens) and all administration functions of each phase. | P1 | Must |
 | UI-2 | Navigation separates the browsing area (search, browse, upload) from the administration area (repositories, storage, security, system). Items a user lacks privileges for are hidden. | P1 | Must |
 | UI-3 | The UI is fully usable at widths of 1024 px and above. Browsing and search are usable down to 375 px. | P1 | Should |
@@ -282,7 +282,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ### 6.2 Cyberpunk theme
 
 | ID | Requirement | Phase | Priority |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | UI-7 | The visual identity is cyberpunk: a neon accent palette (cyan, magenta and an acid yellow or green), glow and outline effects on interactive elements, and angular, technical shapes. | P1 | Must |
 | UI-8 | Typography uses a futuristic display typeface for headings and navigation, a monospace typeface for coordinates, paths, checksums and code, and a highly legible typeface for body text and tables. | P1 | Must |
 | UI-9 | The UI has a dark mode (neon accents on near-black surfaces) and a light mode (deepened, saturated accents on pale surfaces). Both are complete; neither is a fallback. | P1 | Must |
@@ -296,7 +296,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 ## 7. Non-functional requirements
 
 | ID | Category | Requirement | Phase | Priority |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | NFR-1 | Compatibility | Each supported format is verified by an automated suite that runs the format's real clients against a running instance. | P1 | Must |
 | NFR-2 | Performance | Uploads and downloads are streamed. Memory use does not grow with artifact size. | P1 | Must |
 | NFR-3 | Performance | A single artifact of at least 10 GB can be uploaded and downloaded. | P1 | Must |
@@ -323,7 +323,7 @@ These are decisions already made. Designs must conform to them.
 ### 8.1 Technology stack
 
 | ID | Constraint |
-|---|---|
+| --- | --- |
 | TC-1 | The backend is written in Python using FastAPI. |
 | TC-2 | The frontend is written in TypeScript using Next.js. |
 | TC-3 | PostgreSQL is the only supported database. |
@@ -333,7 +333,7 @@ These are decisions already made. Designs must conform to them.
 ### 8.2 Database migrations
 
 | ID | Constraint |
-|---|---|
+| --- | --- |
 | MIG-1 | The database schema is managed only by Alembic. The application never creates or alters tables by any other means at runtime. |
 | MIG-2 | Every schema change is delivered as an Alembic migration script that is committed with the code change that needs it. |
 | MIG-3 | The repository contains helper scripts for the common migration operations: create a new revision, upgrade, downgrade, and show the current revision and history. |
@@ -351,7 +351,7 @@ These are decisions already made. Designs must conform to them.
 ### 9.1 Assumptions
 
 | ID | Assumption |
-|---|---|
+| --- | --- |
 | A-1 | The licence is Apache-2.0. This is a placeholder pending the owner's confirmation. |
 | A-2 | "Nexus OSS parity" means the feature set of Nexus Repository OSS 3.x as summarised in Appendix A. Formats added to Nexus after this baseline are considered release by release. |
 | A-3 | Operators provide TLS termination, backups of the database volume and blob storage, and monitoring infrastructure. |
@@ -367,7 +367,7 @@ These are decisions already made. Designs must conform to them.
 ### 9.3 Risks
 
 | ID | Risk | Impact | Mitigation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | R-1 | The scope of full parity is very large for an open-source project. | Delivery stalls before the product is useful. | Phase 1 is a usable product on its own; the format interface (FMT-23) lets contributors add formats in parallel. |
 | R-2 | Format protocols are complex and partly undocumented (Docker, Maven metadata, npm). | Clients fail in ways unit tests do not catch. | Compatibility is tested with real clients (NFR-1), and that suite defines "done". |
 | R-3 | Python throughput for large binary transfers is lower than the JVM's. | Slow pushes and pulls under load. | Streaming I/O (NFR-2), performance targets (NFR-4), horizontal scaling (NFR-16), and redirecting downloads to object storage where the backend allows. |
@@ -380,7 +380,7 @@ These are decisions already made. Designs must conform to them.
 ## 10. Glossary
 
 | Term | Meaning |
-|---|---|
+| --- | --- |
 | **Artifact** | A file produced by a build, such as a JAR, a wheel, a tarball or a container image layer. |
 | **Asset** | A single stored file inside a repository. |
 | **Blob store** | The storage location (a directory or an object-storage bucket) that holds the binary content of assets. |
@@ -398,7 +398,7 @@ These are decisions already made. Designs must conform to them.
 This table maps Nexus Repository OSS features to MegooArti requirements. It is the basis for metric SM-5.
 
 | Nexus OSS feature | MegooArti requirement | Phase |
-|---|---|---|
+| --- | --- | --- |
 | Hosted, proxy and group repositories | REP-1 to REP-12 | P1 |
 | Maven, npm, PyPI, Docker, Raw formats | FMT-1 to FMT-8 | P1 |
 | NuGet, Helm, Go, APT, YUM formats | FMT-9 to FMT-13 | P2 |
@@ -429,6 +429,6 @@ This table maps Nexus Repository OSS features to MegooArti requirements. It is t
 **Beyond Nexus OSS** (Pro-only in Nexus, included here):
 
 | Feature | MegooArti requirement | Phase |
-|---|---|---|
+| --- | --- | --- |
 | Personal API tokens | SEC-7 to SEC-10 | P1 |
 | OIDC single sign-on | SEC-13, SEC-14 | P2 |

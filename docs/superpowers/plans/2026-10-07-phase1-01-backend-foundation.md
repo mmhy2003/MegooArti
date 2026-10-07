@@ -15,7 +15,7 @@
 BRD Phase 1 covers several independent subsystems, so it is split into one plan per subsystem. Each produces working, testable software. This document is plan 1. The BRD does not define data models or protocols in detail, so plans 2 onward each need a short technical design before their plan is written.
 
 | # | Plan | Main BRD requirements |
-|---|---|---|
+| --- | --- | --- |
 | 1 | **Backend foundation (this plan)** | MIG-1..11, SYS-2, API-2, API-5, NFR-8/10/13/14/15/17 |
 | 2 | Identity and access: users, roles, privileges, sessions, API tokens, settings store | SEC-1..10, SEC-19, SYS-1, API-3, NFR-6, NFR-9 |
 | 3 | Storage and repository core, format interface, Raw format | BLB-1/2/4/6/7, REP-1..13, CMP-1, FMT-8, FMT-23, NFR-2/3/5/7/11 |
@@ -2686,7 +2686,7 @@ Interactive API documentation is at <http://localhost:8000/api/docs>.
 All configuration is by environment variable.
 
 | Variable | Default | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `MEGOOARTI_DATABASE_URL` | required | PostgreSQL URL, for example `postgresql://user:password@host:5432/dbname` |
 | `MEGOOARTI_RUN_MIGRATIONS` | `true` | When `true`, the container waits for the database and applies migrations before starting. Any other value skips both |
 | `MEGOOARTI_DB_WAIT_TIMEOUT_SECONDS` | `60` | How long the container waits for the database before exiting with an error |
@@ -2702,7 +2702,7 @@ Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 ## Health endpoints
 
 | Endpoint | Meaning |
-|---|---|
+| --- | --- |
 | `GET /api/v1/status/live` | The process is running |
 | `GET /api/v1/status/ready` | The database is reachable and its schema matches this version; `503` otherwise |
 
