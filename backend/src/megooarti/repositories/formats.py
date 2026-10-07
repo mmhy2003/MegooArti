@@ -6,9 +6,21 @@ they work through the repository context they are handed.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from starlette.requests import Request
+from starlette.responses import Response
 
 from megooarti.errors import ApiError
+
+if TYPE_CHECKING:
+    from megooarti.repositories.content import RepositoryContext
+
+_CHECKSUM_HEADERS = {
+    "md5": "X-Checksum-Md5",
+    "sha1": "X-Checksum-Sha1",
+    "sha256": "X-Checksum-Sha256",
+}
 
 
 @dataclass(frozen=True)
@@ -18,6 +30,19 @@ class ComponentKey:
     namespace: str
     name: str
     version: str = ""
+
+
+def _declared_size(request: Request) -> int | None:
+    value = request.headers.get("Content-Length", "")
+    return int(value) if value.isdigit() else None
+
+
+def _declared_hashes(request: Request) -> dict[str, str]:
+    return {
+        algorithm: request.headers[header]
+        for algorithm, header in _CHECKSUM_HEADERS.items()
+        if header in request.headers
+    }
 
 
 class Format:
@@ -37,6 +62,34 @@ class Format:
         """Which component a stored path belongs to: the file, in its directory."""
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    async def handle_hosted(
+        self, context: "RepositoryContext", request: Request, path: str
+    ) -> Response:
+        """Answer a request to a hosted repository. The route has checked `read`."""
+        if request.method in ("GET", "HEAD"):
+            return await context.respond(path, request)
+        if request.method == "PUT":
+            _, created = await context.put(
+                path,
+                request.stream(),
+                content_type=request.headers.get("Content-Type"),
+                expected_size=_declared_size(request),
+                expected_hashes=_declared_hashes(request),
+            )
+            await context.db.commit()
+            return Response(status_code=201 if created else 204)
+        if request.method == "DELETE":
+            if not await context.delete(path):
+                raise ApiError(404, "not_found", "No such file.")
+            await context.db.commit()
+            return Response(status_code=204)
+        raise ApiError(
+            405,
+            "method_not_allowed",
+            "This repository accepts GET, HEAD, PUT and DELETE.",
+            headers={"Allow": "GET, HEAD, PUT, DELETE"},
+        )
 
 
 _registry: dict[str, Format] = {}

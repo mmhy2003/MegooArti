@@ -15,6 +15,7 @@ from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories.api import router as repositories_router
+from megooarti.repositories.routes import router as content_router
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
+    app.include_router(content_router)
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep
