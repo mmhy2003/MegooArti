@@ -55,8 +55,8 @@ def empty_database(_migration_database_url: str) -> str:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(_env_file=None, database_url=DEFAULT_TEST_DATABASE_URL)
+def settings(database_url: str) -> Settings:
+    return Settings(_env_file=None, database_url=database_url)
 
 
 @pytest.fixture
