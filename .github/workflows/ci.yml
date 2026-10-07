@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: megooarti
+          POSTGRES_PASSWORD: megooarti
+          POSTGRES_DB: megooarti
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U megooarti -d megooarti"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.13"
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Check formatting
+        run: uv run ruff format --check .
+      - name: Test (includes migration history and empty-database upgrade checks)
+        run: uv run pytest -v
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          uv export --frozen --no-dev --no-emit-project --output-file requirements.txt
+          uvx pip-audit --requirement requirements.txt --disable-pip
+
+  container:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.13"
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Build the image and test the entrypoint
+        run: uv run pytest -m docker -v
