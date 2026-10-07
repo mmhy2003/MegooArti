@@ -28,7 +28,9 @@ async def test_create_and_get(admin_client):
 
     assert created.status_code == 201
     assert (created.json()["name"], created.json()["path"]) == ("archive", "archive")
-    assert (await admin_client.get(f"{STORES}/archive")).json() == created.json()
+    fetched = (await admin_client.get(f"{STORES}/archive")).json()
+    # Free disk space moves between two requests, so compare everything else.
+    assert {**fetched, "available_bytes": None} == {**created.json(), "available_bytes": None}
     assert (await admin_client.get(f"{STORES}/ghost")).status_code == 404
 
 
