@@ -1,5 +1,5 @@
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
 import pytest
@@ -19,7 +19,9 @@ from sqlalchemy.pool import NullPool
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
-from megooarti.security import passwords
+from megooarti.security import passwords, users
+from megooarti.security.models import User
+from tests.accounts import PASSWORD
 from tests.clients import client_for
 from tests.databases import ensure_database, reset_schema
 
@@ -118,3 +120,30 @@ def _cheap_password_hashing(monkeypatch):
     cheap = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
     monkeypatch.setattr(passwords, "_hasher", cheap)
     monkeypatch.setattr(passwords, "_dummy_hash", None)
+
+
+@pytest.fixture
+def make_user(sessionmaker: async_sessionmaker[AsyncSession]):
+    """Create and commit a user who can sign in with tests.accounts.PASSWORD."""
+
+    async def make(
+        username: str,
+        *,
+        roles: Sequence[str] = (),
+        password: str = PASSWORD,
+        must_change_password: bool = False,
+    ) -> User:
+        async with sessionmaker() as session:
+            user = await users.create_user(
+                session,
+                username=username,
+                display_name=username.title(),
+                email=None,
+                password=password,
+                role_names=list(roles),
+                must_change_password=must_change_password,
+            )
+            await session.commit()
+            return user
+
+    return make

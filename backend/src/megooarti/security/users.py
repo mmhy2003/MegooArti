@@ -1,0 +1,156 @@
+"""Users: creation, changes, passwords and their effective permissions."""
+
+import asyncio
+import uuid
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import delete, func, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from megooarti.errors import ApiError
+from megooarti.security.models import Role, User, UserRole
+from megooarti.security.passwords import hash_password, password_problem
+from megooarti.security.roles import effective_patterns, roles_named
+from megooarti.security.sessions import delete_user_sessions
+
+
+@dataclass(frozen=True)
+class UserView:
+    id: uuid.UUID
+    username: str
+    display_name: str
+    email: str | None
+    status: str
+    must_change_password: bool
+    builtin: bool
+    roles: list[str]
+    created_at: datetime
+    last_login_at: datetime | None
+
+
+def normalise_username(username: str) -> str:
+    return username.strip().lower()
+
+
+async def get_user(db: AsyncSession, user_id: uuid.UUID) -> User | None:
+    return await db.get(User, user_id)
+
+
+async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
+    return await db.scalar(select(User).where(User.username == normalise_username(username)))
+
+
+async def user_patterns(db: AsyncSession, user: User) -> frozenset[str]:
+    role_ids = await db.scalars(select(UserRole.role_id).where(UserRole.user_id == user.id))
+    return await effective_patterns(db, list(role_ids))
+
+
+async def describe(db: AsyncSession, user: User) -> UserView:
+    names = await db.scalars(
+        select(Role.name)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user.id)
+        .order_by(Role.name)
+    )
+    return UserView(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        status=user.status,
+        must_change_password=user.must_change_password,
+        builtin=user.builtin,
+        roles=list(names),
+        created_at=user.created_at,
+        last_login_at=user.last_login_at,
+    )
+
+
+async def list_users(db: AsyncSession, limit: int, offset: int) -> tuple[list[UserView], int]:
+    total = await db.scalar(select(func.count()).select_from(User))
+    page = list(await db.scalars(select(User).order_by(User.username).limit(limit).offset(offset)))
+    return [await describe(db, user) for user in page], total or 0
+
+
+def _check_password(password: str, username: str) -> None:
+    problem = password_problem(password, username)
+    if problem:
+        details = [{"field": "password", "message": problem}]
+        raise ApiError(422, "validation_error", "The request is not valid.", details)
+
+
+async def set_roles(db: AsyncSession, user: User, role_names: Iterable[str]) -> None:
+    chosen = await roles_named(db, role_names)
+    await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
+    if chosen:
+        await db.execute(
+            insert(UserRole), [{"user_id": user.id, "role_id": role.id} for role in chosen]
+        )
+
+
+async def create_user(
+    db: AsyncSession,
+    *,
+    username: str,
+    display_name: str,
+    email: str | None,
+    password: str,
+    role_names: Iterable[str],
+    must_change_password: bool,
+) -> User:
+    username = normalise_username(username)
+    if await get_user_by_username(db, username) is not None:
+        raise ApiError(409, "conflict", f"A user named {username} already exists.")
+    _check_password(password, username)
+    user = User(
+        username=username,
+        display_name=display_name,
+        email=email,
+        password_hash=await asyncio.to_thread(hash_password, password),
+        status="active",
+        must_change_password=must_change_password,
+        builtin=False,
+    )
+    db.add(user)
+    await db.flush()
+    await set_roles(db, user, role_names)
+    return user
+
+
+async def update_user(db: AsyncSession, user: User, changes: dict[str, Any]) -> None:
+    """Apply any of display_name, email, status and roles."""
+    for field in ("display_name", "email", "status"):
+        if field in changes:
+            setattr(user, field, changes[field])
+    await db.flush()
+    if "roles" in changes:
+        await set_roles(db, user, changes["roles"])
+    if user.status != "active":
+        await delete_user_sessions(db, user.id)
+
+
+async def set_password(
+    db: AsyncSession,
+    user: User,
+    password: str,
+    *,
+    must_change_password: bool,
+    keep_session_id: uuid.UUID | None = None,
+) -> None:
+    if user.builtin and user.username == "anonymous":
+        raise ApiError(409, "builtin_protected", "The anonymous user cannot have a password.")
+    _check_password(password, user.username)
+    user.password_hash = await asyncio.to_thread(hash_password, password)
+    user.must_change_password = must_change_password
+    await db.flush()
+    await delete_user_sessions(db, user.id, keep_session_id)
+
+
+async def delete_user(db: AsyncSession, user: User) -> None:
+    if user.builtin:
+        raise ApiError(409, "builtin_protected", "Built-in users cannot be deleted.")
+    await db.delete(user)
+    await db.flush()
