@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode
 
 from pydantic import ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,11 +34,19 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _use_the_asyncpg_driver(cls, value: str) -> str:
-        scheme, separator, rest = value.partition("://")
+        scheme, separator, rest = value.strip().partition("://")
         if not separator or scheme not in _POSTGRES_SCHEMES:
             raise ValueError(
                 "must be a PostgreSQL URL such as postgresql://user:password@host:5432/dbname"
             )
+        location, has_query, query = rest.partition("?")
+        if has_query:
+            # Managed PostgreSQL services hand out libpq URLs; asyncpg calls sslmode "ssl".
+            options = [
+                ("ssl" if name == "sslmode" else name, option)
+                for name, option in parse_qsl(query, keep_blank_values=True)
+            ]
+            rest = f"{location}?{urlencode(options)}"
         return f"postgresql+asyncpg://{rest}"
 
     @field_validator("log_level", mode="before")

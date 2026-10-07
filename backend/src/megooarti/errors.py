@@ -6,7 +6,9 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from megooarti.request_id import HEADER as REQUEST_ID_HEADER
 
@@ -19,6 +21,26 @@ _CODES_BY_STATUS = {
     404: "not_found",
     405: "method_not_allowed",
     409: "conflict",
+}
+
+
+class ErrorBody(BaseModel):
+    code: str
+    message: str
+    details: list[dict[str, Any]]
+    request_id: str | None
+
+
+class ErrorResponse(BaseModel):
+    """The body of every error response."""
+
+    error: ErrorBody
+
+
+# Passed to FastAPI(responses=...) so the OpenAPI document describes this shape on every
+# route, in place of FastAPI's own validation-error schema.
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    "default": {"model": ErrorResponse, "description": "Any error."}
 }
 
 
@@ -48,18 +70,54 @@ def error_response(
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
-    body = {
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details or [],
-            "request_id": request_id,
-        }
-    }
-    response = JSONResponse(body, status_code=status_code, headers=headers)
+    body = ErrorResponse(
+        error=ErrorBody(code=code, message=message, details=details or [], request_id=request_id)
+    )
+    response = JSONResponse(body.model_dump(), status_code=status_code, headers=headers)
     if request_id:
         response.headers[REQUEST_ID_HEADER] = request_id
     return response
+
+
+class UnhandledErrorMiddleware:
+    """Turn an exception no handler caught into the standard 500 response.
+
+    Doing this here, rather than in a FastAPI handler for Exception, keeps the log line
+    and the response inside the request ID scope and inside every other middleware.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as error:
+            if response_started:  # too late to change the response; let the server log it
+                raise
+            request = Request(scope)
+            log.error(
+                "unhandled_exception",
+                method=request.method,
+                path=request.url.path,
+                exc_info=error,
+            )
+            response = error_response(
+                request, 500, "internal_error", "An unexpected error occurred."
+            )
+            await response(scope, receive, send)
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -85,14 +143,3 @@ def register_error_handlers(app: FastAPI) -> None:
         return error_response(
             request, 422, "validation_error", "The request is not valid.", details
         )
-
-    @app.exception_handler(Exception)
-    async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
-        log.error(
-            "unhandled_exception",
-            request_id=getattr(request.state, "request_id", None),
-            method=request.method,
-            path=request.url.path,
-            exc_info=error,
-        )
-        return error_response(request, 500, "internal_error", "An unexpected error occurred.")

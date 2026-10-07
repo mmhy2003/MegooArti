@@ -50,5 +50,10 @@ def ensure_database(url: str) -> None:
 
 
 def reset_schema(url: str) -> None:
-    """Remove every table, including alembic_version."""
+    """Remove every table, including alembic_version. Only for databases named for tests."""
+    name = make_url(url).database or ""
+    if not name.endswith(("_test", "_test_migrations")):
+        raise ValueError(
+            f"refusing to reset database {name!r}: the name must end in _test or _test_migrations"
+        )
     run_sql(url, "DROP SCHEMA public CASCADE", "CREATE SCHEMA public")

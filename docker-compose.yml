@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: megooarti
       POSTGRES_DB: megooarti
     ports:
-      - "${MEGOOARTI_DB_PORT:-5432}:5432"
+      # Loopback only: the database is published for development tools, not for the network.
+      - "127.0.0.1:${MEGOOARTI_DB_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +27,9 @@ services:
         condition: service_healthy
     ports:
       - "${MEGOOARTI_HTTP_PORT:-8000}:8000"
+    # Must stay longer than MEGOOARTI_SHUTDOWN_GRACE_SECONDS (default 30), or Docker
+    # kills the container while requests are still finishing.
+    stop_grace_period: 40s
     healthcheck:
       test:
         - CMD

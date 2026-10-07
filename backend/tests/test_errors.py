@@ -1,5 +1,6 @@
 import pytest
 from fastapi import APIRouter, FastAPI
+from httpx import ASGITransport, AsyncClient
 
 from megooarti.errors import ApiError
 
@@ -61,3 +62,18 @@ async def test_unhandled_exception_reveals_nothing_internal(client):
     assert error["message"] == "An unexpected error occurred."
     assert "secret detail" not in response.text
     assert "RuntimeError" not in response.text
+
+
+async def test_unhandled_exception_does_not_escape_to_the_server(app):
+    transport = ASGITransport(app=app)  # re-raises anything the application lets through
+    async with AsyncClient(transport=transport, base_url="http://test") as strict:
+        response = await strict.get("/_test/boom")
+
+    assert_error(response, 500, "internal_error")
+
+
+async def test_validation_errors_are_documented_in_the_standard_format(client):
+    document = (await client.get("/api/v1/openapi.json")).json()
+
+    assert "default" in document["paths"]["/_test/items/{number}"]["get"]["responses"]
+    assert "HTTPValidationError" not in document["components"]["schemas"]

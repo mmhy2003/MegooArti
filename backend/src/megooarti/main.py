@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from megooarti import __version__
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
-from megooarti.errors import register_error_handlers
+from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.system.status import router as status_router
 
@@ -31,12 +31,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/api/docs",
         redoc_url=None,
         lifespan=_lifespan,
+        responses=ERROR_RESPONSES,
     )
     app.state.settings = settings
     # Creating the engine opens no connection; the pool connects on first use.
-    app.state.engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    # hide_parameters keeps bound values (tokens, password hashes) out of error text and logs.
+    app.state.engine = create_async_engine(
+        settings.database_url, pool_pre_ping=True, hide_parameters=True
+    )
     app.state.head_revision = head_revision()
-    app.add_middleware(RequestIdMiddleware)
     register_error_handlers(app)
     app.include_router(status_router, prefix=API_PREFIX)
+
+    # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
+    # first, so its 500 response passes through every other middleware, and keep
+    # RequestIdMiddleware last, so everything else runs with a request ID.
+    app.add_middleware(UnhandledErrorMiddleware)
+    app.add_middleware(RequestIdMiddleware)
     return app

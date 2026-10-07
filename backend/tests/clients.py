@@ -7,13 +7,12 @@ from httpx import ASGITransport, AsyncClient
 
 @asynccontextmanager
 async def client_for(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    """An HTTP client that calls `app` in-process, closing its database pool afterwards.
+    """An HTTP client that calls `app` in-process, inside the application's lifespan.
 
-    Unhandled exceptions come back as 500 responses, as they would over a real socket.
+    Startup and shutdown run as they do under a real server, and an exception the
+    application lets through fails the test.
     """
-    transport = ASGITransport(app=app, raise_app_exceptions=False)
-    try:
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
-    finally:
-        await app.state.engine.dispose()

@@ -24,7 +24,7 @@ Interactive API documentation is at <http://localhost:8000/api/docs>.
 All configuration is by environment variable.
 
 | Variable | Default | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `MEGOOARTI_DATABASE_URL` | required | PostgreSQL URL, for example `postgresql://user:password@host:5432/dbname` |
 | `MEGOOARTI_RUN_MIGRATIONS` | `true` | When `true`, the container waits for the database and applies migrations before starting. Any other value skips both |
 | `MEGOOARTI_DB_WAIT_TIMEOUT_SECONDS` | `60` | How long the container waits for the database before exiting with an error |
@@ -35,12 +35,21 @@ All configuration is by environment variable.
 | `MEGOOARTI_SHUTDOWN_GRACE_SECONDS` | `30` | How long in-flight requests may finish after a shutdown signal |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
-`MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host.
+`MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
+`MEGOOARTI_DB_PORT` if another PostgreSQL already uses 5432. The database port is
+published on `127.0.0.1` only.
+
+`MEGOOARTI_DATABASE_URL` accepts `postgres://`, `postgresql://` and libpq-style
+`?sslmode=require` URLs as handed out by managed PostgreSQL services.
+
+If you raise `MEGOOARTI_SHUTDOWN_GRACE_SECONDS`, raise `stop_grace_period` in
+`docker-compose.yml` (or your orchestrator's equivalent) to a larger value as well;
+otherwise the container is killed before in-flight requests finish.
 
 ## Health endpoints
 
 | Endpoint | Meaning |
-|---|---|
+| --- | --- |
 | `GET /api/v1/status/live` | The process is running |
 | `GET /api/v1/status/ready` | The database is reachable and its schema matches this version; `503` otherwise |
 
@@ -57,8 +66,11 @@ migrations as a separate deployment step instead, set `MEGOOARTI_RUN_MIGRATIONS=
 on the application containers and run this once per release:
 
 ```bash
-docker compose run --rm backend true
+docker compose run --rm -e MEGOOARTI_RUN_MIGRATIONS=true backend true
 ```
+
+The `-e` flag matters: without it the one-off container inherits
+`MEGOOARTI_RUN_MIGRATIONS=false` from the service and skips the migration.
 
 **In development**, use the helper script from `backend/`:
 

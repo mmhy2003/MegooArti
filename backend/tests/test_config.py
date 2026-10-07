@@ -71,3 +71,16 @@ def test_get_settings_is_cached(monkeypatch, tmp_path):
     monkeypatch.setenv("MEGOOARTI_DATABASE_URL", VALID_URL)
     monkeypatch.chdir(tmp_path)
     assert get_settings() is get_settings()
+
+
+def test_libpq_sslmode_is_translated_for_the_asyncpg_driver():
+    given = "postgresql://u:p@db:5432/m?sslmode=require&application_name=megooarti"
+    settings = Settings(_env_file=None, database_url=given)
+    assert settings.database_url == (
+        "postgresql+asyncpg://u:p@db:5432/m?ssl=require&application_name=megooarti"
+    )
+
+
+def test_whitespace_around_the_database_url_is_ignored():
+    settings = Settings(_env_file=None, database_url="  postgresql://u:p@db:5432/m\n")
+    assert settings.database_url == "postgresql+asyncpg://u:p@db:5432/m"
