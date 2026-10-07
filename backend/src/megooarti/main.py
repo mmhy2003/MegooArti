@@ -14,6 +14,8 @@ from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
+from megooarti.security.api import roles as roles_api
+from megooarti.security.api import users as users_api
 from megooarti.system.status import router as status_router
 
 API_PREFIX = "/api/v1"
@@ -48,6 +50,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(status_router, prefix=API_PREFIX)
     app.include_router(auth_api.router, prefix=API_PREFIX)
     app.include_router(me_api.router, prefix=API_PREFIX)
+    app.include_router(users_api.router, prefix=API_PREFIX)
+    app.include_router(roles_api.router, prefix=API_PREFIX)
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep
