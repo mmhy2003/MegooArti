@@ -18,7 +18,7 @@ from megooarti.security import sessions, throttle, tokens, users
 from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
-from megooarti.security.permissions import any_grants
+from megooarti.security.permissions import any_grants, is_valid_permission
 from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
@@ -27,9 +27,9 @@ SESSION_COOKIE = "megooarti_session"
 CSRF_HEADER = "X-CSRF-Token"
 INVALID_CREDENTIALS = "Invalid credentials."
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-_CHALLENGE = {"WWW-Authenticate": 'Bearer realm="MegooArti"'}
 
 Method = Literal["session", "password", "token", "anonymous"]
+Scheme = Literal["Bearer", "Basic"]
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,9 @@ class Principal:
     patterns: frozenset[str]
     scopes: frozenset[str] | None = None
     session: UserSession | None = None
+    # What anyone may do without credentials: the anonymous user's patterns while
+    # anonymous access is on. Only ever applied to repository permissions.
+    public: frozenset[str] = frozenset()
 
     @property
     def is_anonymous(self) -> bool:
@@ -52,20 +55,36 @@ class Principal:
         return self.method in ("session", "password")
 
     def allows(self, permission: str) -> bool:
-        if self.is_anonymous and not permission.startswith("repository:"):
-            # Whatever roles the anonymous user is given, nobody administers anonymously.
-            return False
+        if not is_valid_permission(permission):
+            return False  # fail closed on anything that could shift segments
+        if permission.startswith("repository:") and any_grants(self.public, permission):
+            return True  # public content is public to everyone, whatever a token's scopes
+        if self.is_anonymous:
+            return False  # whatever roles anonymous holds, nobody administers anonymously
         if not any_grants(self.patterns, permission):
             return False
         return self.scopes is None or any_grants(self.scopes, permission)
 
 
-def unauthorized(message: str = "Authentication is required.") -> ApiError:
-    return ApiError(401, "unauthorized", message, headers=_CHALLENGE)
+def unauthorized(
+    message: str = "Authentication is required.", *, scheme: Scheme = "Bearer"
+) -> ApiError:
+    challenge = {"WWW-Authenticate": f'{scheme} realm="MegooArti"'}
+    return ApiError(401, "unauthorized", message, headers=challenge)
 
 
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+async def _anonymous_access(db: AsyncSession) -> tuple[User, frozenset[str]] | None:
+    """The anonymous user and its patterns while anonymous access is on, else None."""
+    if not (await get_setting(db, "anonymous_access"))["enabled"]:
+        return None
+    anonymous = await users.get_user_by_username(db, "anonymous")
+    if anonymous is None or anonymous.status != "active":
+        return None
+    return anonymous, await users.user_patterns(db, anonymous)
 
 
 async def build_principal(
@@ -76,8 +95,11 @@ async def build_principal(
     token: ApiToken | None = None,
     session: UserSession | None = None,
 ) -> Principal:
+    """The principal for an identified user."""
+    anonymous = await _anonymous_access(db)
+    public = frozenset() if anonymous is None else anonymous[1]
     scopes = None if token is None or token.scopes is None else frozenset(token.scopes)
-    return Principal(user, method, await users.user_patterns(db, user), scopes, session)
+    return Principal(user, method, await users.user_patterns(db, user), scopes, session, public)
 
 
 async def _checked[T](
@@ -222,29 +244,43 @@ async def resolve_principal(request: Request, db: AsyncSession) -> Principal | N
                 sessions.touch(record, now)
                 return await build_principal(db, user, "session", session=record)
 
-    if (await get_setting(db, "anonymous_access"))["enabled"]:
-        anonymous = await users.get_user_by_username(db, "anonymous")
-        if anonymous is not None and anonymous.status == "active":
-            return await build_principal(db, anonymous, "anonymous")
+    anonymous = await _anonymous_access(db)
+    if anonymous is not None:
+        user, patterns = anonymous
+        return Principal(user, "anonymous", patterns, public=patterns)
     return None
 
 
-async def current_principal(
-    request: Request, db: AsyncSession = Depends(get_session)
-) -> Principal | None:
-    """Dependency: who is calling, if anyone. Enforces CSRF for cookie requests."""
-    principal = await resolve_principal(request, db)
-    await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
-    if (
-        principal is not None
-        and principal.session is not None
-        and request.method in _UNSAFE_METHODS
-    ):
-        sent = request.headers.get(CSRF_HEADER, "")
-        expected = principal.session.csrf_token
-        if not secrets.compare_digest(sent.encode(), expected.encode()):
-            raise ApiError(403, "csrf_failed", "The CSRF token is missing or wrong.")
-    return principal
+def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal | None]]:
+    async def dependency(
+        request: Request, db: AsyncSession = Depends(get_session)
+    ) -> Principal | None:
+        try:
+            principal = await resolve_principal(request, db)
+        except ApiError as error:
+            if error.status_code != 401:
+                raise
+            raise unauthorized(error.message, scheme=scheme) from None
+        await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
+        if (
+            principal is not None
+            and principal.session is not None
+            and request.method in _UNSAFE_METHODS
+        ):
+            sent = request.headers.get(CSRF_HEADER, "")
+            expected = principal.session.csrf_token
+            if not secrets.compare_digest(sent.encode(), expected.encode()):
+                raise ApiError(403, "csrf_failed", "The CSRF token is missing or wrong.")
+        return principal
+
+    return dependency
+
+
+# Who is calling, if anyone. Both enforce CSRF for cookie requests; they differ only in
+# the challenge a 401 carries.
+current_principal = _principal_dependency("Bearer")  # the JSON API
+client_principal = _principal_dependency("Basic")  # repository content, for package clients
+AUTHENTICATION_DEPENDENCIES = frozenset({current_principal, client_principal})
 
 
 def _refuse_pending_password_change(principal: Principal) -> None:
@@ -254,20 +290,27 @@ def _refuse_pending_password_change(principal: Principal) -> None:
         )
 
 
+def authorize(
+    principal: Principal | None, permission: str, *, scheme: Scheme = "Bearer"
+) -> Principal:
+    """The one place that decides whether a caller may do something."""
+    if principal is None:
+        raise unauthorized(scheme=scheme)
+    _refuse_pending_password_change(principal)
+    if not principal.allows(permission):
+        if principal.is_anonymous:
+            raise unauthorized(scheme=scheme)
+        raise ApiError(403, "forbidden", "You do not have permission to do this.")
+    return principal
+
+
 def require(permission: str) -> Callable[..., Awaitable[Principal]]:
     """Dependency factory: the caller must hold `permission`."""
 
     async def dependency(
         principal: Principal | None = Depends(current_principal),
     ) -> Principal:
-        if principal is None:
-            raise unauthorized()
-        _refuse_pending_password_change(principal)
-        if not principal.allows(permission):
-            if principal.is_anonymous:
-                raise unauthorized()
-            raise ApiError(403, "forbidden", "You do not have permission to do this.")
-        return principal
+        return authorize(principal, permission)
 
     return dependency
 
