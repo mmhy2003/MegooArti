@@ -83,8 +83,9 @@ anything must send it in an `X-CSRF-Token` header.
   the permission grants everything beneath it, so `repository:maven` covers every Maven
   repository. Roles can contain other roles.
 - **Personal API tokens** (`mga_…`) are created under `/api/v1/me/tokens` while signed
-  in with a password. Use one as a bearer token, or as the password in HTTP Basic. A
-  token can be limited to a list of patterns and can expire.
+  in with a password. Use one as a bearer token, or as the password in HTTP Basic,
+  with your user name or with the name `__token__`, which is how Python's tools send
+  a token. A token can be limited to a list of patterns and can expire.
 - **Anonymous access** is off by default. When turned on under `/api/v1/settings`,
   requests without credentials act as the built-in `anonymous` user; change what they
   may do by editing that user's roles.
@@ -104,7 +105,8 @@ The full API is described at `/api/docs`.
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. The formats so far are
-`raw` (arbitrary files by path), `maven` and `npm`.
+`raw` (arbitrary files by path), `maven`, `npm` and `pypi` (hosted repositories only,
+for now).
 A repository has one of three types: `hosted` (files you publish), `proxy` (a cache of
 a remote repository) or `group` (several repositories behind one URL).
 
@@ -397,6 +399,48 @@ and in the `package.json` of each package you publish:
 
 Reading through a group needs `read` on the group only, for example
 `repository:npm:npm-public:read`.
+
+### PyPI repositories
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "pypi-hosted", "format": "pypi", "type": "hosted",
+  "hosted": {"deployment_policy": "disable_redeploy"}
+}' http://localhost:8000/api/v1/repositories
+```
+
+Upload to the repository's address, with the slash at its end, and install from
+`simple/` beneath it:
+
+```bash
+twine upload --repository-url https://repo.example.com/repository/pypi-hosted/ \
+  -u __token__ -p "$MEGOOARTI_TOKEN" dist/*
+uv publish --publish-url https://repo.example.com/repository/pypi-hosted/ --token "$MEGOOARTI_TOKEN"
+
+pip install --index-url https://__token__:$MEGOOARTI_TOKEN@repo.example.com/repository/pypi-hosted/simple/ my-package
+```
+
+- **Credentials** are HTTP Basic: a user name and password, a user name and a token, or
+  `__token__` and a token.
+- **A project's page is generated** on every request from the files stored, so it is
+  right after a delete and after two uploads at the same moment. It is the HTML index
+  of PEP 503, with each file's `sha256` and the Python versions it requires.
+- **Every spelling of a name is one project**: `My_Package`, `my.package` and
+  `my-package` are stored and listed as `my-package`.
+- **An upload is streamed to disk** as it arrives, whatever its size, and is checked
+  against the `sha256` and `md5` digests the client sends. Wheels (`.whl`) and source
+  distributions (`.tar.gz`, `.zip`) are taken; the file's name must fit its project.
+  `poetry publish` sends the same request as twine.
+- **Uploading a file again** follows the deployment policy. With `disable_redeploy` it
+  answers `409`. `uv publish --check-url <index address>` passes over files that are
+  already there; give that address its credentials, because uv does not send the
+  token to it. twine's `--skip-existing` works only with pypi.org.
+- **Permissions.** Uploading a new file needs `add`, replacing one `edit`, and deleting
+  one (`DELETE` on its address under `packages/`) `delete`.
+- Signatures sent with an upload are not kept. The JSON index (PEP 691), metadata
+  files (PEP 658) and yanking are not available yet; pip, uv and Poetry do not need
+  them.
+- Proxy and group PyPI repositories are not available yet.
 
 ## Health endpoints
 
