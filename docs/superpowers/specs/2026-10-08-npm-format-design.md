@@ -233,10 +233,10 @@ The package document is requested from the remote at `<remote>/<name>`, or `<rem
 
 - **From hosted repositories:** the documents of those that have it are merged. Versions are the union, the earlier one winning a version both hold. Dist-tags are the union, the earlier one winning a tag, and `latest` is recomputed if the version it names is not in the result.
 - **From one proxy:** that proxy's cached document is streamed through the link rewriter, with the group's address in the links.
-- **From several proxies:** their documents are parsed and merged in the same way, up to 16 MiB together and two merges at a time. One that does not fit or cannot be read is left out and logged; if that leaves fewer than two, one document is streamed as above.
+- **From several proxies:** their documents are parsed and merged in the same way, up to 16 MiB together and two merges at a time. They are read in the order the proxies are tried, and reading stops at the first that does not fit: it and those after it are left out, so a later proxy's document never stands in for an earlier one's. One that is not a package document is left out too. Both are logged. If that leaves fewer than two, one document is streamed as above.
 - **Nobody has it:** `404`.
 
-Tarball links always name the group, so every download goes through the group. A tarball is served by the first repository that has it among those that answer for its package, so a proxy listed before a hosted repository cannot serve its own file for a version the hosted repository published.
+Tarball links always name the group, so every download goes through the group. A tarball is served by the first repository that has it: among the hosted repositories if one of them has the package, otherwise among all the online proxies, whether or not a proxy's document for the package could be fetched. So a proxy listed before a hosted repository cannot serve its own file for a version the hosted repository published.
 
 ## 11. Configuration and errors added
 

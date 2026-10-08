@@ -58,10 +58,9 @@ def _unfinished(rest: bytes) -> int:
     by a quote, which ends its value.
     """
     start = rest.rfind(_KEY)
-    if start != -1:
-        waiting = len(rest) - start
-        return waiting if waiting <= _MAX_LINK else 0
-    # No whole key: the end may still be the beginning of one.
+    if start != -1 and len(rest) - start <= _MAX_LINK:
+        return len(rest) - start
+    # No whole key that can still become a link: the end may be the beginning of one.
     for length in range(min(len(_KEY) - 1, len(rest)), 0, -1):
         if rest.endswith(_KEY[:length]):
             return length

@@ -106,6 +106,19 @@ def test_the_result_is_the_same_wherever_the_document_is_cut():
         assert in_pieces(data, [cut]) == whole, cut
 
 
+def test_a_tarball_that_is_no_link_far_back_does_not_hide_a_link_cut_in_its_key():
+    # Something else called "tarball", then more text than a link is waited for.
+    data = (
+        b'{"keywords":["tarball"],"readme":"' + b"x" * 9000 + b'",'
+        b'"dist":{"tarball":"https://r.example/left-pad/-/left-pad-1.0.0.tgz"}}'
+    )
+    whole = rewrite(data, BASE, "left-pad")
+
+    assert json.loads(whole)["dist"] == {"tarball": f"{BASE}/left-pad/-/left-pad-1.0.0.tgz"}
+    for cut in range(len(data) + 1):
+        assert in_pieces(data, [cut]) == whole, cut
+
+
 def test_the_result_is_the_same_in_pieces_of_any_size():
     data = document(versions=tuple(f"1.{minor}.0" for minor in range(40)))
     whole = rewrite(data, BASE, "left-pad")

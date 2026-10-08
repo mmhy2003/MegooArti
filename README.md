@@ -379,8 +379,13 @@ and in the `package.json` of each package you publish:
   it under a scope.
 - **A group merges** what its hosted members hold of a package, the earlier member
   winning a version or a dist-tag both have. A package only proxies have is served
-  from the proxy that has it. If several proxies have it their documents are merged,
-  up to 16 MiB together; past that the first one's is served alone.
+  from the proxy that has it. If several proxies have it their documents are merged in
+  the members' order while they fit in 16 MiB together; the first that does not fit,
+  and those after it, are left out. Merging is done again for every request, so list
+  each registry once: do not add a proxy of a registry that another proxy's remote
+  already includes.
+- **A name is protected while a hosted repository holds a version of it.**
+  Unpublishing the last version gives the name back to the proxies.
 - **Signing in works at every npm repository**, so `npm login` can point at the group.
   `npm publish`, `npm dist-tag`, `npm deprecate` and `npm unpublish` work at a hosted
   repository only.

@@ -266,6 +266,26 @@ async def test_at_most_two_merges_are_in_memory_at_once_and_publishes_do_not_hol
     assert most == 2
 
 
+async def test_a_later_proxy_does_not_stand_in_for_an_earlier_one_that_is_too_large(
+    client, root, mirrors, fake_remote, monkeypatch
+):
+    # Here the first proxy's document is the one that does not fit.
+    longer = remote_document(
+        "left-pad", "1.0.0", "1.1.0", remote="http://remote.test/a", description="from a, " * 80
+    )
+    fake_remote.files["a/left-pad"] = longer
+    monkeypatch.setattr(npm_format, "MERGE_LIMIT", len(longer) - 1)
+
+    with structlog.testing.capture_logs() as logs:
+        body = await document(client, root, "left-pad", "mirrors")
+
+    # The first member's document alone, as its tarballs are the first to be served.
+    assert list(body["versions"]) == ["1.0.0", "1.1.0"]
+    assert body["description"].startswith("from a")
+    too_large = [entry for entry in logs if entry["event"] == "document_too_large_to_merge"]
+    assert [entry["repository"] for entry in too_large] == ["first"]
+
+
 async def test_a_document_that_cannot_be_read_is_left_out_and_logged(
     client, root, mirrors, fake_remote
 ):

@@ -25,6 +25,7 @@
 | P9 | A version manifest and the dist-tags endpoints answer `405` with an empty `Allow` on a proxy and on a group. | Both are answered from stored versions, which only a hosted repository has. An empty `Allow` says no method works here. |
 | P10 | Between Tasks 3 and 5 the format offers `hosted` and `proxy`. Task 5 adds `group`. | On the generic group engine a group would serve a member's document, with links that name the member. |
 | P11 | The real-client test uses npm 10, pnpm 9 and Yarn 1.22. pnpm is itself installed through the group. Yarn gets `always-auth=true`. | Yarn 1 ships in the Node image and is what `yarn` means to most projects; it sends a token for an unscoped package only when told to. Installing pnpm exercises a large public package. |
+| P12 | Changed after review: proxies' documents are read in the members' order and reading stops at the first that does not fit (P6 left it out and read on). The rewriter still looks for the start of a link at the end of a piece after giving up on an earlier `"tarball"` that is too far back. | With the first proxy's document too large, the second proxy's was served alone while tarballs still came from the first. A key called `tarball` that is no link, more than 8 KiB before a real link cut in its key, left that link unrewritten. |
 
 ## Global Constraints
 

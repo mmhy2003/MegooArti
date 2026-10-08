@@ -630,9 +630,11 @@ async def _several(
     """Answer from the documents of several proxies, merged.
 
     This is the one place a remote's document is parsed, so they are read only up to
-    a limit on their size together, and only two merges run at once. A document that
-    does not fit or cannot be read is left out. If that leaves fewer than two, one is
-    served as it is.
+    a limit on their size together, and only two merges run at once. They are read in
+    the members' order, and reading stops at the first that does not fit: a later
+    member's document must not stand in for an earlier member's, whose tarballs are
+    the ones served. One that is not a package document is left out. If fewer than two
+    are left, one is served as it is.
     """
     await context.release()  # waiting for a turn needs no connection
     async with merging():
@@ -648,7 +650,7 @@ async def _several(
                     repository=member.repository.name,
                     package=package,
                 )
-                continue
+                break
             if data is not None:
                 read.append((member, data, stored.modified))
                 room -= len(data)
