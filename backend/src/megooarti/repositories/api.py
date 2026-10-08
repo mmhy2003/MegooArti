@@ -224,3 +224,15 @@ async def delete_repository(
     await service.delete_repository(db, repository, utcnow())
     await db.commit()
     log.info("repository_deleted", repository=name, by=principal.user.username)
+
+
+@router.post("/{name}/invalidate-cache", status_code=204)
+async def invalidate_cache(
+    name: str,
+    principal: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    repository = await _load(db, name)
+    await service.invalidate_cache(db, repository)
+    await db.commit()
+    log.info("repository_cache_invalidated", repository=name, by=principal.user.username)

@@ -7,6 +7,7 @@ from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.models import Repository
 from megooarti.security.authentication import Principal
 from megooarti.security.models import User
+from tests.repositories.fake_remote import FakeRemote
 
 
 def someone(*patterns: str, method: str = "token", username: str = "dana") -> Principal:
@@ -57,3 +58,12 @@ def context_for(db, settings):
         return await build_context(db, settings, repository, principal)
 
     return make
+
+
+@pytest.fixture
+async def fake_remote(app) -> FakeRemote:
+    """A remote that exists only in this process, wired in place of the real client."""
+    await app.state.http.aclose()
+    fake = FakeRemote()
+    app.state.http = fake.client()
+    return fake
