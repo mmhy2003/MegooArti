@@ -1,4 +1,5 @@
 import hashlib
+from html.parser import HTMLParser
 
 import pytest
 
@@ -11,18 +12,31 @@ BOUNDARY = "megooarti-test-boundary-7MA4YWxkTrZu0gW"
 CONTENT_TYPE = f"multipart/form-data; boundary={BOUNDARY}"
 WHEEL = "megooarti_greeter-1.0.0-py3-none-any.whl"
 SDIST = "megooarti_greeter-1.0.0.tar.gz"
+# A remote index, and the other host it keeps its files on, as pypi.org does.
+REMOTE = "http://remote.test/pypi"
+FILES_HOST = "http://files.test"
 
 
-async def create(db, name: str, *, hosted: dict | None = None) -> Repository:
-    """A hosted PyPI repository, committed."""
+async def create(
+    db,
+    name: str,
+    *,
+    type: str = "hosted",
+    hosted: dict | None = None,
+    proxy: dict | None = None,
+    group: dict | None = None,
+) -> Repository:
+    """A PyPI repository, committed."""
     repository = await service.create_repository(
         db,
         name=name,
         format="pypi",
-        type="hosted",
+        type=type,
         online=True,
         blob_store="default",
         hosted=hosted,
+        proxy=proxy,
+        group=group,
         format_config={},
     )
     await db.commit()
@@ -96,9 +110,67 @@ async def upload(client, headers, filename: str, **changes):
     )
 
 
+def remote_link(
+    filename: str, *attributes: str, at: str = FILES_HOST, data: bytes | None = None
+) -> str:
+    """A link as a remote index writes it, to a file kept at `<at>/packages/<file name>`.
+
+    The hash is that of `content_of(filename)` unless `data` says what the remote holds.
+    """
+    digest = hashlib.sha256(content_of(filename) if data is None else data).hexdigest()
+    written = "".join(f" {attribute}" for attribute in attributes)
+    address = f"{at}/packages/{filename}#sha256={digest}"
+    return f'<a href="{address}"{written}>{filename}</a><br />\n'
+
+
+def remote_page(project: str, *links: str) -> bytes:
+    """A project page as a remote index serves it. A plain file name is linked as it is."""
+    written = "".join(link if "<" in link else remote_link(link) for link in links)
+    head = f"<!DOCTYPE html>\n<html><head><title>Links for {project}</title></head>\n<body>\n"
+    return f"{head}<h1>Links for {project}</h1>\n{written}</body></html>\n".encode()
+
+
+class Anchors(HTMLParser):
+    """The links of a page, as a browser or an installer would read them."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[tuple[dict, str]] = []
+        self._open: dict | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self._open = dict(attrs)
+
+    def handle_data(self, data):
+        if self._open is not None:
+            self.found.append((self._open, data))
+            self._open = None
+
+
+def links(response) -> list[tuple[dict, str]]:
+    """The links of a page that was served: (attributes, text) for each."""
+    parser = Anchors()
+    parser.feed(response.text)
+    return parser.found
+
+
+def link_to(project: str, version: str, filename: str, **attributes) -> tuple[dict, str]:
+    """What a served page says of a file whose content is `content_of(filename)`."""
+    digest = hashlib.sha256(content_of(filename)).hexdigest()
+    href = f"../../packages/{project}/{version}/{filename}#sha256={digest}"
+    return {"href": href, **attributes}, filename
+
+
 @pytest.fixture
 async def index(db) -> Repository:
     return await create(db, "pypi")
+
+
+@pytest.fixture
+async def upstream(db) -> Repository:
+    """A proxy of the fake remote index."""
+    return await create(db, "upstream", type="proxy", proxy={"remote_url": REMOTE})
 
 
 @pytest.fixture
