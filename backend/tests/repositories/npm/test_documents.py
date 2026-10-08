@@ -427,3 +427,127 @@ def test_the_readme_is_shown_once_not_with_every_version():
 
     assert built["readme"] == "latest readme"
     assert all("readme" not in manifest for manifest in built["versions"].values())
+
+
+def test_what_several_repositories_hold_is_combined_and_the_earlier_one_wins():
+    first = ([stored("1.0.0", description="from the first")], {"latest": "1.0.0"})
+    second = (
+        [stored("1.0.0", T2, description="from the second"), stored("2.0.0-beta.1", T2)],
+        {"latest": "1.0.0", "beta": "2.0.0-beta.1", "gone": "9.9.9"},
+    )
+
+    versions, tags = documents.combine([first, second])
+
+    assert [version.version for version in versions] == ["1.0.0", "2.0.0-beta.1"]
+    assert versions[0].manifest["description"] == "from the first"
+    assert tags == {"latest": "1.0.0", "beta": "2.0.0-beta.1"}
+
+
+def test_the_first_repositorys_latest_is_the_latest_even_when_a_later_one_is_higher():
+    first = ([stored("1.0.0")], {})  # no tags stored: its highest version is its latest
+    second = ([stored("3.0.0")], {"latest": "3.0.0", "next": "3.0.0"})
+
+    versions, tags = documents.combine([first, second])
+    built = documents.document("left-pad", versions, tags, BASE)
+
+    assert tags == {"latest": "1.0.0", "next": "3.0.0"}
+    assert list(built["versions"]) == ["1.0.0", "3.0.0"]
+    assert built["dist-tags"] == {"latest": "1.0.0", "next": "3.0.0"}
+
+
+def test_combining_one_repository_changes_nothing():
+    only = ([stored("1.0.0"), stored("1.1.0", T2)], {"latest": "1.0.0"})
+
+    versions, tags = documents.combine([only])
+
+    assert documents.render("left-pad", versions, tags, BASE) == documents.render(
+        "left-pad", only[0], only[1], BASE
+    )
+    assert documents.combine([]) == ([], {})
+
+
+def served(*versions: str, at: str = "https://registry.example", **extra) -> bytes:
+    """A package document as another registry serves it."""
+    body = {
+        "_id": "left-pad",
+        "name": "left-pad",
+        "dist-tags": {"latest": versions[-1]},
+        "versions": {
+            version: {
+                "name": "left-pad",
+                "version": version,
+                "dist": {"shasum": SHA1, "tarball": f"{at}/left-pad/-/left-pad-{version}.tgz"},
+            }
+            for version in versions
+        },
+        "time": {version: "2020-01-01T00:00:00.000Z" for version in versions},
+        **extra,
+    }
+    return json.dumps(body).encode()
+
+
+def test_the_documents_of_several_registries_are_merged_and_the_earlier_one_wins():
+    first = served("1.0.0", "1.1.0", description="from the first", readme="# first")
+    second = served("1.1.0", "2.0.0", at="https://other.example/npm", description="second")
+    second = second.replace(b'"2020-01-01', b'"2024-06-01')
+
+    merged = documents.merge_remote("left-pad", [first, second], BASE)
+
+    body = json.loads(merged.data)
+    assert merged.used == (0, 1)
+    assert merged.etag == hashlib.sha256(merged.data).hexdigest()
+    assert list(body["versions"]) == ["1.0.0", "1.1.0", "2.0.0"]
+    assert body["dist-tags"] == {"latest": "1.1.0"}
+    assert (body["description"], body["readme"]) == ("from the first", "# first")
+    assert body["time"] == {
+        "1.0.0": "2020-01-01T00:00:00.000Z",
+        "1.1.0": "2020-01-01T00:00:00.000Z",
+        "2.0.0": "2024-06-01T00:00:00.000Z",
+    }
+    assert [version["dist"]["tarball"] for version in body["versions"].values()] == [
+        f"{BASE}/left-pad/-/left-pad-{version}.tgz" for version in ("1.0.0", "1.1.0", "2.0.0")
+    ]
+
+
+def test_merged_tags_point_at_versions_and_latest_is_always_there():
+    first = served("1.0.0", **{"dist-tags": {"next": "1.0.0", "broken": "7.7.7", "odd": 3}})
+    second = served("0.9.0", **{"dist-tags": {"latest": "0.9.0", "next": "0.9.0"}})
+
+    body = json.loads(documents.merge_remote("left-pad", [first, second], BASE).data)
+
+    # `next` is the first one's; `latest` is the only one set, by the second.
+    assert body["dist-tags"] == {"latest": "0.9.0", "next": "1.0.0"}
+
+
+@pytest.mark.parametrize(
+    "unreadable",
+    [b"not json", b"[]", b'{"name":"left-pad"}', b'{"versions":[]}', b'{"versions":{"1.0.0":NaN}}'],
+)
+def test_a_document_that_cannot_be_read_is_left_out_of_the_merge(unreadable):
+    good, other = served("1.0.0"), served("2.0.0")
+
+    three = documents.merge_remote("left-pad", [good, unreadable, other], BASE)
+    two = documents.merge_remote("left-pad", [unreadable, good], BASE)
+
+    assert three.used == (0, 2)
+    assert list(json.loads(three.data)["versions"]) == ["1.0.0", "2.0.0"]
+    assert (two.data, two.used) == (None, (1,))  # one is left: there is nothing to merge
+
+
+def test_fewer_than_two_documents_are_not_read_at_all():
+    assert documents.merge_remote("left-pad", [b"not json"], BASE) == documents.Merged(
+        None, "", (0,)
+    )
+    assert documents.merge_remote("left-pad", [], BASE) == documents.Merged(None, "", ())
+
+
+def test_odd_parts_of_a_remote_document_do_not_break_the_merge():
+    first = served("1.0.0", time="yesterday", **{"dist-tags": None})
+    second = served("2.0.0", maintainers=[{"name": "someone"}])
+
+    body = json.loads(documents.merge_remote("left-pad", [first, second], BASE).data)
+
+    assert list(body["versions"]) == ["1.0.0", "2.0.0"]
+    assert body["time"] == {"2.0.0": "2020-01-01T00:00:00.000Z"}
+    assert body["dist-tags"] == {"latest": "2.0.0"}
+    assert "maintainers" not in body  # everything else is the first one's

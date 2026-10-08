@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from megooarti.repositories.npm import paths, semver
+from megooarti.repositories.npm.rewrite import rewrite
 
 # A manifest is stored with its component and repeated in every package document.
 MAX_MANIFEST_BYTES = 1024 * 1024
@@ -409,3 +410,75 @@ def search_results(found: Sequence[Found], total: int, now: datetime) -> dict[st
         for entry in found
     ]
     return {"objects": objects, "total": total, "time": iso(now)}
+
+
+def combine(
+    held: Sequence[tuple[Sequence[Version], Mapping[str, str]]],
+) -> tuple[list[Version], dict[str, str]]:
+    """What several repositories hold of one package, as if one repository held it.
+
+    `held` gives each repository's versions and its stored dist-tags, in the order the
+    repositories are tried. The earlier one wins a version both hold and a tag both
+    set, so the `latest` of the first repository is the `latest` of the result.
+    """
+    versions: dict[str, Version] = {}
+    tags: dict[str, str] = {}
+    for theirs, stored in held:
+        for version in theirs:
+            versions.setdefault(version.version, version)
+        shown = effective_tags(stored, [version.version for version in theirs])
+        for tag, version in shown.items():
+            tags.setdefault(tag, version)
+    return list(versions.values()), tags
+
+
+@dataclass(frozen=True)
+class Merged:
+    """The documents several registries serve for one package, as one."""
+
+    data: bytes | None  # None when fewer than two of them could be read
+    etag: str
+    used: tuple[int, ...]  # the positions of those that could be read
+
+
+def _served(raw: bytes) -> dict[str, Any] | None:
+    """A package document another registry served, or None if it is not one."""
+    try:
+        value = loads(raw)
+    except InvalidPackage:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("versions"), dict):
+        return None
+    return value
+
+
+def merge_remote(package: str, raw: Sequence[bytes], base: str) -> Merged:
+    """Merge the documents several registries serve for one package.
+
+    `raw` is in the order the registries are tried. The earlier one wins a version, a
+    time and a dist-tag that two of them have, and everything else is the first
+    one's. Tarball links are pointed at `base`, the public address of the repository
+    that answers. A document that cannot be read is left out.
+    """
+    if len(raw) < 2:
+        return Merged(None, "", tuple(range(len(raw))))
+    read = [(position, _served(data)) for position, data in enumerate(raw)]
+    used = tuple(position for position, document in read if document is not None)
+    documents = [document for _, document in read if document is not None]
+    if len(documents) < 2:
+        return Merged(None, "", used)
+
+    merged = dict(documents[0])
+    for field in ("versions", "time", "dist-tags"):
+        union: dict[str, Any] = {}
+        for document in documents:
+            theirs = document.get(field)
+            for key, value in theirs.items() if isinstance(theirs, dict) else ():
+                union.setdefault(key, value)
+        merged[field] = union
+    tags = {
+        tag: version for tag, version in merged["dist-tags"].items() if isinstance(version, str)
+    }
+    merged["dist-tags"] = effective_tags(tags, merged["versions"])
+    data = rewrite(dumps(merged), base, package)
+    return Merged(data, hashlib.sha256(data).hexdigest(), used)
