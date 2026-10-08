@@ -7,11 +7,12 @@ cannot bypass them, and it is the only code that ties assets to blobs.
 import hashlib
 import mimetypes
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -62,6 +63,31 @@ def _verify(
             )
 
 
+@dataclass(frozen=True)
+class Stored:
+    """What is at a path, as plain values a format may read."""
+
+    path: str
+    kind: str
+    size: int
+    md5: str
+    sha1: str
+    sha256: str
+    sha512: str
+    content_type: str
+    modified: datetime
+
+
+@dataclass(frozen=True)
+class FileEntry:
+    path: str
+    modified: datetime
+
+
+class TooLarge(Exception):
+    """A file that was to be read into memory is larger than the caller allows."""
+
+
 class RepositoryContext:
     """One request's view of one repository."""
 
@@ -98,6 +124,142 @@ class RepositoryContext:
         if fresh:  # reread from the database even if this session already loaded it
             statement = statement.execution_options(populate_existing=True)
         return await self.db.scalar(statement)
+
+    async def stat(self, path: str) -> Stored | None:
+        """What is at a path, read from the database now."""
+        row = (
+            await self.db.execute(
+                select(
+                    Asset.kind,
+                    Asset.content_type,
+                    Asset.updated_at,
+                    Blob.size,
+                    Blob.md5,
+                    Blob.sha1,
+                    Blob.sha256,
+                    Blob.sha512,
+                )
+                .join(Blob, Blob.id == Asset.blob_id)
+                .where(Asset.repository_id == self.repository.id, Asset.path == path)
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return Stored(
+            path=path,
+            kind=row.kind,
+            size=row.size,
+            md5=row.md5,
+            sha1=row.sha1,
+            sha256=row.sha256,
+            sha512=row.sha512,
+            content_type=row.content_type,
+            modified=row.updated_at,
+        )
+
+    async def versions(self, namespace: str, name: str) -> dict[str, datetime]:
+        """Each version of a package that has a file, with when its files last changed."""
+        rows = await self.db.execute(
+            select(Component.version, func.max(Asset.updated_at))
+            .join(Asset, Asset.component_id == Component.id)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name == name,
+            )
+            .group_by(Component.version)
+        )
+        return {version: changed for version, changed in rows}
+
+    async def files(self, namespace: str, name: str, version: str) -> list[FileEntry]:
+        """The files of one version of a package, ordered by path."""
+        rows = await self.db.execute(
+            select(Asset.path, Asset.updated_at)
+            .join(Component, Component.id == Asset.component_id)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name == name,
+                Component.version == version,
+            )
+            .order_by(Asset.path)
+        )
+        return [FileEntry(path, changed) for path, changed in rows]
+
+    async def names(self, namespace: str, candidates: Collection[str]) -> set[str]:
+        """Which of `candidates` are packages in `namespace`."""
+        if not candidates:
+            return set()
+        rows = await self.db.scalars(
+            select(Component.name)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name.in_(candidates),
+            )
+            .distinct()
+        )
+        return set(rows)
+
+    async def read(self, path: str, *, limit: int) -> bytes | None:
+        """A stored file's bytes, for a small document a format must look inside.
+
+        The limit is what makes it acceptable to hold the connection meanwhile.
+        """
+        row = (
+            await self.db.execute(
+                select(Blob.sha256, Blob.size)
+                .join(Asset, Asset.blob_id == Blob.id)
+                .where(Asset.repository_id == self.repository.id, Asset.path == path)
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        if row.size > limit:
+            raise TooLarge(path)
+        return b"".join([chunk async for chunk in self.backend.open(row.sha256)])
+
+    async def receive(self, chunks: AsyncIterator[bytes], *, limit: int) -> bytes | None:
+        """A small upload, read into memory. None if it is longer than `limit`."""
+        await self.db.commit()  # give the connection back while the body arrives
+        received = bytearray()
+        async for chunk in chunks:
+            received += chunk
+            if len(received) > limit:
+                return None
+        return bytes(received)
+
+    def respond_with(
+        self,
+        data: bytes,
+        request: Request,
+        *,
+        filename: str,
+        content_type: str,
+        last_modified: datetime,
+    ) -> Response:
+        """Answer a GET or HEAD with bytes made for this request.
+
+        The same planning as for a stored file, so the headers, conditions and ranges
+        are the same too.
+        """
+        item = serving.Servable(
+            sha256=hashlib.sha256(data).hexdigest(),
+            md5=hashlib.md5(data).hexdigest(),
+            sha1=hashlib.sha1(data).hexdigest(),
+            sha512=hashlib.sha512(data).hexdigest(),
+            size=len(data),
+            content_type=content_type,
+            last_modified=last_modified,
+            filename=filename,
+        )
+        plan = serving.plan(request.method, request.headers, item)
+        if plan.byte_range is None:
+            return Response(status_code=plan.status, headers=plan.headers)
+        start, end = plan.byte_range
+        return Response(
+            content=data[start : end + 1], status_code=plan.status, headers=plan.headers
+        )
 
     def _check_policy(self, *, replacing: bool) -> None:
         policy = self.repository.config.get("hosted", {}).get("deployment_policy")
