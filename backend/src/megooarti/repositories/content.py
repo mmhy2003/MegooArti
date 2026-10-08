@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -30,6 +30,7 @@ from megooarti.storage import blobs
 from megooarti.storage.backends import BlobBackend, StagedBlob
 from megooarti.storage.blob_stores import backend_for
 from megooarti.storage.models import Blob, BlobStore
+from megooarti.system.settings_store import get_setting
 
 # First key of the two-key advisory lock; the second is derived from what is locked.
 _LOCK_NAMESPACE = 0x4D48
@@ -90,6 +91,16 @@ class Stored:
 @dataclass(frozen=True)
 class FileEntry:
     path: str
+    modified: datetime
+
+
+@dataclass(frozen=True)
+class ComponentInfo:
+    """One version of a package: what its component says, and when it changed."""
+
+    version: str
+    attributes: dict[str, Any]
+    created: datetime
     modified: datetime
 
 
@@ -232,6 +243,64 @@ class RepositoryContext:
             .distinct()
         )
         return set(rows)
+
+    async def components(self, namespace: str, name: str) -> list[ComponentInfo]:
+        """The versions of a package that have a file, with their attributes."""
+        rows = await self.db.execute(
+            select(
+                Component.version,
+                Component.attributes,
+                Component.created_at,
+                func.max(Asset.updated_at),
+            )
+            .join(Asset, Asset.component_id == Component.id)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name == name,
+            )
+            .group_by(Component.id)
+        )
+        return [
+            ComponentInfo(version, attributes, created, changed)
+            for version, attributes, created, changed in rows
+        ]
+
+    async def package_names(
+        self, text: str, *, limit: int, offset: int
+    ) -> tuple[list[tuple[str, str]], int]:
+        """Packages whose name or namespace contains `text`, and how many there are.
+
+        The text is matched literally and without regard to case. An empty text matches
+        every package.
+        """
+        literal = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{literal}%"
+        found = (
+            select(Component.namespace, Component.name)
+            .where(
+                Component.repository_id == self.repository.id,
+                or_(
+                    Component.name.ilike(pattern, escape="\\"),
+                    Component.namespace.ilike(pattern, escape="\\"),
+                ),
+            )
+            .distinct()
+        )
+        total = await self.db.scalar(select(func.count()).select_from(found.subquery()))
+        rows = await self.db.execute(
+            found.order_by(Component.namespace, Component.name).limit(limit).offset(offset)
+        )
+        return [(namespace, name) for namespace, name in rows], total or 0
+
+    async def public_url(self, request: Request) -> str:
+        """The address clients use to reach this repository, without a trailing slash.
+
+        The `base_url` setting if there is one: behind a reverse proxy the request's
+        own address may not be the public one.
+        """
+        base = await get_setting(self.db, "base_url") or str(request.base_url)
+        return f"{base.rstrip('/')}/repository/{self.repository.name}"
 
     async def read(self, path: str, *, limit: int) -> bytes | None:
         """A stored file's bytes, for a small document a format must look inside.
@@ -398,6 +467,14 @@ class RepositoryContext:
             raise
         return staged
 
+    async def stage_bytes(self, data: bytes) -> StagedBlob:
+        """Stage content that is already in memory, such as a file decoded from a body."""
+        return await self.stage(_pieces(data))
+
+    async def discard(self, staged: StagedBlob) -> None:
+        """Drop staged content that will not be stored after all."""
+        await self.backend.discard(staged)
+
     async def _record(
         self,
         path: str,
@@ -410,6 +487,7 @@ class RepositoryContext:
         attributes: dict[str, Any] | None = None,
         verified_at: datetime | None = None,
         packaged: bool = True,
+        component_attributes: dict[str, Any] | None = None,
     ) -> tuple[Asset, bool]:
         """Tie staged content to a path. `checked` applies permission and policy."""
         try:
@@ -427,10 +505,12 @@ class RepositoryContext:
         media_type = _media_type(content_type, path)
         if existing is None:
             key = self.format.describe_component(path) if packaged else None
-            component_id = None if key is None else (await self._component(key)).id
+            component = None if key is None else await self._component(key)
+            if component is not None and component_attributes is not None:
+                component.attributes = component_attributes
             asset = Asset(
                 repository_id=self.repository.id,
-                component_id=component_id,
+                component_id=None if component is None else component.id,
                 path=path,
                 blob_id=blob.id,
                 content_type=media_type,
@@ -454,6 +534,12 @@ class RepositoryContext:
             # An upload always counts as a change. Fetching the same bytes from the
             # remote again does not, so Last-Modified stays put.
             existing.updated_at = now
+        if component_attributes is not None and existing.component_id is not None:
+            component = await self.db.get(Component, existing.component_id, populate_existing=True)
+            await self._lock_component(
+                ComponentKey(component.namespace, component.name, component.version)
+            )
+            component.attributes = component_attributes
         await self.db.flush()
         if changed:
             await blobs.dereference(self.db, [previous], now)
@@ -466,13 +552,22 @@ class RepositoryContext:
         *,
         content_type: str | None = None,
         kind: str = "asset",
+        component_attributes: dict[str, Any] | None = None,
     ) -> tuple[Asset, bool]:
         """Record staged content at a path, in the caller's transaction.
 
         Checks permission and policy under the path lock. Never commits: the caller
-        does, and a rollback undoes everything recorded here.
+        does, and a rollback undoes everything recorded here. `component_attributes`,
+        when given, become the attributes of the component the file belongs to.
         """
-        return await self._record(path, staged, content_type=content_type, kind=kind, checked=True)
+        return await self._record(
+            path,
+            staged,
+            content_type=content_type,
+            kind=kind,
+            checked=True,
+            component_attributes=component_attributes,
+        )
 
     async def cache(
         self,
@@ -545,6 +640,34 @@ class RepositoryContext:
             checked=False,
             packaged=False,
         )
+
+    async def annotate(
+        self, namespace: str, name: str, version: str, attributes: dict[str, Any]
+    ) -> bool:
+        """Replace a component's attributes. False if there is no such component.
+
+        Changing what is said about a published version needs `edit`. It is not a
+        redeploy, so `disable_redeploy` does not stop it; a read-only repository does.
+        """
+        authorize(self.principal, self.permission("edit"), scheme="Basic")
+        self._check_policy(replacing=False)
+        key = ComponentKey(namespace, name, version)
+        await self._lock_component(key)
+        component = await self.db.scalar(
+            select(Component)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name == name,
+                Component.version == version,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if component is None:
+            return False
+        component.attributes = attributes
+        await self.db.flush()
+        return True
 
     async def delete(self, path: str) -> bool:
         """Remove what is at a path. False if there was nothing. The caller commits."""
