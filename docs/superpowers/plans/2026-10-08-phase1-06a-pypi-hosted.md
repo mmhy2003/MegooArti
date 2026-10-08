@@ -1003,7 +1003,7 @@ git commit -m "feat(pypi): write the index pages of PEP 503"
 ### Task 5: The upload form
 
 **Files:**
-- Modify: `backend/pyproject.toml`, `backend/uv.lock`, `backend/requirements.txt`
+- Modify: `backend/pyproject.toml`, `backend/uv.lock`
 - Create: `backend/src/megooarti/repositories/pypi/upload.py`
 - Create: `backend/tests/repositories/pypi/conftest.py`
 - Test: `backend/tests/repositories/pypi/test_upload.py`
@@ -1365,10 +1365,9 @@ Run, in `backend/`:
 
 ```bash
 uv add "python-multipart>=0.0.32"
-uv export --frozen --no-dev --no-emit-project --output-file requirements.txt
 ```
 
-Expected: `pyproject.toml` lists `python-multipart`, and `uv.lock` and `requirements.txt` carry it.
+Expected: `pyproject.toml` lists `python-multipart`, and `uv.lock` carries it. (`requirements.txt` is a local export that git ignores; nothing in the build reads it.)
 
 - [ ] **Step 4: Implement**
 
@@ -1591,7 +1590,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/pyproject.toml backend/uv.lock backend/requirements.txt backend/src/megooarti/repositories/pypi/upload.py backend/tests/repositories/pypi
+git add backend/pyproject.toml backend/uv.lock backend/src/megooarti/repositories/pypi/upload.py backend/tests/repositories/pypi
 git commit -m "feat(pypi): read an upload form as it streams"
 ```
 
