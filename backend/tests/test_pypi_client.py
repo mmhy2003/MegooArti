@@ -1,8 +1,8 @@
 """Python's own packaging tools against the built image.
 
 Run with `pytest -m docker`. Besides a Docker daemon this needs internet access: to
-pull the Python image, and to install twine and uv into it from pypi.org. Everything
-those tools then upload or install goes to MegooArti.
+pull the Python image, to install twine and uv into it from pypi.org for the first
+test, and for the proxy of pypi.org that the second test installs everything through.
 """
 
 import subprocess
@@ -20,22 +20,30 @@ pytestmark = pytest.mark.docker
 IMAGE = "python:3.13-slim"
 NETWORK = f"{PROJECT}_default"
 HOSTED = "pypi-hosted"
+PROXY = "pypi-proxy"
+GROUP = "pypi-public"
 # What a publishing account gets: everything on PyPI repositories, and nothing else.
 USERNAME = "ci"
 PASSWORD = "uploads-and-installs-python-packages"
 PROJECT_NAME = "megooarti-greeter"
+# Uploaded to the hosted repository and installed through the group. It requires PUBLIC.
+OURS = "megooarti-grouped"
+# A real public package with no dependencies, and the name of another one.
+PUBLIC = "six"
+TAKEN = "sampleproject"
 
 # Writes a wheel and a source distribution of one small package into dist/, with the
-# standard library only: `make_dist.py <version>`.
+# standard library only: `make_dist.py <name> <version> [<requirement> ...]`.
 MAKE_DIST = """
 import base64, hashlib, io, sys, tarfile, zipfile
 from pathlib import Path
 
-version = sys.argv[1]
-name, module = "megooarti-greeter", "megooarti_greeter"
+name, version, requirements = sys.argv[1], sys.argv[2], sys.argv[3:]
+module = name.replace("-", "_")
 metadata = (
     "Metadata-Version: 2.1\\n"
     f"Name: {name}\\nVersion: {version}\\nSummary: Says hello\\nRequires-Python: >=3.9\\n"
+    + "".join(f"Requires-Dist: {requirement}\\n" for requirement in requirements)
 )
 code = f'def hello():\\n    return "hello from {name} {version}"\\n'
 dist = Path("dist")
@@ -122,11 +130,19 @@ def exits(result: subprocess.CompletedProcess[str]) -> dict[str, int]:
     return {step: int(code) for step, _, code in lines if code.isdigit() and " " not in step}
 
 
-def fetch(path: str, username: str = USERNAME, secret: str = PASSWORD) -> tuple[int, str]:
-    """A GET to the hosted repository from outside: (status, body as text)."""
+def fetch(
+    path: str,
+    username: str = USERNAME,
+    secret: str = PASSWORD,
+    *,
+    repository: str = HOSTED,
+    method: str = "GET",
+) -> tuple[int, str]:
+    """A request to a repository from outside: (status, body as text)."""
     credentials = b64encode(f"{username}:{secret}".encode()).decode()
     request = urllib.request.Request(
-        f"http://127.0.0.1:{HTTP_PORT}/repository/{HOSTED}/{path}",
+        f"http://127.0.0.1:{HTTP_PORT}/repository/{repository}/{path}",
+        method=method,
         headers={"Authorization": f"Basic {credentials}"},
     )
     try:
@@ -185,7 +201,7 @@ def test_twine_and_uv_publish_and_pip_installs(token, tmp_path):
     account = f"-u {USERNAME} -p {PASSWORD}"
     published = python(
         work,
-        f"{REPORT}; pip install --quiet twine && python make_dist.py 1.0.0"
+        f"{REPORT}; pip install --quiet twine && python make_dist.py {PROJECT_NAME} 1.0.0"
         f" && {twine} {account} dist/*; report first"
         f"; {twine} {account} dist/*; report again",
     )
@@ -199,7 +215,7 @@ def test_twine_and_uv_publish_and_pip_installs(token, tmp_path):
     uv = f"uv publish --publish-url {inside(HOSTED)} --token {token}"
     by_token = python(
         work,
-        f"{REPORT}; pip install --quiet uv && python make_dist.py 1.1.0"
+        f"{REPORT}; pip install --quiet uv && python make_dist.py {PROJECT_NAME} 1.1.0"
         f" && {uv} dist/*; report first"
         f"; {uv} dist/*; report again"
         f"; {uv} --check-url {token_index} dist/*; report checked",
@@ -241,3 +257,115 @@ def test_twine_and_uv_publish_and_pip_installs(token, tmp_path):
     )
     assert with_uv.returncode == 0, said(with_uv)
     assert with_uv.stdout.splitlines()[-1] == f"hello from {PROJECT_NAME} 1.1.0"
+
+
+@pytest.fixture(scope="module")
+def group_index(token, administrator) -> str:
+    """A proxy of pypi.org and a group of the hosted repository and it.
+
+    Returns the group's index address as a container reaches it, with the token in it.
+    """
+    proxy = {
+        "name": PROXY,
+        "format": "pypi",
+        "type": "proxy",
+        "proxy": {"remote_url": "https://pypi.org"},
+    }
+    public = {
+        "name": GROUP,
+        "format": "pypi",
+        "type": "group",
+        "group": {"members": [HOSTED, PROXY]},
+    }
+    for body in (proxy, public):
+        status, _, answer = call("POST", "/repositories", body, administrator)
+        assert status == 201, answer
+    return f"http://__token__:{token}@backend:8000/repository/{GROUP}/simple/"
+
+
+def test_pip_uv_and_poetry_install_through_a_group(token, group_index, tmp_path):
+    work = tmp_path / "group"
+    (work / "consumer").mkdir(parents=True)
+    (work / "published").mkdir()
+    (work / "make_dist.py").write_text(MAKE_DIST, encoding="utf-8", newline="\n")
+    source = f'[[tool.poetry.source]]\nname = "megooarti"\nurl = "{inside(GROUP)}simple/"\n'
+    (work / "consumer" / "pyproject.toml").write_text(
+        '[tool.poetry]\nname = "consumer"\nversion = "1.0.0"\ndescription = ""\n'
+        'authors = ["CI <ci@example.com>"]\npackage-mode = false\n\n'
+        f'[tool.poetry.dependencies]\npython = ">=3.9"\n{OURS} = "1.0.0"\n\n'
+        f'{source}priority = "primary"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    (work / "published" / "pyproject.toml").write_text(
+        '[tool.poetry]\nname = "megooarti-poetic"\nversion = "1.0.0"\ndescription = "x"\n'
+        'authors = ["CI <ci@example.com>"]\npackages = [{include = "megooarti_poetic.py"}]\n\n'
+        '[build-system]\nrequires = ["poetry-core"]\nbuild-backend = "poetry.core.masonry.api"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    (work / "published" / "megooarti_poetic.py").write_text("VALUE = 1\n", encoding="utf-8")
+    # Every tool is itself installed through the group: many real packages by the proxy.
+    pip = f"pip install --quiet --index-url {group_index} --trusted-host backend"
+    twine = (
+        "twine upload --non-interactive --disable-progress-bar"
+        f" --repository-url {inside(HOSTED)} -u __token__ -p {token}"
+    )
+    run_it = (
+        f'python -c "import megooarti_grouped, {PUBLIC};'
+        f' print(megooarti_grouped.hello(), {PUBLIC}.__name__)"'
+    )
+    expected = f"hello from {OURS} 1.0.0 {PUBLIC}"
+
+    # Our own package, which requires a public one, and our own package under a name
+    # the public index has too. twine sends the token as Python tools do.
+    published = python(
+        work,
+        f"{pip} twine && python make_dist.py {OURS} 1.0.0 {PUBLIC}"
+        f" && python make_dist.py {TAKEN} 99.0.0 && {twine} dist/*",
+    )
+    assert published.returncode == 0, said(published)
+
+    # What the group says: the public project from the proxy, with its links here, and
+    # under the name we host only what we host.
+    status, public = fetch(f"simple/{PUBLIC}/", repository=GROUP)
+    assert status == 200
+    assert public.count(f'href="../../packages/{PUBLIC}/') > 10
+    assert "pythonhosted.org" not in public and "data-core-metadata" in public
+    assert fetch(f"simple/{PUBLIC}/", repository=GROUP, method="HEAD")[0] == 200
+    status, taken = fetch(f"simple/{TAKEN}/", repository=GROUP)
+    assert (status, taken.count("<a ")) == (200, 2)
+    assert f">{TAKEN}-99.0.0-py3-none-any.whl</a>" in taken
+    status, upstream = fetch(f"simple/{TAKEN}/", repository=PROXY)
+    assert status == 200 and "99.0.0" not in upstream and upstream.count("<a ") > 2
+
+    # Each client installs our package, and through it the public one, from an empty cache.
+    clients = {
+        "pip": f"{pip} {OURS} && {run_it}",
+        "uv": f"{pip} uv && uv pip install --system --index-url {group_index} {OURS} && {run_it}",
+        "poetry": (
+            f"{pip} poetry && export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring"
+            f" && poetry config http-basic.megooarti __token__ {token}"
+            " && cd consumer && poetry install --no-interaction"
+            f" && poetry run {run_it}"
+        ),
+    }
+    for client, script in clients.items():
+        installed = python(work, script)
+        assert installed.returncode == 0, f"{client}: {said(installed)}"
+        assert installed.stdout.splitlines()[-1] == expected, f"{client}: {said(installed)}"
+
+    # What was installed came through the proxy, and is cached there.
+    status, cached = fetch("simple/", repository=PROXY)
+    assert status == 200 and f'<a href="{PUBLIC}/">' in cached
+
+    # Poetry builds a package of its own and publishes it to the hosted repository.
+    by_poetry = python(
+        work,
+        f"{pip} poetry && export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring"
+        f" && cd published && poetry config repositories.hosted {inside(HOSTED)}"
+        f" && poetry publish --build --no-interaction -r hosted -u __token__ -p {token}",
+    )
+    assert by_poetry.returncode == 0, said(by_poetry)
+    status, poetic = fetch("simple/megooarti-poetic/")
+    assert (status, poetic.count("<a ")) == (200, 2)

@@ -156,7 +156,7 @@ A signature sent with the file (`gpg_signature`) is read past: signatures are no
 
 A cached file is never asked about again: a file on an index does not change once published.
 
-**Reading the remote's page.** Links are read out of the page as it streams: each `<a>` with an `href`, its attributes and its text. The page is never held in memory, and nothing else on it is used. From each link:
+**Reading the remote's page.** Links are read out of the page as it streams: the opening tag of each `<a>` with an `href`, and its attributes. The page is never held in memory, and nothing else on it is used. A tag is settled before anything after it is looked at, so what is read does not depend on the pieces the page arrives in. Reading is CPU-bound work whose size the remote decides: it runs on two worker threads of its own, as npm's documents do. From each link:
 
 - the file name: the last segment of the address, decoded;
 - the address, resolved against the page's own;
@@ -213,7 +213,7 @@ Under `backend/src/megooarti/`:
 - **D8** has its own tests: a file on another host, credentials not sent there, an internal address refused, and content that does not match its hash not cached.
 - **Real clients**, in the Docker-marked suite, which needs internet access:
   - *Plan 6a:* in a Python container, `twine upload` publishes a wheel and a source distribution to a hosted repository with a password, and `uv publish` the next version with `__token__`; a second upload of the same files is refused, and `uv publish --check-url` passes over them; `pip install` and `uv pip install` install the wheel and run it.
-  - *Plan 6b:* `pip`, `uv` and Poetry each install a project, from an empty cache, through a group of the hosted repository and a proxy of pypi.org. The project depends on the package uploaded to the hosted repository and on one small public package. A package uploaded under a name pypi.org also has is listed through the group with our files only.
+  - *Plan 6b:* `pip`, `uv` and Poetry each install a package uploaded to the hosted repository, and through it one small public package it requires, from an empty cache, through a group of the hosted repository and a proxy of pypi.org. The tools themselves are installed through the group. A package uploaded under a name pypi.org also has is listed through the group with our files only. `poetry publish` uploads a package it built.
 
 ## 13. Risks
 
@@ -224,6 +224,8 @@ Under `backend/src/megooarti/`:
 | A team needs its own build of a public project beside the public versions (D1 hides them). | Upload it under another name, or keep the public project in a group without the hosted repository. A per-group switch can be added if this proves common. |
 | A remote writes its links in a form the reader does not recognise (a `<base>` element, links built by script). | Those files are not listed. The standard page, which pypi.org, Artifactory, Nexus and devpi all write, is read. |
 | A client asks for the JSON index and gets HTML. | PEP 691 requires clients to accept that, and pip, uv and Poetry do. |
+| A remote answers a plain request for a page with the JSON index. | The proxy then finds no links and the project has no files. pypi.org, Artifactory, Nexus and devpi answer with HTML. Asking for HTML by name can be added to the remote client if an index needs it. |
+| A proxy's page is read and written again for every request that does not carry its `ETag`. | A page of pypi.org's largest projects (about 2 MiB, four thousand files) takes about 0.15 s of a worker thread. Clients revalidate with `ETag`, which is answered without reading anything. |
 | A hosted project's page is built on every request. | It is one query, and a project with ten thousand files makes a page of about 2 MiB. Clients revalidate with `ETag`. |
 | A proxy's first request for a large wheel waits for the whole download, even for a range. | It is then cached. uv asks for ranges only when a file has no metadata file, and pypi.org's wheels have one. |
 
