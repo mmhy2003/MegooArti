@@ -60,8 +60,9 @@ One design, delivered as two plans.
 ### 4.1 For hosted PyPI (plan 6a)
 
 - **`__token__`.** The one function that checks a name and a secret accepts the name `__token__` with an API token, and looks the user up by the token alone. `__token__` with anything that is not a token is a failed attempt, counted as any other. Creating a user named `__token__` is refused.
-- **The files of a package.** A new read operation lists every file of every version of a package in one query: its path, size, hashes, the time it changed, and its component's version and attributes.
-- **A request for the repository itself.** The content route passes an empty path to the format (`POST /repository/<name>/`). The generic format answers `400 invalid_path` for it, as before.
+- **The files of a package.** A new read operation lists every file of every version of a package in one query: its path, size, hash, the time it changed, what is recorded about the file itself, and its component's version and attributes.
+- **What is recorded about a file.** Storing a file can record attributes of the file itself, beside those of its component. A page says what each file requires, and two files of one version need not agree.
+- **A request for the repository itself** (`POST /repository/<name>/`) already reaches the format with an empty path, and the generic format answers `400 invalid_path` for it. Nothing changes there.
 - **A dependency:** `python-multipart`, for reading an upload form as it streams.
 
 ### 4.2 For proxy and group PyPI (plan 6b)
@@ -132,8 +133,8 @@ The client sends `multipart/form-data` with the fields of the legacy upload API:
 2. The body is read as it arrives (D5). The file part goes straight to the blob store's staging area. Of the other fields only those used are kept, each up to 4 KiB; the rest are read past. A form with more than 10,000 parts is refused.
 3. Checks, each answering `400 invalid_package`: the action is `file_upload`; exactly one file was sent; the name is a valid project name; the version and the file name are valid; the file is a wheel (`.whl`) or a source distribution (`.tar.gz`, `.zip`); the file name fits the project (section 5).
 4. If the form declares `sha256_digest` or `md5_digest`, the stored content must match (`400 checksum_mismatch`). A `blake2_256_digest` is not checked: the blob store does not compute it.
-5. The file is stored at its path under the path's lock. The facade checks `add` or `edit` and the deployment policy there: with `disable_redeploy` a file that exists answers `409 redeploy_disabled`, which is what `twine upload --skip-existing` looks for.
-6. Its component is the project's normalised name and the declared version. The component's attributes keep the name as written, the version, `summary` and `requires_python`.
+5. The file is stored at its path under the path's lock. The facade checks `add` or `edit` and the deployment policy there: with `disable_redeploy` a file that exists answers `409 redeploy_disabled`. `uv publish --check-url` passes over files the index already lists with the same hash. twine's `--skip-existing` is refused by twine itself for any index but pypi.org.
+6. Its component is the project's normalised name and the declared version. The component's attributes keep the name as written, the version and `summary`, from the last upload of that version. `requires_python` is kept with the file.
 
 The answer is `200` with an empty body. A failed upload leaves nothing behind, in the database or in the staging area.
 
@@ -210,7 +211,7 @@ Under `backend/src/megooarti/`:
 - **Each repository type** is tested through the HTTP API with the existing fixtures and the fake remote: every row of the tables above, each permission, and D1 by every way in, as for npm.
 - **D8** has its own tests: a file on another host, credentials not sent there, an internal address refused, and content that does not match its hash not cached.
 - **Real clients**, in the Docker-marked suite, which needs internet access:
-  - *Plan 6a:* in a Python container, `twine upload` and `uv publish` each publish a wheel and a source distribution to a hosted repository, once with a password and once with `__token__`; `pip install` installs the wheel from it and runs it; a second upload of the same file is refused, and `--skip-existing` passes.
+  - *Plan 6a:* in a Python container, `twine upload` publishes a wheel and a source distribution to a hosted repository with a password, and `uv publish` the next version with `__token__`; a second upload of the same files is refused, and `uv publish --check-url` passes over them; `pip install` and `uv pip install` install the wheel and run it.
   - *Plan 6b:* `pip`, `uv` and Poetry each install a project, from an empty cache, through a group of the hosted repository and a proxy of pypi.org. The project depends on the package uploaded to the hosted repository and on one small public package. A package uploaded under a name pypi.org also has is listed through the group with our files only.
 
 ## 13. Risks
