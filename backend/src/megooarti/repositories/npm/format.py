@@ -11,32 +11,41 @@ worker threads of their own.
 
 A proxy does not hold every version of a package, so it cannot write the document
 itself. It serves the remote's, with the tarball links in it pointed here as it is sent.
+
+A group answers for a package from its hosted members if one of them holds it, and
+only otherwise from its proxies: a public package must never add versions to a private
+name. That holds for the document and for the tarballs alike.
 """
 
 import asyncio
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import quote
 
+import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import proxy
+from megooarti.repositories import group, proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
-from megooarti.repositories.formats import ComponentKey, Format, register
+from megooarti.repositories.formats import ComponentKey, Format, Serve, register
 from megooarti.repositories.npm import documents, paths, semver
 from megooarti.repositories.npm.rewrite import TarballLinks
 from megooarti.repositories.paths import normalise_path
 from megooarti.security.authentication import unauthorized
 
+log = structlog.get_logger(__name__)
+
 # The most that is read into memory besides a publish: a sign-in or a tag, and the tags
 # kept for a package.
 SMALL_LIMIT = 16 * 1024
 TAGS_LIMIT = 1024 * 1024
+# The most that is parsed of proxies' documents, all together, to merge them.
+MERGE_LIMIT = 16 * 1024 * 1024
 _JSON = "application/json"
 _TARBALL = "application/octet-stream"
 # Where a version's manifest is kept among its component's attributes.
@@ -48,7 +57,10 @@ _workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="npm-documents")
 # How many publishes may be in memory at once. Each can be as large as the limit, and
 # stays that large from the first byte read until its tarballs are stored.
 _PUBLISHES_AT_ONCE = 2
-_gates: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
+# How many merges of proxies' documents may be in memory at once. Parsed, a document
+# takes several times its size.
+_MERGES_AT_ONCE = 2
+_gates: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Semaphore]]" = (
     weakref.WeakKeyDictionary()
 )
 
@@ -61,16 +73,22 @@ async def off_loop[T](function: Callable[..., T], *arguments: Any) -> T:
     return await asyncio.get_running_loop().run_in_executor(_workers, function, *arguments)
 
 
-def publishing() -> asyncio.Semaphore:
-    """The turn a publish takes: `async with publishing():` around reading and storing it.
+def _gate(kind: str, most: int) -> asyncio.Semaphore:
+    """One for each event loop, since a semaphore belongs to the loop that first waits on it."""
+    gates = _gates.setdefault(asyncio.get_running_loop(), {})
+    if kind not in gates:
+        gates[kind] = asyncio.Semaphore(most)
+    return gates[kind]
 
-    One for each event loop, since a semaphore belongs to the loop that first waits on it.
-    """
-    loop = asyncio.get_running_loop()
-    gate = _gates.get(loop)
-    if gate is None:
-        gate = _gates[loop] = asyncio.Semaphore(_PUBLISHES_AT_ONCE)
-    return gate
+
+def publishing() -> asyncio.Semaphore:
+    """The turn a publish takes: `async with publishing():` around reading and storing it."""
+    return _gate("publish", _PUBLISHES_AT_ONCE)
+
+
+def merging() -> asyncio.Semaphore:
+    """The turn a merge takes: `async with merging():` around reading and merging."""
+    return _gate("merge", _MERGES_AT_ONCE)
 
 
 def _answer(value: Any, status: int = 200) -> Response:
@@ -102,6 +120,10 @@ def _hosted_only() -> ApiError:
         "Only a hosted repository answers at this address. Ask for the package itself.",
         headers={"Allow": ""},
     )
+
+
+def _offline() -> ApiError:
+    return ApiError(503, "repository_offline", "A repository that holds this package is offline.")
 
 
 def _invalid(reason: object) -> ApiError:
@@ -260,6 +282,20 @@ async def built(
 # --- Reading -------------------------------------------------------------------------
 
 
+def _as_document(
+    context: RepositoryContext, request: Request, package: str, rendered: documents.Rendered
+) -> Response:
+    """The answer to a request for a package document that was built for it."""
+    return context.respond_with(
+        rendered.data,
+        request,
+        filename=f"{paths.unscoped(package)}.json",
+        content_type=_JSON,
+        last_modified=rendered.modified,
+        etag=rendered.etag,
+    )
+
+
 async def _document(
     context: RepositoryContext, request: Request, parsed: paths.NpmPath
 ) -> Response:
@@ -267,14 +303,7 @@ async def _document(
     if found is None:
         raise _not_found()
     rendered = await off_loop(documents.render, parsed.package, *found)
-    return context.respond_with(
-        rendered.data,
-        request,
-        filename=f"{parsed.name}.json",
-        content_type=_JSON,
-        last_modified=rendered.modified,
-        etag=rendered.etag,
-    )
+    return _as_document(context, request, parsed.package, rendered)
 
 
 async def _manifest(
@@ -290,8 +319,35 @@ async def _manifest(
     return _answer(manifest)
 
 
-async def _search(context: RepositoryContext, request: Request) -> Response:
-    """Packages this repository holds whose name or scope contains the text."""
+async def _found(
+    holders: Sequence[RepositoryContext], scope: str, name: str
+) -> documents.Found | None:
+    """What a search says about a package: what the first of `holders` to have it holds."""
+    for holder in holders:
+        held = await holder.versions(scope, name)
+        if not held:
+            continue
+        newest = max(held, key=semver.sort_key)
+        # Only the newest version's manifest is read: a package can have thousands.
+        info = await holder.component(scope, name, newest)
+        manifest = (info.attributes.get(_MANIFEST) if info is not None else None) or {}
+        description = manifest.get("description")
+        return documents.Found(
+            name=f"@{scope}/{name}" if scope else name,
+            version=newest,
+            description=description if isinstance(description, str) else "",
+            date=held[newest],
+        )
+    return None  # its last file was removed between the two questions
+
+
+async def _search(
+    context: RepositoryContext, request: Request, holders: Sequence[RepositoryContext]
+) -> Response:
+    """Packages that `holders` hold whose name or scope contains the text.
+
+    `holders` is the repository itself, or for a group the repositories behind it.
+    """
 
     def number(name: str, default: int, most: int) -> int:
         value = request.query_params.get(name, "")
@@ -300,26 +356,12 @@ async def _search(context: RepositoryContext, request: Request) -> Response:
 
     text = request.query_params.get("text", "").strip()[: paths.MAX_NAME_LENGTH]
     size = number("size", 20, _MAX_SEARCH_RESULTS)
-    names, total = await context.package_names(text, limit=size, offset=number("from", 0, 10**9))
-    found = []
-    for scope, name in names:
-        held = await context.versions(scope, name)
-        if not held:
-            continue  # its last file was removed between the two questions
-        newest = max(held, key=semver.sort_key)
-        # Only the newest version's manifest is read: a package can have thousands.
-        info = await context.component(scope, name, newest)
-        manifest = (info.attributes.get(_MANIFEST) if info is not None else None) or {}
-        description = manifest.get("description")
-        found.append(
-            documents.Found(
-                name=f"@{scope}/{name}" if scope else name,
-                version=newest,
-                description=description if isinstance(description, str) else "",
-                date=held[newest],
-            )
-        )
-    return _answer(documents.search_results(found, total, utcnow()))
+    names, total = await context.package_names(
+        text, limit=size, offset=number("from", 0, 10**9), within=holders
+    )
+    found = [await _found(holders, scope, name) for scope, name in names]
+    listed = [entry for entry in found if entry is not None]
+    return _answer(documents.search_results(listed, total, utcnow()))
 
 
 # --- Changing ------------------------------------------------------------------------
@@ -527,10 +569,158 @@ async def _streamed(
     )
 
 
+# --- What a group serves -------------------------------------------------------------
+
+
+async def _owners(
+    leaves: Sequence[group.Leaf], package: str
+) -> tuple[list[RepositoryContext], bool]:
+    """The hosted repositories behind a group that hold a package.
+
+    Returns those that are online, in order, and whether one that is offline holds it
+    too. A package that a hosted repository holds is answered for by hosted
+    repositories only: npm's names are not verified, so a public package of the same
+    name must not add versions to it, nor stand in for it while its repository is
+    offline.
+    """
+    scope, name = _coordinates(package)
+    online, offline = [], False
+    for leaf in leaves:
+        member = leaf.context
+        if member.repository.type != "hosted" or not await member.names(scope, [name]):
+            continue
+        if leaf.online:
+            online.append(member)
+        else:
+            offline = True
+    return online, offline
+
+
+def _proxies(leaves: Sequence[group.Leaf]) -> list[RepositoryContext]:
+    return [
+        leaf.context for leaf in leaves if leaf.online and leaf.context.repository.type == "proxy"
+    ]
+
+
+async def _cached_by(members: Sequence[RepositoryContext], package: str) -> list[RepositoryContext]:
+    """Those of `members` that have a package's document, fetching it where need be.
+
+    A proxy that cannot answer is left out, never an error: the group answers from
+    the others.
+    """
+    have = []
+    for member in members:
+        try:
+            await proxy.ensure_cached(member, package)
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+            continue
+        have.append(member)
+    return have
+
+
+async def _several(
+    context: RepositoryContext,
+    request: Request,
+    package: str,
+    have: Sequence[RepositoryContext],
+    base: str,
+) -> Response:
+    """Answer from the documents of several proxies, merged.
+
+    This is the one place a remote's document is parsed, so they are read only up to
+    a limit on their size together, and only two merges run at once. A document that
+    does not fit or cannot be read is left out. If that leaves fewer than two, one is
+    served as it is.
+    """
+    await context.release()  # waiting for a turn needs no connection
+    async with merging():
+        read = []
+        room = MERGE_LIMIT
+        for member in have:
+            stored = await member.stat(package)
+            try:
+                data = None if stored is None else await member.read(package, limit=room)
+            except TooLarge:
+                log.warning(
+                    "document_too_large_to_merge",
+                    repository=member.repository.name,
+                    package=package,
+                )
+                continue
+            if data is not None:
+                read.append((member, data, stored.modified))
+                room -= len(data)
+        await context.release()
+        merged = await off_loop(
+            documents.merge_remote, package, [data for _, data, _ in read], base
+        )
+    for position, (member, _, _) in enumerate(read):
+        if position not in merged.used:
+            log.warning("document_unreadable", repository=member.repository.name, package=package)
+    used = [read[position] for position in merged.used]
+    if merged.data is None:
+        source = used[0][0] if used else have[0]
+        return await _streamed(source, request, package, base)
+    rendered = documents.Rendered(
+        data=merged.data, etag=merged.etag, modified=max(modified for _, _, modified in used)
+    )
+    return _as_document(context, request, package, rendered)
+
+
+async def _group_document(context: RepositoryContext, request: Request, package: str) -> Response:
+    leaves = await group.leaves(context)
+    owners, offline = await _owners(leaves, package)
+    # The links name the group, so every download comes back through it.
+    base = await context.public_url(request)
+    if owners:
+        held = [
+            (await _versions(owner, package), await _stored_tags(owner, package))
+            for owner in owners
+        ]
+        await context.release()  # the work that follows needs no connection
+        rendered = await off_loop(documents.render, package, *documents.combine(held), base)
+        if rendered is None:
+            raise _not_found()  # its last version was removed between the two questions
+        return _as_document(context, request, package, rendered)
+    if offline:
+        raise _offline()
+    have = await _cached_by(_proxies(leaves), package)
+    if not have:
+        raise _not_found()
+    if len(have) == 1:
+        return await _streamed(have[0], request, package, base)
+    return await _several(context, request, package, have, base)
+
+
+async def _group_tarball(
+    context: RepositoryContext, request: Request, parsed: paths.NpmPath, serve: Serve
+) -> Response:
+    """A tarball, from the same members that answer for its package's document."""
+    leaves = await group.leaves(context)
+    owners, offline = await _owners(leaves, parsed.package)
+    if not owners and offline:
+        raise _offline()
+    path = paths.tarball_path(parsed.package, parsed.version)
+    for member in owners or _proxies(leaves):
+        try:
+            return await serve(member, request, path)
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+    raise _not_found("No such file.")
+
+
+async def _group_search(context: RepositoryContext, request: Request) -> Response:
+    members = [leaf.context for leaf in await group.leaves(context) if leaf.online]
+    # A hosted member's word about a package comes first, as it does in its document.
+    members.sort(key=lambda member: member.repository.type != "hosted")
+    return await _search(context, request, members)
+
+
 class NpmFormat(Format):
     name = "npm"
-    # A group needs npm's own handling of package documents.
-    types = frozenset({"hosted", "proxy"})
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""
@@ -590,7 +780,7 @@ class NpmFormat(Format):
         if parsed.kind == "search":
             if not _is_read(request):
                 raise _not_allowed("GET, HEAD")
-            return await _search(context, request)
+            return await _search(context, request, [context])
         raise _not_found("Nothing is served at this address.")
 
     async def handle_proxy(
@@ -611,7 +801,26 @@ class NpmFormat(Format):
             canonical = paths.tarball_path(parsed.package, parsed.version)
             return await proxy.handle_proxy(context, request, canonical)
         if parsed.kind == "search":
-            return await _search(context, request)
+            return await _search(context, request, [context])
+        if parsed.kind in ("version", "dist_tags"):
+            raise _hosted_only()
+        raise _not_found("Nothing is served at this address.")
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        parsed = paths.classify(normalise_path(path))
+        answered = await registry_endpoint(context, request, parsed)
+        if answered is not None:
+            return answered
+        if not _is_read(request):
+            raise _not_allowed("GET, HEAD")
+        if parsed.kind == "document":
+            return await _group_document(context, request, parsed.package)
+        if parsed.kind == "tarball":
+            return await _group_tarball(context, request, parsed, serve)
+        if parsed.kind == "search":
+            return await _group_search(context, request)
         if parsed.kind in ("version", "dist_tags"):
             raise _hosted_only()
         raise _not_found("Nothing is served at this address.")
