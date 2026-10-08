@@ -202,6 +202,9 @@ def _tree(data: bytes) -> ET.Element:
         parser.Parse(data, True)
     except expat.ExpatError as error:
         raise InvalidMetadata(f"it is not well-formed XML (line {error.lineno})") from None
+    except (ValueError, LookupError):
+        # It declares an encoding expat cannot read: a multi-byte one, or one unknown.
+        raise InvalidMetadata("it is in an encoding that cannot be read") from None
     return builder.close()
 
 

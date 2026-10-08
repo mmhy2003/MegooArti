@@ -28,6 +28,7 @@ EQUAL = [
     ("1.0.RC1", "1.0-RC1"),
     ("5.0.0.Final", "5.0.0"),
     ("1.2.3.RELEASE", "1.2.3"),
+    ("1.0.0.Final-SNAPSHOT", "1.0.0-SNAPSHOT"),
 ]
 
 OLDER_THEN_NEWER = [
@@ -67,6 +68,13 @@ OLDER_THEN_NEWER = [
     ("1-sp-1", "1-ga-1"),
     ("4.1.0.Beta1", "4.1.0.Final"),
     ("1.0.RC1", "1.0.RC2"),
+    # A qualifier that ends at a dot or hyphen stays beside the numbers before it.
+    ("2.0.0.BUILD", "2.0.0.BUILD-SNAPSHOT"),
+    ("1.0.x", "1.0.x-SNAPSHOT"),
+    ("4.5.13.redhat-00001", "4.5.13-redhat-1"),
+    # Every part of what one version has extra counts, not only the first.
+    ("1.0.0", "1.0.0-0.1"),
+    ("5.0.0.Final", "5.0.0.Final.1"),
 ]
 
 

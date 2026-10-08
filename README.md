@@ -244,15 +244,17 @@ and give Maven the credentials in `~/.m2/settings.xml`, under the same `id`:
   layout; `permissive` also takes other paths, as plain files.
 - **Checksums are computed, never stored.** A request for `app-1.0.jar.sha1` (or `.md5`,
   `.sha256`, `.sha512`) is answered from the hash recorded for the file. A checksum that
-  a client uploads is compared with the file, and a wrong one fails the upload with
-  `400`, so a corrupted deploy fails visibly.
+  a client uploads is compared with the file. A wrong one is refused with `400` and
+  logged as `checksum_mismatch`; the file stays. Maven itself only warns when a checksum
+  upload fails, so a corrupted deploy shows in the server log, not in the build result.
 - **`maven-metadata.xml` is generated** on every request from the files stored, so it is
   right after a delete and after two deploys at the same moment. What clients upload is
   accepted and discarded, except plugin prefixes, which are kept for each group.
 - `latest` and `release` are the highest versions in Maven's version order, not the
   most recently deployed ones.
-- **A deploying account needs only `add`**, for example `repository:maven:releases:add`.
-  It does not need `edit` to update metadata. Add `read` if it also resolves.
+- **A deploying account needs `add` and `read`**, for example
+  `repository:maven:releases:add` and `repository:maven:releases:read`: Maven reads a
+  repository's metadata before it uploads. It does not need `edit`.
 - **Maven refuses plain HTTP** to any host but `localhost` (since Maven 3.8.1). Put
   MegooArti behind HTTPS for clients on other machines.
 - Proxy and group Maven repositories are not available yet.

@@ -3,10 +3,15 @@
 Written from the Version Order Specification in the Maven POM reference
 (https://maven.apache.org/pom.html#version-order-specification).
 
-A version is parsed into a list of numbers and qualifiers. A hyphen, a change between
-digits and letters, and any qualifier each open a nested list, so that "1.0-rc1",
-"1.0.rc1" and "1.0-rc-1" all become [1, ["rc", [1]]] once trailing zeros are trimmed.
-Nesting is what makes "1-1" (a list after the 1) older than "1.1" (a number after it).
+A version is parsed into a list of numbers and qualifiers. A hyphen and a change
+between digits and letters each open a nested list, and so does a qualifier that ends
+the version or has a digit directly after it. So "1.0-rc1", "1.0.rc1" and "1.0-rc-1"
+all become [1, ["rc", [1]]] once trailing zeros are trimmed, while the "build" of
+"2.0.0.build-snapshot" stays beside the numbers before it. Nesting is what makes "1-1"
+(a list after the 1) older than "1.1" (a number after it).
+
+The specification leaves some of this open. Where it does, this follows what Maven 3.9
+does, and tests/test_maven_client.py compares the two on a list of versions.
 """
 
 from collections.abc import Iterable
@@ -58,12 +63,13 @@ def _parse(version: str) -> list:
             opened[-1].append(nested)
             opened.append(nested)
 
-    def add(piece: str, digits: bool, followed_by_digit: bool = False) -> None:
+    def add(piece: str, digits: bool, *, ends_part: bool = False, digit_next: bool = False) -> None:
         if digits:
             opened[-1].append(int(piece))
-        else:
-            descend()  # ".rc" is "-rc"
-            opened[-1].append(_qualifier(piece, followed_by_digit))
+            return
+        if ends_part or digit_next:
+            descend()  # "1.rc1" is "1-rc1", and "1.final" is "1-final"
+        opened[-1].append(_qualifier(piece, digit_next))
 
     digits = False
     start = 0
@@ -78,7 +84,7 @@ def _parse(version: str) -> list:
                 descend()
         elif character in "0123456789":
             if not digits and index > start:
-                add(text[start:index], False, followed_by_digit=True)
+                add(text[start:index], False, digit_next=True)
                 start = index
                 descend()
             digits = True
@@ -89,7 +95,7 @@ def _parse(version: str) -> list:
                 descend()
             digits = False
     if len(text) > start:
-        add(text[start:], digits)
+        add(text[start:], digits, ends_part=True)
 
     for nested in reversed(opened):
         _trim(nested)
@@ -115,7 +121,8 @@ def _compare(left: Item, right: Item | None) -> int:
             return _sign(_rank(left), _rank(right))
         return -1  # a qualifier is older than a number or a nested list
     if right is None:
-        return _compare(left[0], None) if left else 0
+        # Against nothing, the first part that is not itself nothing decides.
+        return next((result for item in left if (result := _compare(item, None))), 0)
     if isinstance(right, int):
         return -1
     if isinstance(right, str):

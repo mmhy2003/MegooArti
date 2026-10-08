@@ -128,7 +128,7 @@ Both policies are settings of hosted and proxy repositories, given in `format_co
 
 ### 5.3 Version order
 
-`latest`, `release` and the order of `<versions>` use Maven's own comparison (`ComparableVersion`): numeric and text segments, the qualifier order `alpha`, `beta`, `milestone`, `rc`, `snapshot`, release, `sp`, and trailing zeros ignored. It is implemented here from Maven's published Version Order Specification, with a qualifier after a dot treated like one after a hyphen, as Maven 3.9 does. The Docker-marked suite compares it with Maven itself on a list of versions; where they differ, Maven is right.
+`latest`, `release` and the order of `<versions>` use Maven's own comparison (`ComparableVersion`): numeric and text segments, the qualifier order `alpha`, `beta`, `milestone`, `rc`, `snapshot`, release, `sp`, and trailing zeros ignored. It is implemented here from Maven's published Version Order Specification, and where that leaves a case open it does what Maven 3.9 does: a qualifier that ends the version, or has a digit directly after it, is treated like one after a hyphen. The Docker-marked suite compares it with Maven itself on a list of versions; where they differ, Maven is right.
 
 ## 6. Hosted Maven
 
@@ -143,6 +143,8 @@ Both policies are settings of hosted and proxy repositories, given in `format_co
 | `DELETE` | Artifact, catalog, other | `204`, or `404` |
 | `DELETE` | Metadata, checksum | `405`: there is nothing stored to delete |
 
+A deploying account needs `add` and `read`, because Maven reads a repository's metadata before it uploads. It does not need `edit`: nothing it replaces is a file it published.
+
 The deployment policy applies to every stored file, snapshots included. A snapshot repository that receives old-style snapshot names needs `allow_redeploy`.
 
 ### 6.1 Checksums
@@ -155,8 +157,10 @@ The deployment policy applies to every stored file, snapshots included. A snapsh
 | --- | --- |
 | A metadata path | `201`. It cannot be checked: the client's document is not the one served |
 | A stored file, and matches | `201` |
-| A stored file, and differs or cannot be read as a hash | `400 checksum_mismatch`. The file stays; the client sees its deploy fail |
+| A stored file, and differs or cannot be read as a hash | `400 checksum_mismatch`, logged with the repository, path and user. The file stays |
 | Nothing stored | `404`. Maven, Gradle, sbt and Ivy all send a file before its checksums |
+
+Maven only warns when a checksum upload fails; the build still succeeds. A corrupted deploy is therefore visible in the server log, not to the person deploying.
 
 ### 6.2 Generated metadata
 
@@ -278,7 +282,7 @@ There is no migration: a file without a component, the kind `metadata` and the n
 | A client depends on reading back exactly the metadata it uploaded. | None of Maven, Gradle, sbt or Ivy does. The real-client tests cover Maven; others are covered in plan 11. |
 | The version comparison differs from Maven's in some corner. | It is compared with Maven itself in the Docker-marked suite, and a difference affects only `latest`, `release` and list order, never which files are served. |
 | Generating metadata for an artifact with thousands of versions on every request is slow. | It is one indexed query and an in-memory sort. A cache keyed by `lastUpdated` can be added without changing behaviour. |
-| A corrupted upload under `disable_redeploy` leaves a bad file that cannot be replaced by the same user. | The checksum upload fails, so the deploy fails visibly. Someone with `delete` removes the file. Removing it automatically would let anyone with `add` delete files by sending a wrong checksum. |
+| A corrupted upload goes unnoticed by the person deploying, because Maven only warns when a checksum upload fails. | The server refuses the checksum and logs `checksum_mismatch` with the repository, path and user. Someone with `delete` removes the file. Removing it automatically would let anyone with `add` delete files by sending a wrong checksum. Marking such a file in the browse API is a candidate for plan 8. |
 | A checksum request to a proxy can trigger a large download. | Only for a file the client is about to request anyway; the download is then reused. |
 | A group merges on every metadata request. | Metadata is small and clients ask for it at most once a day by default. Caching the merged document is a later optimisation. |
 

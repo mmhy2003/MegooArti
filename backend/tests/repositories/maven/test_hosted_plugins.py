@@ -116,7 +116,7 @@ async def test_plugins_at_a_path_that_cannot_be_a_group_are_dropped(client, rele
     assert await db.scalar(select(func.count()).select_from(Asset)) == 0
 
 
-async def test_an_account_that_may_only_add_completes_two_plugin_deploys(client, db, make_user):
+async def test_an_account_without_edit_completes_two_plugin_deploys(client, db, make_user):
     await create(db, "once", hosted={"deployment_policy": "disable_redeploy"})
     await roles.create_role(
         db, "deployers", "", ["repository:maven:once:add", "repository:maven:once:read"], []

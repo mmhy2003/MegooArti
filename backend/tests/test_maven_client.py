@@ -4,7 +4,9 @@ Run with `pytest -m docker`. Besides a Docker daemon these need internet access:
 fetches its plugins from Maven Central.
 """
 
+import base64
 import hashlib
+import random
 import re
 import subprocess
 import urllib.request
@@ -28,14 +30,17 @@ INSIDE = "http://backend:8000/repository"
 OUTSIDE = f"http://127.0.0.1:{HTTP_PORT}/repository"
 LIBRARY = "io/megooarti/test/library"
 MAVEN = "mvn --batch-mode --settings settings.xml"
+# What a CI account gets: it may add and read, and may not edit or delete.
+USERNAME = "ci"
+PASSWORD = "deploys-with-add-and-read-only"
 
 # Maven refuses plain HTTP to another host unless its built-in blocking mirror is
 # replaced. The stack has no TLS, so the test replaces it with one that matches nothing.
 SETTINGS = """<settings>
   <servers>
-    <server><id>megooarti</id><username>admin</username><password>{token}</password></server>
+    <server><id>megooarti</id><username>{username}</username><password>{password}</password></server>
     <server>
-      <id>megooarti-snapshots</id><username>admin</username><password>{token}</password>
+      <id>megooarti-snapshots</id><username>{username}</username><password>{password}</password>
     </server>
   </servers>
   <mirrors>
@@ -48,6 +53,8 @@ SETTINGS = """<settings>
   </mirrors>
 </settings>
 """
+
+CREDENTIALS = SETTINGS.format(username=USERNAME, password=PASSWORD)
 
 LIBRARY_POM = """<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
@@ -126,18 +133,18 @@ def write(directory: Path, files: dict[str, str]) -> Path:
     return directory
 
 
-def library(directory: Path, version: str, token: str) -> Path:
+def library(directory: Path, version: str) -> Path:
     files = {
-        "settings.xml": SETTINGS.format(token=token),
+        "settings.xml": CREDENTIALS,
         "pom.xml": LIBRARY_POM.format(version=version, server=INSIDE),
         "src/main/java/io/megooarti/test/Library.java": LIBRARY_SOURCE,
     }
     return write(directory, files)
 
 
-def consumers(directory: Path, versions: dict[str, str], token: str) -> Path:
+def consumers(directory: Path, versions: dict[str, str]) -> Path:
     """One project per name in `versions`, each depending on that version of the library."""
-    files = {"settings.xml": SETTINGS.format(token=token)}
+    files = {"settings.xml": CREDENTIALS}
     for name, version in versions.items():
         files[f"{name}/pom.xml"] = CONSUMER_POM.format(version=version, server=INSIDE)
         files[f"{name}/src/main/java/io/megooarti/test/consumer/Consumer.java"] = CONSUMER_SOURCE
@@ -172,19 +179,18 @@ def maven(project: Path, script: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def fetch(path: str, token: str) -> bytes:
+def fetch(path: str) -> bytes:
+    basic = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
     request = urllib.request.Request(
-        f"{OUTSIDE}/{path}", headers={"Authorization": f"Bearer {token}"}
+        f"{OUTSIDE}/{path}", headers={"Authorization": f"Basic {basic}"}
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.read()
 
 
 @pytest.fixture(scope="module")
-def token(administrator) -> Iterator[str]:
-    """An API token for `admin`, with a release and a snapshot repository to deploy to."""
-    status, _, created = call("POST", "/me/tokens", {"name": "maven-client"}, administrator)
-    assert status == 201
+def repositories(administrator) -> Iterator[None]:
+    """A release and a snapshot repository, and the CI account that deploys to them."""
     for name, version_policy, deployment_policy in (
         ("releases", "release", "disable_redeploy"),
         ("snapshots", "snapshot", "allow_redeploy"),
@@ -198,44 +204,59 @@ def token(administrator) -> Iterator[str]:
         }
         status, _, body = call("POST", "/repositories", repository, administrator)
         assert status == 201, body
-    yield created["token"]
+    role = {
+        "name": "maven-deployers",
+        "permissions": ["repository:maven:*:add", "repository:maven:*:read"],
+    }
+    status, _, body = call("POST", "/roles", role, administrator)
+    assert status == 201, body
+    user = {
+        "username": USERNAME,
+        "display_name": "CI",
+        "password": PASSWORD,
+        "roles": ["maven-deployers"],
+        "must_change_password": False,
+    }
+    status, _, body = call("POST", "/users", user, administrator)
+    assert status == 201, body
+    yield
     subprocess.run(["docker", "volume", "rm", "--force", CACHE], capture_output=True, check=False)
 
 
-def test_maven_deploys_a_release_and_two_snapshot_builds_and_resolves_them(token, tmp_path):
-    release = library(tmp_path / "release", "1.0", token)
-    snapshot = library(tmp_path / "snapshot", "1.1-SNAPSHOT", token)
+def test_maven_deploys_a_release_and_two_snapshot_builds_and_resolves_them(repositories, tmp_path):
+    release = library(tmp_path / "release", "1.0")
+    snapshot = library(tmp_path / "snapshot", "1.1-SNAPSHOT")
 
     deployed = maven(release, f"{MAVEN} deploy")
     assert deployed.returncode == 0, deployed.stdout[-4000:]
     again = maven(release, f"{MAVEN} deploy")
-    assert again.returncode != 0, "a release was deployed twice despite disable_redeploy"
-    assert "409" in again.stdout, again.stdout[-4000:]
+    assert again.returncode != 0, "a release was deployed twice"
+    # 403, not 409: replacing a file needs `edit`, which this account lacks. With `edit`
+    # the repository's disable_redeploy policy would refuse it instead.
+    assert "status code: 403" in again.stdout, again.stdout[-4000:]
     for _ in range(2):
         built = maven(snapshot, f"{MAVEN} deploy")
         assert built.returncode == 0, built.stdout[-4000:]
 
-    jar = fetch(f"releases/{LIBRARY}/1.0/library-1.0.jar", token)
-    sha1 = fetch(f"releases/{LIBRARY}/1.0/library-1.0.jar.sha1", token)
+    jar = fetch(f"releases/{LIBRARY}/1.0/library-1.0.jar")
+    sha1 = fetch(f"releases/{LIBRARY}/1.0/library-1.0.jar.sha1")
     assert jar.startswith(b"PK")
     assert sha1.decode() == hashlib.sha1(jar).hexdigest()
-    assert b"<artifactId>library</artifactId>" in fetch(
-        f"releases/{LIBRARY}/1.0/library-1.0.pom", token
-    )
-    listed = metadata.parse(fetch(f"releases/{LIBRARY}/maven-metadata.xml", token))
+    assert b"<artifactId>library</artifactId>" in fetch(f"releases/{LIBRARY}/1.0/library-1.0.pom")
+    listed = metadata.parse(fetch(f"releases/{LIBRARY}/maven-metadata.xml"))
     assert (listed.versions, listed.latest, listed.release) == (("1.0",), "1.0", "1.0")
 
     directory = f"snapshots/{LIBRARY}/1.1-SNAPSHOT"
-    builds = metadata.parse(fetch(f"{directory}/maven-metadata.xml", token))
+    builds = metadata.parse(fetch(f"{directory}/maven-metadata.xml"))
     newest = {entry.extension: entry.value for entry in builds.snapshot_versions}
     assert builds.snapshot_build == 2
     assert set(newest) == {"jar", "pom"}
     assert newest["jar"].endswith("-2")
-    assert fetch(f"{directory}/library-{newest['jar']}.jar", token).startswith(b"PK")
+    assert fetch(f"{directory}/library-{newest['jar']}.jar").startswith(b"PK")
 
     # A local repository that has never seen the library: everything comes from the server.
     versions = {"release": "1.0", "snapshot": "1.1-SNAPSHOT"}
-    projects = consumers(tmp_path / "consumers", versions, token)
+    projects = consumers(tmp_path / "consumers", versions)
     fresh = f"{MAVEN} -Dmaven.repo.local=/tmp/empty-repository"
     resolved = maven(
         projects, f"{fresh} -f release/pom.xml compile && {fresh} -f snapshot/pom.xml compile"
@@ -292,17 +313,47 @@ VERSIONS = [
     "20040616",
     "3.0-M1",
     "3.0",
+    # Pairs a review found we ordered differently from Maven.
+    "2.0.0.BUILD-SNAPSHOT",
+    "2.0.0.BUILD",
+    "1.0.x-SNAPSHOT",
+    "1.0.x",
+    "1.0.0.Final-SNAPSHOT",
+    "1.0.0-SNAPSHOT",
+    "4.5.13.redhat-00001",
+    "4.5.13-redhat-1",
+    "1.0.0",
+    "1.0.0-0.1",
+    "5.0.0.Final",
+    "5.0.0.Final.1",
 ]
+PARTS = ["0", "1", "2", "10", "00", "13", "a", "b", "m", "x", "rc", "cr", "alpha", "beta"]
+PARTS += ["milestone", "snapshot", "final", "ga", "release", "sp", "build", "redhat", "jre"]
+
+
+def made_up_versions(count: int) -> list[str]:
+    """Versions assembled from the parts real ones are made of; the same list every run."""
+    chooser = random.Random(20261008)
+    versions = []
+    for _ in range(count):
+        pieces = [chooser.choice(["1", "2", "10"])]
+        for _ in range(chooser.randint(0, 4)):
+            pieces += [chooser.choice([".", "-", ""]), chooser.choice(PARTS)]
+        versions.append("".join(pieces))
+    return versions
 
 
 def test_our_version_order_is_mavens():
     """Maven compares each version with the one before it; so do we."""
+    versions = VERSIONS + made_up_versions(1500)
     java = (
         "java -cp /usr/share/maven/lib/maven-artifact-*.jar "
         "org.apache.maven.artifact.versioning.ComparableVersion"
     )
+    # The versions go in on standard input: there are too many for a command line.
     result = subprocess.run(
-        ["docker", "run", "--rm", IMAGE, "sh", "-c", f"{java} {' '.join(VERSIONS)}"],
+        ["docker", "run", "--rm", "--interactive", IMAGE, "sh", "-c", f"{java} $(cat)"],
+        input=" ".join(versions),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -314,6 +365,7 @@ def test_our_version_order_is_mavens():
 
     theirs = re.findall(r"^\s+(\S+) (<|==|>) (\S+)$", result.stdout, re.MULTILINE)
     symbol = {-1: "<", 0: "==", 1: ">"}
-    ours = [(one, symbol[compare(one, other)], other) for one, other in pairwise(VERSIONS)]
+    ours = [(one, symbol[compare(one, other)], other) for one, other in pairwise(versions)]
 
-    assert [tuple(line) for line in theirs] == ours
+    assert len(theirs) == len(versions) - 1
+    assert [pair for pair in zip(theirs, ours, strict=True) if pair[0] != pair[1]] == []

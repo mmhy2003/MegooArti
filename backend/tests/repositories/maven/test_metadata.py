@@ -257,6 +257,16 @@ def test_a_document_that_is_not_metadata_is_refused(document):
         metadata.parse(document)
 
 
+@pytest.mark.parametrize(
+    "encoding", ["Shift_JIS", "UTF-7", "UTF-32", "GBK", "no-such-encoding", "rot13", "idna"]
+)
+def test_a_document_in_an_encoding_that_cannot_be_read_is_refused(encoding):
+    document = f'<?xml version="1.0" encoding="{encoding}"?><metadata/>'.encode("ascii")
+
+    with pytest.raises(InvalidMetadata):
+        metadata.parse(document)
+
+
 def test_overlong_fields_are_ignored():
     long = "x" * 256
     document = (

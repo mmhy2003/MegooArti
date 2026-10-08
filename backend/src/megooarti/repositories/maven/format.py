@@ -236,6 +236,15 @@ async def _checksum(
         raise ApiError(404, "not_found", "There is no file here for this checksum to belong to.")
     declared = None if body is None else checksums.read_uploaded(body, algorithm)
     if declared != found[0]:
+        # Maven only warns when a checksum upload fails, so this log line is where a
+        # corrupted deploy becomes visible.
+        log.warning(
+            "checksum_mismatch",
+            repository=context.repository.name,
+            path=target,
+            algorithm=algorithm,
+            by=context.principal.user.username,
+        )
         # The file stays. Removing it would let anyone who may add delete files by
         # sending a wrong checksum; the client sees its deploy fail instead.
         raise ApiError(

@@ -1,6 +1,7 @@
 import hashlib
 
 import pytest
+import structlog
 from sqlalchemy import select
 
 from megooarti.repositories.models import Asset
@@ -68,6 +69,25 @@ async def test_a_wrong_checksum_fails_the_upload_and_leaves_the_file(client, jar
 
     assert (response.status_code, error_code(response)) == (400, "checksum_mismatch")
     assert (await client.get(JAR, headers=root)).content == BYTES
+
+
+async def test_a_wrong_checksum_is_logged_for_the_operator(client, jar, root):
+    # Maven only warns when a checksum upload fails, so the log is where this shows.
+    with structlog.testing.capture_logs() as logs:
+        await client.put(f"{JAR}.sha1", content=b"0" * 40, headers=root)
+        await client.put(f"{JAR}.sha1", content=SHA1.encode(), headers=root)
+
+    mismatches = [entry for entry in logs if entry["event"] == "checksum_mismatch"]
+    assert mismatches == [
+        {
+            "event": "checksum_mismatch",
+            "log_level": "warning",
+            "repository": "releases",
+            "path": "com/acme/app/1.0/app-1.0.jar",
+            "algorithm": "sha1",
+            "by": "root",
+        }
+    ]
 
 
 async def test_a_checksum_for_a_missing_file_is_not_found(client, releases, root):
