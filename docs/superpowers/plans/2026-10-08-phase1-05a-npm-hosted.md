@@ -426,7 +426,7 @@ from megooarti.repositories.content import ComponentInfo
 from megooarti.repositories.formats import ComponentKey, Format
 from megooarti.repositories.models import Asset, Component
 from megooarti.system.settings_store import set_setting
-from tests.repositories.conftest import body, someone
+from tests.repositories.conftest import someone
 
 EVERYTHING = someone("repository:raw:files")
 
