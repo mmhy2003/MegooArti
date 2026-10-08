@@ -325,10 +325,37 @@ async def test_uploading_a_file_again_replaces_it_unless_the_policy_forbids(clie
         held["pypi"]["summary"] for held in await db.scalars(select(Component.attributes))
     ]
     assert sorted(kept_about) == ["second", "third"]  # the release's, from the last upload
-    # What `twine upload --skip-existing` looks for.
     assert (refused.status_code, error_code(refused)) == (409, "redeploy_disabled")
     assert another.status_code == 200  # a new file of the same version is not a redeploy
     assert kept.content == content_of(WHEEL)
+
+
+async def test_a_file_name_has_one_address_whatever_version_is_declared(
+    client, db, root, make_user
+):
+    await create(db, "once", hosted={"deployment_policy": "disable_redeploy"})
+    permissions = ["repository:pypi:once:add", "repository:pypi:once:read"]
+    await roles.create_role(db, "adders", "", permissions, [])
+    await db.commit()
+    await make_user("adder", roles=["adders"])
+    adder = basic("adder", PASSWORD)
+    first = await upload(client, root, SDIST, repository="once", version="1.0.0.0")
+
+    # The same file name again, said to belong to other versions.
+    by_policy = await upload(client, root, SDIST, repository="once", data=b"rebuilt", version="9")
+    by_adder = await upload(client, adder, SDIST, repository="once", data=b"rebuilt", version="0")
+    page = await client.get("/repository/once/simple/megooarti-greeter/", headers=root)
+
+    assert first.status_code == 200
+    assert (by_policy.status_code, error_code(by_policy)) == (409, "redeploy_disabled")
+    assert (by_adder.status_code, error_code(by_adder)) == (403, "forbidden")
+    digest = hashlib.sha256(content_of(SDIST)).hexdigest()
+    assert links(page) == [
+        ({"href": f"../../packages/megooarti-greeter/1.0.0/{SDIST}#sha256={digest}"}, SDIST)
+    ]
+    component = await db.scalar(select(Component))
+    # The address has the version in the file's name; what was declared is kept beside it.
+    assert (component.version, component.attributes["pypi"]["version"]) == ("1.0.0", "1.0.0.0")
 
 
 async def test_a_read_only_repository_refuses_before_reading_the_file(client, db, root, settings):

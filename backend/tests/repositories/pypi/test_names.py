@@ -157,6 +157,10 @@ def test_the_version_is_read_from_the_file_name(project, filename, version):
         ("requests", "requests-2.31.0"),
         ("requests", "-2.31.0.tar.gz"),
         ("requests", ""),
+        # A version that could not be one segment of a path is no version.
+        ("pkg", "pkg-..tar.gz"),
+        ("pkg", "pkg-..zip"),
+        ("pkg", "pkg-..-py3-none-any.whl"),
     ],
 )
 def test_a_file_that_does_not_fit_its_project_has_no_version(project, filename):

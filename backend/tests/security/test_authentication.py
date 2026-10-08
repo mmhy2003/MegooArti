@@ -2,13 +2,14 @@ import base64
 from datetime import timedelta
 
 import pytest
+import structlog
 from fastapi import APIRouter, Depends, FastAPI
 from sqlalchemy import select, update
 
 from megooarti.clock import utcnow
 from megooarti.security import users
 from megooarti.security.authentication import Principal, require, require_interactive
-from megooarti.security.models import ApiToken, UserSession
+from megooarti.security.models import ApiToken, LoginFailure, UserSession
 from megooarti.system.settings_store import set_setting
 from tests.accounts import PASSWORD, basic, bearer, error_code, sign_in
 
@@ -271,6 +272,25 @@ async def test_a_nul_character_in_basic_credentials_is_unauthorized(client):
     response = await client.get(READ, headers={"Authorization": header})
 
     assert (response.status_code, error_code(response)) == (401, "unauthorized")
+
+
+async def test_a_token_put_where_the_name_belongs_is_not_logged_or_remembered(
+    client, make_user, make_token, db
+):
+    # `https://<token>@host/` in an index address sends the token as the user name.
+    root = await make_user("root", roles=["admin"])
+    token = await make_token(root)
+
+    with structlog.testing.capture_logs() as logs:
+        by_basic = await client.get(READ, headers=basic(token, ""))
+        by_login = await client.post(
+            "/api/v1/auth/login", json={"username": token, "password": "anything at all"}
+        )
+
+    assert (by_basic.status_code, by_login.status_code) == (401, 401)
+    assert token.lower() not in repr(logs).lower()
+    remembered = list(await db.scalars(select(LoginFailure.subject)))
+    assert remembered and not [subject for subject in remembered if "mga_" in subject.lower()]
 
 
 async def test_basic_with_the_token_user_name_is_the_tokens_owner(client, make_user, make_token):

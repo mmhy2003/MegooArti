@@ -421,7 +421,8 @@ pip install --index-url https://__token__:$MEGOOARTI_TOKEN@repo.example.com/repo
 ```
 
 - **Credentials** are HTTP Basic: a user name and password, a user name and a token, or
-  `__token__` and a token.
+  `__token__` and a token. A token in the place of the user name
+  (`https://<token>@host/`) is refused.
 - **A project's page is generated** on every request from the files stored, so it is
   right after a delete and after two uploads at the same moment. It is the HTML index
   of PEP 503, with each file's `sha256` and the Python versions it requires.
@@ -431,6 +432,8 @@ pip install --index-url https://__token__:$MEGOOARTI_TOKEN@repo.example.com/repo
   against the `sha256` and `md5` digests the client sends. Wheels (`.whl`) and source
   distributions (`.tar.gz`, `.zip`) are taken; the file's name must fit its project.
   `poetry publish` sends the same request as twine.
+- **A file name has one address in its project**, whatever version an upload declares
+  for it: `packages/<project>/<version in the file name>/<file name>`.
 - **Uploading a file again** follows the deployment policy. With `disable_redeploy` it
   answers `409`. `uv publish --check-url <index address>` passes over files that are
   already there; give that address its credentials, because uv does not send the

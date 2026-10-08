@@ -25,6 +25,7 @@
 | P9 | The root index lists at most 100,000 projects. | Installers never ask for it; it must not be unbounded. |
 | P10 | In this plan the format offers only `hosted`. Plan 6b adds `proxy` and `group`. | A proxy on the generic engine would serve the remote's page, whose links bypass MegooArti. |
 | P11 | The real-client test builds its two distributions with the standard library, and installs twine and uv from pypi.org. It uses `uv publish --check-url` for files that are already there, not `twine upload --skip-existing`. | No build backend is needed in the container. twine itself refuses `--skip-existing` for any index but pypi.org; uv does not send the token to the check address, so the address carries it. Found by running the clients. |
+| P12 | Changed after review: a file is stored under the version read from its name, not the declared one (P5), and the declared version is kept in the component's attributes. A user name shaped like a token is nobody's: it is refused without being logged or remembered, and cannot be given to a user. | Declaring another version put a second file of the same name beside the first, past `disable_redeploy` and past an account with `add` only; pip and uv then disagreed about which one to install. `https://<token>@host/` sends a token as the user name, and it was written to the log and the failed-attempts table. |
 
 ## Global Constraints
 

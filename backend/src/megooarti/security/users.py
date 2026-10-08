@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
+from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import Role, User, UserRole
 from megooarti.security.passwords import hash_password, password_problem
 from megooarti.security.roles import effective_patterns, roles_named
@@ -37,6 +38,15 @@ class UserView:
 
 def normalise_username(username: str) -> str:
     return username.strip().lower()
+
+
+def looks_like_token(username: str) -> bool:
+    """Whether what was given as a user name is shaped like an API token.
+
+    A token sometimes arrives where the name belongs (`https://<token>@host/`). No
+    user can have such a name, so it is never taken for one, logged or remembered.
+    """
+    return normalise_username(username).startswith(TOKEN_PREFIX)
 
 
 async def get_user(db: AsyncSession, user_id: uuid.UUID) -> User | None:
@@ -106,7 +116,7 @@ async def create_user(
     must_change_password: bool,
 ) -> User:
     username = normalise_username(username)
-    if username == TOKEN_USERNAME:
+    if username == TOKEN_USERNAME or looks_like_token(username):
         details = [
             {"field": "username", "message": "This name is reserved for signing in with a token."}
         ]

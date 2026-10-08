@@ -52,7 +52,7 @@ One design, delivered as two plans.
 | D6 | Links in every index page are relative (`../../packages/...`). A project page is served only at its one address, `simple/<normalised name>/`; other spellings redirect there. | A page is then the same whatever host or proxy prefix the client used, so nothing depends on the base URL and its `ETag` is the same for everyone. |
 | D7 | A proxy does not serve the remote's page. It reads the links out of it as it streams and writes its own page from them. | The remote's links point elsewhere, often at another host, and a page built here carries nothing the remote wrote but file names, hashes and four known attributes. |
 | D8 | A proxy fetches a file from the address the remote's page gives for it, and checks it against the hash on the page. The remote's credentials are sent only to the remote's own origin. A file address on a loopback, link-local or private network is refused unless the remote itself is at that host. | pypi.org keeps its files on another host. The page is written by the remote, so what it points at is not trusted to be the same place, or a safe one. |
-| D9 | A file is stored at `packages/<project>/<version>/<file name>` in every repository type. On a hosted repository the version is the one the upload declares; on a proxy it is read from the file name. | One address for a file wherever it is, so a group can serve it from any member. The layout is the one Nexus users know. |
+| D9 | A file is stored at `packages/<project>/<version>/<file name>` in every repository type, and the version is the one read from the file name. | One address for a file name wherever it is, so a group can serve it from any member, and so that the deployment policy and the `add` and `edit` permissions apply to a file name whatever version an upload declares. The layout is the one Nexus users know. |
 | D10 | The root index (`simple/`) lists the projects a repository holds. A proxy lists the projects it has cached a file of, not the remote's. | pypi.org's list is tens of megabytes and installers never ask for it. |
 
 ## 4. Changes to the core
@@ -60,6 +60,7 @@ One design, delivered as two plans.
 ### 4.1 For hosted PyPI (plan 6a)
 
 - **`__token__`.** The one function that checks a name and a secret accepts the name `__token__` with an API token, and looks the user up by the token alone. `__token__` with anything that is not a token is a failed attempt, counted as any other. Creating a user named `__token__` is refused.
+- **A token where the name belongs.** An index address written as `https://<token>@host/` sends the token as the user name. A name shaped like a token is nobody's: it is refused as a failed attempt counted against the address only, it is not logged or stored, and no user can be given such a name.
 - **The files of a package.** A new read operation lists every file of every version of a package in one query: its path, size, hash, the time it changed, what is recorded about the file itself, and its component's version and attributes.
 - **What is recorded about a file.** Storing a file can record attributes of the file itself, beside those of its component. A page says what each file requires, and two files of one version need not agree.
 - **A request for the repository itself** (`POST /repository/<name>/`) already reaches the format with an empty path, and the generic format answers `400 invalid_path` for it. Nothing changes there.
@@ -134,7 +135,7 @@ The client sends `multipart/form-data` with the fields of the legacy upload API:
 3. Checks, each answering `400 invalid_package`: the action is `file_upload`; exactly one file was sent; the name is a valid project name; the version and the file name are valid; the file is a wheel (`.whl`) or a source distribution (`.tar.gz`, `.zip`); the file name fits the project (section 5).
 4. If the form declares `sha256_digest` or `md5_digest`, the stored content must match (`400 checksum_mismatch`). A `blake2_256_digest` is not checked: the blob store does not compute it.
 5. The file is stored at its path under the path's lock. The facade checks `add` or `edit` and the deployment policy there: with `disable_redeploy` a file that exists answers `409 redeploy_disabled`. `uv publish --check-url` passes over files the index already lists with the same hash. twine's `--skip-existing` is refused by twine itself for any index but pypi.org.
-6. Its component is the project's normalised name and the declared version. The component's attributes keep the name as written, the version and `summary`, from the last upload of that version. `requires_python` is kept with the file.
+6. Its component is the project's normalised name and the version in the file's name. The component's attributes keep the name as written, the declared version and `summary`, from the last upload of that version. `requires_python` is kept with the file.
 
 The answer is `200` with an empty body. A failed upload leaves nothing behind, in the database or in the staging area.
 

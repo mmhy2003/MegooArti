@@ -39,6 +39,7 @@ class Declared:
     name: str  # the name as written
     version: str
     filename: str
+    file_version: str  # the version in the file's name, which is where it is stored
     summary: str | None
     requires_python: str | None
     digests: dict[str, str] = field(default_factory=dict)  # algorithm -> lower-case hex
@@ -184,7 +185,8 @@ def declared(fields: Mapping[str, str], filename: str | None, files: int) -> Dec
     if not names.is_valid_segment(filename) or not filename.endswith(names.UPLOADABLE):
         raise InvalidUpload("the file is not a wheel or a source distribution")
     project = names.normalise(name)
-    if names.version_of(project, filename) is None:
+    file_version = names.version_of(project, filename)
+    if file_version is None:
         raise InvalidUpload("the file's name does not fit the project")
 
     digests = {}
@@ -200,6 +202,7 @@ def declared(fields: Mapping[str, str], filename: str | None, files: int) -> Dec
         name=name,
         version=version,
         filename=filename,
+        file_version=file_version,
         summary=_optional(fields, "summary"),
         requires_python=_optional(fields, "requires_python"),
         digests=digests,

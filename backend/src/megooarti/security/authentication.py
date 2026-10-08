@@ -155,6 +155,10 @@ async def authenticate_password(
     if "\x00" in username:
         # PostgreSQL cannot store or compare this character, so it is never an account.
         return await _checked(db, request, None, _no_match)
+    if users.looks_like_token(username):
+        # A token where the name belongs. It is nobody's name, and it is a secret: the
+        # failure is counted against the address only, and the name is not logged.
+        return await _checked(db, request, None, _no_match)
 
     async def attempt() -> User | None:
         user = await users.get_user_by_username(db, username)

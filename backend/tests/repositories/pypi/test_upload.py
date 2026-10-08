@@ -165,10 +165,19 @@ def test_what_a_good_upload_declares():
         name="Megooarti_Greeter",
         version="1.0.0",
         filename=WHEEL,
+        file_version="1.0.0",
         summary="Says hello",
         requires_python=">=3.9",
         digests={"sha256": hashlib.sha256(DATA).hexdigest(), "md5": hashlib.md5(DATA).hexdigest()},
     )
+
+
+def test_the_version_in_the_file_name_is_reported_beside_the_declared_one():
+    fields = {":action": "file_upload", "name": "pkg", "version": "9"}
+
+    sent = upload.declared(fields, "pkg-1.0.tar.gz", 1)
+
+    assert (sent.version, sent.file_version) == ("9", "1.0")
 
 
 def test_what_is_not_declared_is_left_out():

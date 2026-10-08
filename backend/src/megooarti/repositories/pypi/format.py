@@ -129,8 +129,11 @@ async def _upload(context: RepositoryContext, request: Request) -> Response:
 
     release = {"name": sent.name, "version": sent.version, "summary": sent.summary}
     # The facade checks `add` or `edit` and the deployment policy, under the path's lock.
+    # The path has the version in the file's name, not the one declared: a file name
+    # then has one address in its project, and declaring another version cannot put a
+    # second file of that name beside the first.
     await context.store(
-        names.file_path(sent.project, sent.version, sent.filename),
+        names.file_path(sent.project, sent.file_version, sent.filename),
         staged,
         content_type=_FILE,
         # A page says what each file requires, so that is kept with the file.

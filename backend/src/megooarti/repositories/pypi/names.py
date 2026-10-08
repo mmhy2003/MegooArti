@@ -61,13 +61,19 @@ def version_of(project: str, filename: str) -> str | None:
     """The version a file belongs to, read from its name.
 
     `project` is in its normal form. None if the name is not that of a file of the
-    project: installers ignore such files too.
+    project: installers ignore such files too. What is returned can always be one
+    segment of a path.
     """
+    version = _version_in(project, filename)
+    return version if version and is_valid_segment(version) else None
+
+
+def _version_in(project: str, filename: str) -> str | None:
     if filename.endswith(".whl"):
         parts = filename[: -len(".whl")].split("-")
         if len(parts) not in (5, 6) or normalise(parts[0]) != project:
             return None
-        return parts[1] or None
+        return parts[1]
     extension = next((known for known in _SOURCE + _LEGACY if filename.endswith(known)), None)
     if extension is None:
         return None
@@ -76,7 +82,7 @@ def version_of(project: str, filename: str) -> str | None:
     for position in range(len(stem) - 1, 0, -1):
         if stem[position] == "-" and normalise(stem[:position]) == project:
             rest = stem[position + 1 :]
-            return (rest.partition("-")[0] if extension in _LEGACY else rest) or None
+            return rest.partition("-")[0] if extension in _LEGACY else rest
     return None
 
 
