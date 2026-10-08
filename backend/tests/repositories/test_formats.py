@@ -38,3 +38,23 @@ def test_the_generic_component_is_the_file_in_its_directory(path, expected):
 def test_a_format_must_have_a_name_to_be_registered():
     with pytest.raises(ValueError):
         register(Format())
+
+
+@pytest.mark.parametrize(
+    ("base", "path", "expected"),
+    [
+        ("https://remote.example/files", "a/b.bin", "https://remote.example/files/a/b.bin"),
+        ("https://remote.example/files/", "a.bin", "https://remote.example/files/a.bin"),
+        (
+            "https://remote.example",
+            "with space/ünï?.bin",
+            "https://remote.example/with%20space/%C3%BCn%C3%AF%3F.bin",
+        ),
+    ],
+)
+def test_the_generic_remote_url_is_the_base_plus_the_encoded_path(base, path, expected):
+    assert get_format("raw").remote_url(base, path) == expected
+
+
+def test_the_generic_format_has_no_metadata_paths():
+    assert get_format("raw").is_metadata("anything/at/all.xml") is False

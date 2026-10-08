@@ -7,6 +7,7 @@ they work through the repository context they are handed.
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -63,6 +64,18 @@ class Format:
         """Which component a stored path belongs to: the file, in its directory."""
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    def remote_url(self, base: str, path: str) -> str:
+        """Where a proxy repository finds a path on its remote."""
+        return f"{base.rstrip('/')}/{quote(path, safe='/')}"
+
+    def is_metadata(self, path: str) -> bool:
+        """Whether a path is an index that changes as packages are published.
+
+        Metadata is revalidated on `metadata_max_age_minutes`; everything else on
+        `content_max_age_minutes`. The generic format has no metadata.
+        """
+        return False
 
     async def handle_hosted(
         self, context: "RepositoryContext", request: Request, path: str
