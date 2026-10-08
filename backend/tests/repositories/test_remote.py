@@ -1,0 +1,176 @@
+import base64
+import hashlib
+from collections.abc import AsyncIterator
+
+import pytest
+
+from megooarti import __version__
+from megooarti.config import Settings
+from megooarti.errors import ApiError
+from megooarti.repositories import remote
+from megooarti.secrets_box import SecretUnreadable, seal
+from megooarti.storage.backends import FileBlobBackend, StagedBlob
+from tests.repositories.fake_remote import MODIFIED, FakeRemote, etag_of
+
+URL = "http://remote.test/files/a/b.bin"
+CONTENT = b"content held by the remote"
+
+
+@pytest.fixture
+def fake() -> FakeRemote:
+    remote_ = FakeRemote()
+    remote_.files["files/a/b.bin"] = CONTENT
+    return remote_
+
+
+@pytest.fixture
+def backend(tmp_path) -> FileBlobBackend:
+    return FileBlobBackend(tmp_path / "store")
+
+
+@pytest.fixture
+def stage(backend):
+    async def stage_checked(chunks: AsyncIterator[bytes], size: int | None) -> StagedBlob:
+        staged = await backend.stage(chunks)
+        if size is not None and staged.size != size:
+            await backend.discard(staged)
+            raise ApiError(400, "checksum_mismatch", "The size does not match.")
+        return staged
+
+    return stage_checked
+
+
+def temporary_files(tmp_path) -> list:
+    directory = tmp_path / "store" / "tmp"
+    return list(directory.iterdir()) if directory.exists() else []
+
+
+async def fetch(fake, stage, **options):
+    async with fake.client() as client:
+        options.setdefault("authorization", None)
+        return await remote.download(client, URL, stage=stage, **options)
+
+
+async def test_download_stages_the_content_and_reports_what_the_remote_said(fake, stage):
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Fetched)
+    assert outcome.staged.sha256 == hashlib.sha256(CONTENT).hexdigest()
+    assert (outcome.content_type, outcome.etag, outcome.last_modified) == (
+        "application/x-remote",
+        etag_of(CONTENT),
+        MODIFIED,
+    )
+
+
+async def test_requests_identify_megooarti_and_ask_for_the_bytes_as_stored(fake, stage):
+    await fetch(fake, stage)
+
+    (seen,) = fake.requests
+    assert seen["headers"]["user-agent"] == f"MegooArti/{__version__}"
+    assert seen["headers"]["accept-encoding"] == "identity"
+    assert "authorization" not in seen["headers"]
+
+
+async def test_an_unchanged_file_is_not_downloaded_again(fake, stage, tmp_path):
+    outcome = await fetch(fake, stage, etag=etag_of(CONTENT), last_modified=MODIFIED)
+
+    assert outcome == remote.NotModified()
+    assert fake.requests[0]["headers"]["if-modified-since"] == MODIFIED
+    assert temporary_files(tmp_path) == []
+
+
+async def test_a_file_the_remote_lacks_is_missing(fake, stage):
+    fake.files.clear()
+    assert await fetch(fake, stage) == remote.Missing()
+
+    fake.status = 410
+    assert await fetch(fake, stage) == remote.Missing()
+
+
+@pytest.mark.parametrize(
+    ("status", "blockable"),
+    [(500, True), (503, True), (429, True), (401, False), (403, False), (400, False)],
+)
+async def test_other_answers_are_failures_and_only_some_count_towards_blocking(
+    fake, stage, tmp_path, status, blockable
+):
+    fake.status = status
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Failed)
+    assert outcome.blockable is blockable
+    assert str(status) in outcome.reason
+    assert temporary_files(tmp_path) == []
+
+
+async def test_an_unreachable_remote_is_a_blockable_failure(fake, stage):
+    fake.down = True
+
+    outcome = await fetch(fake, stage)
+
+    assert outcome == remote.Failed("ConnectError", blockable=True)
+
+
+async def test_a_file_shorter_than_declared_is_a_failure_and_leaves_nothing(fake, stage, tmp_path):
+    fake.declared_extra = 5
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Failed)
+    assert outcome.blockable is True
+    assert temporary_files(tmp_path) == []
+
+
+async def test_the_credential_is_sent_to_the_remote(fake, stage):
+    await fetch(fake, stage, authorization="Bearer the-remote-token")
+
+    assert fake.requests[0]["headers"]["authorization"] == "Bearer the-remote-token"
+
+
+async def test_the_credential_does_not_follow_a_redirect_to_another_host(fake, stage):
+    fake.redirect_to = "http://elsewhere.test"
+
+    outcome = await fetch(fake, stage, authorization="Bearer the-remote-token")
+
+    first, second = fake.requests
+    assert isinstance(outcome, remote.Fetched)
+    assert (first["host"], second["host"]) == ("remote.test", "elsewhere.test")
+    assert "authorization" in first["headers"]
+    assert "authorization" not in second["headers"]
+
+
+async def test_head_reports_existence_without_fetching_the_body(fake):
+    async with fake.client() as client:
+        exists = await remote.head(client, URL, authorization=None)
+        fake.files.clear()
+        missing = await remote.head(client, URL, authorization=None)
+        fake.status = 500
+        failed = await remote.head(client, URL, authorization=None)
+
+    assert isinstance(exists, remote.Exists)
+    assert exists.headers["Content-Length"] == str(len(CONTENT))
+    assert exists.headers["Content-Type"] == "application/x-remote"
+    assert missing == remote.Missing()
+    assert isinstance(failed, remote.Failed)
+    assert [seen["method"] for seen in fake.requests] == ["HEAD", "HEAD", "HEAD"]
+
+
+def test_authorization_headers_for_each_kind_of_credential(tmp_path):
+    settings = Settings(_env_file=None, database_url="postgresql://u:p@db/m", data_dir=tmp_path)
+    sealed = seal(settings, "s3cret")
+    expected_basic = "Basic " + base64.b64encode(b"robot:s3cret").decode()
+
+    assert remote.authorization(settings, {"type": "none"}) is None
+    assert remote.authorization(settings, {"type": "bearer", "secret": sealed}) == "Bearer s3cret"
+    basic = {"type": "basic", "username": "robot", "secret": sealed}
+    assert remote.authorization(settings, basic) == expected_basic
+
+
+def test_a_credential_sealed_with_another_key_is_unreadable(tmp_path):
+    here = Settings(_env_file=None, database_url="postgresql://u:p@db/m", data_dir=tmp_path)
+    sealed = seal(here.model_copy(update={"secret_key": "another key"}), "s3cret")
+
+    with pytest.raises(SecretUnreadable):
+        remote.authorization(here, {"type": "bearer", "secret": sealed})
