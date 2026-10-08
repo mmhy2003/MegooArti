@@ -5,7 +5,7 @@ import pytest
 from starlette.datastructures import Headers
 
 from megooarti.errors import ApiError
-from megooarti.repositories.serving import Plan, Servable, plan
+from megooarti.repositories.serving import Plan, Servable, plan, plan_stream
 
 ITEM = Servable(
     sha256="a" * 64,
@@ -199,3 +199,39 @@ def test_an_item_can_name_its_own_etag_and_leave_out_checksums():
     assert not [name for name in made.headers if name.startswith("X-Checksum")]
     assert made.headers["Content-Security-Policy"] == "sandbox"
     assert (unchanged.status, unchanged.byte_range) == (304, None)
+
+
+MADE = replace(ITEM, sha256="", md5=None, sha1=None, sha512=None, size=0, etag="made")
+
+
+def test_content_made_as_it_is_sent_declares_no_length_and_serves_no_range():
+    made = plan_stream("GET", Headers({"range": "bytes=0-9"}), MADE)
+
+    assert (made.status, made.send_body) == (200, True)
+    assert made.headers["ETag"] == '"made"'
+    assert made.headers["Accept-Ranges"] == "none"
+    assert "Content-Length" not in made.headers
+    assert "Content-Range" not in made.headers
+    assert made.headers["Last-Modified"] == MODIFIED
+    assert made.headers["Content-Disposition"].startswith('attachment; filename="notes.txt"')
+    assert made.headers["X-Content-Type-Options"] == "nosniff"
+    assert made.headers["Content-Security-Policy"] == "sandbox"
+    assert not [name for name in made.headers if name.startswith("X-Checksum")]
+
+
+@pytest.mark.parametrize(
+    ("method", "headers", "expected"),
+    [
+        ("HEAD", {}, (200, False)),
+        ("GET", {"if-none-match": '"made"'}, (304, False)),
+        ("GET", {"if-none-match": '"other"'}, (200, True)),
+        ("GET", {"if-modified-since": MODIFIED}, (304, False)),
+        ("GET", {"if-none-match": '"other"', "if-modified-since": MODIFIED}, (200, True)),
+        ("HEAD", {"if-none-match": "*"}, (304, False)),
+    ],
+)
+def test_content_made_as_it_is_sent_honours_head_and_conditions(method, headers, expected):
+    made = plan_stream(method, Headers(headers), MADE)
+
+    assert (made.status, made.send_body) == expected
+    assert made.headers["ETag"] == '"made"'

@@ -7,10 +7,10 @@ cannot bypass them, and it is the only code that ties assets to blobs.
 import hashlib
 import mimetypes
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Collection
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,6 +106,21 @@ class ComponentInfo:
 
 class TooLarge(Exception):
     """A file that was to be read into memory is larger than the caller allows."""
+
+
+class Transformer(Protocol):
+    """Rewrites content as it is sent, piece by piece."""
+
+    def feed(self, chunk: bytes) -> bytes:
+        """What can be sent now that `chunk` has been seen."""
+
+    def finish(self) -> bytes:
+        """What is left to send once every piece has been fed."""
+
+
+async def _nothing() -> AsyncIterator[bytes]:
+    return
+    yield b""  # what makes this a generator
 
 
 class RepositoryContext:
@@ -284,19 +299,26 @@ class RepositoryContext:
         return None if row is None else ComponentInfo(version, *row)
 
     async def package_names(
-        self, text: str, *, limit: int, offset: int
+        self,
+        text: str,
+        *,
+        limit: int,
+        offset: int,
+        within: Sequence["RepositoryContext"] | None = None,
     ) -> tuple[list[tuple[str, str]], int]:
         """Packages whose name or namespace contains `text`, and how many there are.
 
         The text is matched literally and without regard to case. An empty text matches
-        every package.
+        every package. `within` names the repositories to look in, for a group, which
+        holds nothing itself: a package several of them hold is listed once.
         """
         literal = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{literal}%"
+        searched = [self] if within is None else within
         found = (
             select(Component.namespace, Component.name)
             .where(
-                Component.repository_id == self.repository.id,
+                Component.repository_id.in_([context.repository.id for context in searched]),
                 or_(
                     Component.name.ilike(pattern, escape="\\"),
                     Component.namespace.ilike(pattern, escape="\\"),
@@ -767,6 +789,69 @@ class RepositoryContext:
             status_code=plan.status,
             headers=plan.headers,
         )
+
+    async def respond_transformed(
+        self,
+        path: str,
+        request: Request,
+        transformer: Transformer,
+        *,
+        variant: str,
+        content_type: str | None = None,
+        filename: str | None = None,
+    ) -> Response:
+        """The response to a GET or HEAD for a stored file, rewritten as it is sent.
+
+        For a file too large to hold in memory whose content depends on who asks, such
+        as a document with links to this server in it. `variant` names what the
+        transformer does to the file: the `ETag` is made from it and the file's hash, so
+        it must change whenever the result would. The length is not known beforehand,
+        so none is declared and ranges are not served.
+        """
+        path = normalise_path(path)
+        found = (
+            await self.db.execute(
+                select(Asset, Blob)
+                .join(Blob, Blob.id == Asset.blob_id)
+                .where(Asset.repository_id == self.repository.id, Asset.path == path)
+            )
+        ).one_or_none()
+        if found is None:
+            raise ApiError(404, "not_found", "No such file.")
+        asset, blob = found
+        item = serving.Servable(
+            sha256="",
+            md5=None,
+            sha1=None,
+            sha512=None,
+            size=0,
+            content_type=content_type or asset.content_type,
+            last_modified=asset.updated_at,
+            filename=filename or path.rpartition("/")[2],
+            etag=hashlib.sha256(f"{blob.sha256}\n{variant}".encode()).hexdigest(),
+        )
+        plan = serving.plan_stream(request.method, request.headers, item)
+
+        now = utcnow()
+        noted = asset.last_downloaded_at
+        if plan.send_body and (noted is None or now - noted >= _DOWNLOAD_NOTE_INTERVAL):
+            asset.last_downloaded_at = now
+        await self.db.commit()  # give the connection back before the body is sent
+
+        if plan.status == 304:
+            return Response(status_code=304, headers=plan.headers)
+        # A streaming response even for HEAD: a plain one would declare a length of 0.
+        body = self._transformed(blob.sha256, transformer) if plan.send_body else _nothing()
+        return StreamingResponse(body, status_code=plan.status, headers=plan.headers)
+
+    async def _transformed(self, sha256: str, transformer: Transformer) -> AsyncIterator[bytes]:
+        async for chunk in self.backend.open(sha256):
+            passed = transformer.feed(chunk)
+            if passed:
+                yield passed
+        rest = transformer.finish()
+        if rest:
+            yield rest
 
 
 async def build_context(

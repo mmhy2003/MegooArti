@@ -182,3 +182,29 @@ async def test_component_reads_one_version(context):
 
     assert (found.version, found.attributes) == ("2.0", {"n": 2})
     assert await context.component("acme", "app", "9.9") is None
+
+
+async def test_package_names_can_cover_several_repositories(context, context_for, db):
+    more = await service.create_repository(
+        db, name="more", format="raw", type="hosted", online=True, blob_store="default"
+    )
+    await db.commit()
+    second = await context_for(more, someone("repository:raw:more"))
+    second.format = Packaged()
+    await store(context, "acme/left-pad/1.0/a.tgz")
+    await store(context, "acme/only-here/1.0/a.tgz")
+    await store(second, "acme/left-pad/3.0/a.tgz")
+    await store(second, "zeta/pad-there/1.0/a.tgz")
+    both = [context, second]
+
+    names, total = await context.package_names("", limit=10, offset=0, within=both)
+    page, page_total = await context.package_names("pad", limit=1, offset=1, within=both)
+    alone = await second.package_names("", limit=10, offset=0)
+    nowhere = await context.package_names("", limit=10, offset=0, within=[])
+
+    # A package both hold is listed once.
+    assert names == [("acme", "left-pad"), ("acme", "only-here"), ("zeta", "pad-there")]
+    assert total == 3
+    assert (page, page_total) == ([("zeta", "pad-there")], 2)
+    assert alone == ([("acme", "left-pad"), ("zeta", "pad-there")], 2)
+    assert nowhere == ([], 0)

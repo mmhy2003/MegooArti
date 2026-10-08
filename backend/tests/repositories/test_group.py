@@ -228,3 +228,53 @@ async def test_a_group_gives_its_members_once_in_a_request(everything, context_f
     again = await group.member_contexts(context, request)
 
     assert (len(first), again) == (2, [])
+
+
+async def nested(db):
+    """`outer` presents `three`, then the group `all` (`one`, `two`), then `one` again."""
+    await create(db, "three")
+    return await create(db, "outer", "group", group={"members": ["three", "all", "one"]})
+
+
+def named(found: list[group.Leaf]) -> list[tuple[str, bool]]:
+    return [(leaf.context.repository.name, leaf.online) for leaf in found]
+
+
+async def test_leaves_are_every_repository_behind_a_group_in_order(db, everything, context_for):
+    reader = someone("repository:raw:outer:read")
+    context = await context_for(await nested(db), reader, outbound=bare_request)
+
+    found = await group.leaves(context)
+    again = await group.leaves(context)
+
+    assert named(found) == [("three", True), ("one", True), ("two", True)]
+    assert named(again) == named(found)  # unlike member_contexts, as often as it is asked
+    assert all(leaf.context.principal is reader for leaf in found)
+    assert all(leaf.context.outbound is bare_request for leaf in found)
+
+
+async def test_leaves_include_what_is_offline_and_say_so(db, everything, context_for):
+    context = await context_for(await nested(db), None)
+    two = await service.get_repository(db, "two")
+    await service.update_repository(db, two, online=False)
+    await db.commit()
+
+    one_offline = await group.leaves(context)
+    await service.update_repository(db, everything, online=False, group={"members": ["one", "two"]})
+    await db.commit()
+    group_offline = await group.leaves(context)
+
+    assert named(one_offline) == [("three", True), ("one", True), ("two", False)]
+    # `one` is still a member of `outer` in its own right, and is tried where that puts it.
+    assert named(group_offline) == [("three", True), ("two", False), ("one", True)]
+
+
+async def test_leaves_of_a_cycle_that_slipped_into_the_data_end(db, context_for):
+    first = await create(db, "all", "group")
+    second = await create(db, "loop", "group", group={"members": ["all"]})
+    await db.execute(
+        insert(RepositoryMember).values(group_id=first.id, member_id=second.id, position=0)
+    )
+    await db.commit()
+
+    assert await group.leaves(await context_for(first, None)) == []

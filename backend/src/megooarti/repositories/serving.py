@@ -35,6 +35,15 @@ class Plan:
     byte_range: tuple[int, int] | None  # inclusive offsets; None means send no body
 
 
+@dataclass(frozen=True)
+class StreamPlan:
+    """How to answer for content whose length is not known until it has been sent."""
+
+    status: int
+    headers: dict[str, str]
+    send_body: bool
+
+
 _NUMBER = re.compile(r"[0-9]{1,18}")
 
 
@@ -116,18 +125,35 @@ def parse_range(header: str, size: int) -> tuple[int, int] | None:
     return start, end
 
 
+def _unchanged(request_headers: Mapping[str, str], item: Servable) -> bool:
+    """Whether the client says it already has this content."""
+    if_none_match = request_headers.get("if-none-match")
+    if if_none_match is not None:
+        return _etag_matches(if_none_match, _etag(item))
+    since = request_headers.get("if-modified-since")
+    return bool(since) and _not_modified_since(since, item.last_modified)
+
+
+def plan_stream(method: str, request_headers: Mapping[str, str], item: Servable) -> StreamPlan:
+    """Plan the answer for content that is made as it is sent.
+
+    `item.etag` says what the content will be; its size and digests are not used. No
+    length is declared and no range is honoured: a `Range` header is ignored, as HTTP
+    allows.
+    """
+    headers = _base_headers(item)
+    headers["Accept-Ranges"] = "none"
+    if _unchanged(request_headers, item):
+        return StreamPlan(304, headers, False)
+    return StreamPlan(200, headers, method == "GET")
+
+
 def plan(method: str, request_headers: Mapping[str, str], item: Servable) -> Plan:
     headers = _base_headers(item)
     etag = _etag(item)
 
-    if_none_match = request_headers.get("if-none-match")
-    if if_none_match is not None:
-        if _etag_matches(if_none_match, etag):
-            return Plan(304, headers, None)
-    else:
-        since = request_headers.get("if-modified-since")
-        if since and _not_modified_since(since, item.last_modified):
-            return Plan(304, headers, None)
+    if _unchanged(request_headers, item):
+        return Plan(304, headers, None)
 
     byte_range = None
     range_header = request_headers.get("range")

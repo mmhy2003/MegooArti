@@ -55,6 +55,8 @@ class FakeRemote:
                 "method": request.method,
                 "host": request.url.hostname,
                 "path": request.url.path,
+                # As it was written in the request, before any escape was decoded.
+                "raw_path": request.scope["raw_path"].decode("ascii"),
                 "headers": dict(request.headers),
             }
         )

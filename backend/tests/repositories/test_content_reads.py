@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from starlette.requests import Request
 
+from megooarti.errors import ApiError
 from megooarti.repositories.content import FileEntry, Stored, TooLarge
 from megooarti.repositories.formats import ComponentKey, Format
 from tests.repositories.conftest import body, someone
@@ -166,3 +167,106 @@ async def test_a_response_with_its_own_etag_is_not_hashed(context):
     assert not [name for name in response.headers if name.lower().startswith("x-checksum")]
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert (unchanged.status_code, unchanged.body) == (304, b"")
+
+
+class Shout:
+    """Upper-cases what passes through, and holds the last byte back until the end."""
+
+    def __init__(self) -> None:
+        self._held = b""
+
+    def feed(self, chunk: bytes) -> bytes:
+        data = self._held + chunk.upper()
+        self._held = data[-1:]
+        return data[:-1]
+
+    def finish(self) -> bytes:
+        return self._held + b"!"
+
+
+async def sent(response) -> bytes:
+    return b"".join([chunk async for chunk in response.body_iterator])
+
+
+async def shouted(context, incoming: Request, variant: str = "shout", **options):
+    return await context.respond_transformed(
+        "notes/readme.txt", incoming, Shout(), variant=variant, **options
+    )
+
+
+async def test_a_stored_file_is_sent_through_a_transformer(context):
+    await context.put("notes/readme.txt", body(b"hello, " * 100_000 + b"world"))
+
+    response = await shouted(context, request())
+
+    assert response.status_code == 200
+    assert await sent(response) == b"HELLO, " * 100_000 + b"WORLD!"
+    assert "content-length" not in response.headers
+    assert response.headers["Accept-Ranges"] == "none"
+    assert response.headers["Content-Type"] == "text/plain"
+    assert response.headers["Content-Disposition"].startswith('attachment; filename="readme.txt"')
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Content-Security-Policy"] == "sandbox"
+    assert not [name for name in response.headers if name.lower().startswith("x-checksum")]
+
+
+async def test_the_etag_of_a_transformed_file_names_the_file_and_the_transformation(context):
+    await context.put("notes/readme.txt", body(b"one"))
+    first = (await shouted(context, request())).headers["ETag"]
+    again = (await shouted(context, request())).headers["ETag"]
+    another_way = (await shouted(context, request(), "whisper")).headers["ETag"]
+    await context.put("notes/readme.txt", body(b"two"))
+    another_file = (await shouted(context, request())).headers["ETag"]
+
+    stored = hashlib.sha256(b"one").hexdigest()
+    assert first == '"' + hashlib.sha256(f"{stored}\nshout".encode()).hexdigest() + '"'
+    assert again == first
+    assert len({first, another_way, another_file}) == 3
+
+
+async def test_a_transformed_file_honours_head_and_conditions_and_serves_no_range(context):
+    await context.put("notes/readme.txt", body(b"hello"))
+    etag = (await shouted(context, request())).headers["ETag"]
+
+    head = await shouted(context, request("HEAD"))
+    unchanged = await shouted(context, request(if_none_match=etag))
+    ranged = await shouted(context, request(range="bytes=0-1"))
+
+    assert (head.status_code, await sent(head), head.headers["ETag"]) == (200, b"", etag)
+    assert "content-length" not in head.headers  # not 0: the length is simply not known
+    assert (unchanged.status_code, unchanged.body) == (304, b"")
+    assert (ranged.status_code, await sent(ranged)) == (200, b"HELLO!")
+    assert "content-range" not in ranged.headers
+
+
+async def test_a_transformed_response_can_name_its_type_and_its_file(context):
+    await context.put("notes/readme.txt", body(b"{}"))
+
+    response = await shouted(
+        context, request(), content_type="application/json", filename="package.json"
+    )
+
+    assert response.headers["Content-Type"] == "application/json"
+    assert response.headers["Content-Disposition"].startswith('attachment; filename="package.json"')
+
+
+async def test_transforming_a_file_that_is_not_stored_is_not_found(context):
+    with pytest.raises(ApiError) as caught:
+        await shouted(context, request())
+
+    assert (caught.value.status_code, caught.value.code) == (404, "not_found")
+
+
+async def test_sending_a_transformed_file_notes_the_download_and_keeps_no_transaction(context, db):
+    asset, _ = await context.put("notes/readme.txt", body(b"hello"))
+    await db.commit()
+
+    await shouted(context, request("HEAD"))
+    after_head = asset.last_downloaded_at
+    response = await shouted(context, request())
+    in_transaction = db.in_transaction()
+    await sent(response)
+
+    assert after_head is None
+    assert asset.last_downloaded_at is not None
+    assert in_transaction is False  # the connection is given back before the body is sent

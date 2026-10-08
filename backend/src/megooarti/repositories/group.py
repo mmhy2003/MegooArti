@@ -4,6 +4,9 @@ Members are tried in order and the first that has the path answers. Permission i
 decided on the group, by the route, before this runs: members are not checked again.
 """
 
+import uuid
+from dataclasses import dataclass
+
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -11,6 +14,7 @@ from megooarti.errors import ApiError
 from megooarti.repositories import service
 from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.formats import Serve
+from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
 
 # What a member may answer to mean "not from me; try the next": it lacks the path,
@@ -37,6 +41,49 @@ async def member_contexts(context: RepositoryContext, request: Request) -> list[
         for member in await service.members(context.db, context.repository)
         if member.online
     ]
+
+
+@dataclass(frozen=True)
+class Leaf:
+    """A repository behind a group that is not itself a group."""
+
+    context: RepositoryContext
+    online: bool  # False if it is offline, or is reached only through an offline group
+
+
+async def leaves(context: RepositoryContext) -> list[Leaf]:
+    """Every hosted and proxy repository behind a group, in the order they are tried.
+
+    For a format that answers from all of them at once instead of from the first that
+    has the path. Offline ones are included and marked, because what an offline
+    repository holds can still decide what the others may answer. A repository reached
+    more than once is listed once, where it is first reached online if it ever is.
+    """
+    reached: list[tuple[Repository, bool]] = []
+    walked = {context.repository.id: True}
+
+    async def walk(repository: Repository, online: bool) -> None:
+        for member in await service.members(context.db, repository):
+            usable = online and member.online
+            if member.type != "group":
+                reached.append((member, usable))
+            elif member.id not in walked or (usable and not walked[member.id]):
+                # Again only if it was reached through something offline before, so a
+                # cycle that slipped into the data ends.
+                walked[member.id] = usable
+                await walk(member, usable)
+
+    await walk(context.repository, True)
+    online = {member.id for member, usable in reached if usable}
+    found: dict[uuid.UUID, Leaf] = {}
+    for member, usable in reached:
+        if member.id in found or (not usable and member.id in online):
+            continue
+        made = await build_context(
+            context.db, context.settings, member, context.principal, outbound=context.outbound
+        )
+        found[member.id] = Leaf(made, usable)
+    return list(found.values())
 
 
 async def handle_group(
