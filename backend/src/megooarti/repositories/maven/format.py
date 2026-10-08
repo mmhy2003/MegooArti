@@ -2,8 +2,12 @@
 
 This is the only Maven module that touches the repository context. What it decides
 about a path comes from the pure functions beside it.
+
+Building, merging, reading and writing metadata run in a worker thread: a long list of
+versions takes real time to sort, and must not hold up every other request.
 """
 
+import asyncio
 import hashlib
 from collections.abc import Iterable
 from contextlib import suppress
@@ -15,9 +19,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
-from megooarti.repositories import proxy
+from megooarti.repositories import group, proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
-from megooarti.repositories.formats import ComponentKey, Format, register
+from megooarti.repositories.formats import ComponentKey, Format, Serve, register
 from megooarti.repositories.maven import checksums, metadata, paths
 from megooarti.repositories.paths import normalise_path
 
@@ -77,6 +81,85 @@ def _checksum_response(
     )
 
 
+def _metadata_response(
+    context: RepositoryContext, request: Request, data: bytes, modified: datetime
+) -> Response:
+    return context.respond_with(
+        data,
+        request,
+        filename=paths.METADATA_FILE,
+        content_type=_XML,
+        last_modified=modified,
+    )
+
+
+async def _plugins(
+    context: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[tuple[metadata.Plugin, ...], datetime | None]:
+    """The plugin entries kept for a group that still have a file, and when they changed."""
+    if not parsed.plugin_group:
+        return (), None
+    stored = await context.stat(path)
+    if stored is None or stored.kind != "metadata":
+        return (), None
+    try:
+        data = await context.read(path, limit=STORED_LIMIT)
+        record = await asyncio.to_thread(metadata.parse, data or b"")
+    except (metadata.InvalidMetadata, TooLarge) as error:
+        log.warning(
+            "plugin_record_unreadable",
+            repository=context.repository.name,
+            path=path,
+            reason=type(error).__name__,
+        )
+        return (), None
+    present = await context.names(
+        parsed.plugin_group, [plugin.artifact_id for plugin in record.plugins]
+    )
+    kept = tuple(plugin for plugin in record.plugins if plugin.artifact_id in present)
+    return kept, stored.modified if kept else None
+
+
+async def built(
+    context: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[metadata.Metadata, datetime] | None:
+    """A hosted repository's metadata for `path`, and when it last changed.
+
+    Built from the files the repository holds, so it is right after a delete and after
+    two deploys at once. None when there is nothing to list.
+    """
+    if parsed.kind == "snapshot_metadata":
+        entries = await context.files(parsed.group_id, parsed.artifact_id, parsed.version)
+        files = [(paths.classify(entry.path), entry.modified) for entry in entries]
+        made = await asyncio.to_thread(
+            metadata.for_snapshot, parsed.group_id, parsed.artifact_id, parsed.version, files
+        )
+        changes = [entry.modified for entry in entries]
+    else:
+        versions = {}
+        if parsed.artifact_id:
+            versions = await context.versions(parsed.group_id, parsed.artifact_id)
+        plugins, plugins_changed = await _plugins(context, path, parsed)
+        made = await asyncio.to_thread(
+            metadata.for_artifact, parsed.group_id, parsed.artifact_id, versions, plugins
+        )
+        changes = [*versions.values(), *([plugins_changed] if plugins_changed else [])]
+    if made is None:
+        return None
+    return made, max(changes)
+
+
+async def document(
+    context: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[bytes, datetime] | None:
+    """The metadata a GET of `path` on a hosted repository returns now, as bytes."""
+    found = await built(context, path, parsed)
+    if found is None:
+        return None
+    made, modified = found
+    return await asyncio.to_thread(metadata.serialise, made), modified
+
+
 async def _digest(
     context: RepositoryContext, target: str, parsed: paths.MavenPath, algorithm: str
 ) -> tuple[str, datetime] | None:
@@ -93,61 +176,6 @@ async def _digest(
     return getattr(stored, algorithm), stored.modified
 
 
-async def _plugins(
-    context: RepositoryContext, path: str, parsed: paths.MavenPath
-) -> tuple[tuple[metadata.Plugin, ...], datetime | None]:
-    """The plugin entries kept for a group that still have a file, and when they changed."""
-    if not parsed.plugin_group:
-        return (), None
-    stored = await context.stat(path)
-    if stored is None or stored.kind != "metadata":
-        return (), None
-    try:
-        record = metadata.parse(await context.read(path, limit=STORED_LIMIT) or b"")
-    except (metadata.InvalidMetadata, TooLarge) as error:
-        log.warning(
-            "plugin_record_unreadable",
-            repository=context.repository.name,
-            path=path,
-            reason=type(error).__name__,
-        )
-        return (), None
-    present = await context.names(
-        parsed.plugin_group, [plugin.artifact_id for plugin in record.plugins]
-    )
-    kept = tuple(plugin for plugin in record.plugins if plugin.artifact_id in present)
-    return kept, stored.modified if kept else None
-
-
-async def document(
-    context: RepositoryContext, path: str, parsed: paths.MavenPath
-) -> tuple[bytes, datetime] | None:
-    """The metadata a GET of `path` returns now, and when it last changed.
-
-    Built from the files the repository holds, so it is right after a delete and after
-    two deploys at once. None when there is nothing to list.
-    """
-    if parsed.kind == "snapshot_metadata":
-        entries = await context.files(parsed.group_id, parsed.artifact_id, parsed.version)
-        built = metadata.for_snapshot(
-            parsed.group_id,
-            parsed.artifact_id,
-            parsed.version,
-            [(paths.classify(entry.path), entry.modified) for entry in entries],
-        )
-        changes = [entry.modified for entry in entries]
-    else:
-        versions = {}
-        if parsed.artifact_id:
-            versions = await context.versions(parsed.group_id, parsed.artifact_id)
-        plugins, plugins_changed = await _plugins(context, path, parsed)
-        built = metadata.for_artifact(parsed.group_id, parsed.artifact_id, versions, plugins)
-        changes = [*versions.values(), *([plugins_changed] if plugins_changed else [])]
-    if built is None:
-        return None
-    return metadata.serialise(built), max(changes)
-
-
 async def keep_plugins(
     context: RepositoryContext, path: str, group_id: str, uploaded: Iterable[metadata.Plugin]
 ) -> None:
@@ -162,7 +190,7 @@ async def keep_plugins(
         stored: tuple[metadata.Plugin, ...] = ()
         if current is not None:
             with suppress(metadata.InvalidMetadata):
-                stored = metadata.parse(current).plugins
+                stored = (await asyncio.to_thread(metadata.parse, current)).plugins
         plugins = metadata.merge_plugins(stored, uploaded)
         present = await context.names(group_id, [plugin.artifact_id for plugin in plugins])
         kept = tuple(plugin for plugin in plugins if plugin.artifact_id in present)
@@ -174,19 +202,15 @@ async def keep_plugins(
 async def _metadata(
     context: RepositoryContext, request: Request, path: str, parsed: paths.MavenPath
 ) -> Response:
-    """Answer for a maven-metadata.xml path. The document is generated, never stored."""
+    """Answer for a maven-metadata.xml path on a hosted repository.
+
+    The document is generated, never stored.
+    """
     if request.method in ("GET", "HEAD"):
         found = await document(context, path, parsed)
         if found is None:
             raise _not_found()
-        data, modified = found
-        return context.respond_with(
-            data,
-            request,
-            filename=paths.METADATA_FILE,
-            content_type=_XML,
-            last_modified=modified,
-        )
+        return _metadata_response(context, request, *found)
     if request.method != "PUT":
         raise ApiError(
             405,
@@ -201,7 +225,7 @@ async def _metadata(
         raise ApiError(400, "invalid_metadata", "The metadata is larger than 1 MiB.")
     if parsed.kind == "metadata":
         try:
-            uploaded = metadata.parse(body)
+            uploaded = await asyncio.to_thread(metadata.parse, body)
         except metadata.InvalidMetadata as error:
             raise ApiError(
                 400, "invalid_metadata", f"The metadata cannot be read: {error}."
@@ -259,6 +283,71 @@ async def _checksum(
             400, "checksum_mismatch", f"The {algorithm} checksum does not match the stored file."
         )
     return Response(status_code=201)
+
+
+async def _cached_by(
+    member: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[metadata.Metadata, datetime] | None:
+    """The metadata a proxy has for `path`, fetched if need be, as a model."""
+    settings = member.repository.config["format_config"]
+    if _excluded(settings, parsed) is not None and await member.stat(path) is None:
+        return None
+    try:
+        await proxy.ensure_cached(member, path)
+    except ApiError as error:
+        if error.status_code not in group.TRY_NEXT:
+            raise
+        return None
+    stored = await member.stat(path)
+    if stored is None:
+        return None
+    try:
+        data = await member.read(path, limit=STORED_LIMIT)
+        held = await asyncio.to_thread(metadata.parse, data or b"")
+    except TooLarge:
+        reason = "it is larger than 4 MiB"
+    except metadata.InvalidMetadata as error:
+        reason = str(error)
+    else:
+        return held, stored.modified
+    # Logged, because the group still answers and nothing else would show it.
+    log.warning(
+        "member_metadata_unusable", repository=member.repository.name, path=path, reason=reason
+    )
+    return None
+
+
+async def _held_by(
+    member: RepositoryContext, request: Request, path: str, parsed: paths.MavenPath
+) -> tuple[metadata.Metadata, datetime] | None:
+    """What one member of a group has for a metadata path, or None if it has nothing.
+
+    A member that cannot answer is left out, never an error: the group answers from
+    the others.
+    """
+    kind = member.repository.type
+    if kind == "hosted":
+        return await built(member, path, parsed)
+    if kind == "proxy":
+        return await _cached_by(member, path, parsed)
+    if kind == "group":
+        return await _merged(member, request, path, parsed)
+    return None
+
+
+async def _merged(
+    context: RepositoryContext, request: Request, path: str, parsed: paths.MavenPath
+) -> tuple[metadata.Metadata, datetime] | None:
+    """A group's metadata for `path`: every member's, as one document."""
+    found = []
+    for member in await group.member_contexts(context, request):
+        held = await _held_by(member, request, path, parsed)
+        if held is not None:
+            found.append(held)
+    if not found:
+        return None
+    merged = await asyncio.to_thread(metadata.merge, [held for held, _ in found])
+    return merged, max(modified for _, modified in found)
 
 
 class MavenFormat(Format):
@@ -350,6 +439,26 @@ class MavenFormat(Format):
         return _checksum_response(
             context, request, path, getattr(stored, algorithm), stored.modified
         )
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        if request.method in ("GET", "HEAD"):
+            path = normalise_path(path)
+            target, algorithm = paths.split_checksum(path)
+            parsed = paths.classify(target)
+            if parsed.is_metadata:
+                found = await _merged(context, request, target, parsed)
+                if found is None:
+                    raise _not_found()
+                merged, modified = found
+                data = await asyncio.to_thread(metadata.serialise, merged)
+                if algorithm is None:
+                    return _metadata_response(context, request, data, modified)
+                digest = hashlib.new(algorithm, data).hexdigest()
+                return _checksum_response(context, request, path, digest, modified)
+        # A file and its checksums: the first member that has the file answers both.
+        return await super().handle_group(context, request, path, serve)
 
 
 register(MavenFormat())
