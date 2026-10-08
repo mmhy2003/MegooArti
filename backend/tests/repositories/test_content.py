@@ -9,6 +9,7 @@ from starlette.responses import StreamingResponse
 
 from megooarti.errors import ApiError
 from megooarti.repositories import service
+from megooarti.repositories.formats import Format
 from megooarti.repositories.models import Asset, Component
 from megooarti.storage.models import Blob
 from tests.repositories.conftest import body, someone
@@ -433,3 +434,25 @@ async def test_a_group_has_no_blob_store(db, context_for):
     )
 
     assert (await context_for(everything, None)).backend is None
+
+
+class Loose(Format):
+    """A format whose files belong to no package."""
+
+    name = "raw"
+
+    def describe_component(self, path):
+        return None
+
+
+async def test_a_file_can_belong_to_no_component(db, files, context_for):
+    context = await context_for(files, EVERYTHING)
+    context.format = Loose()
+
+    asset, created = await context.put("notes/readme.txt", body(HELLO))
+
+    assert created is True
+    assert asset.component_id is None
+    assert await count(db, Component) == 0
+    assert await context.delete("notes/readme.txt") is True
+    assert await count(db, Asset) == 0

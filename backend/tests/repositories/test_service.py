@@ -5,7 +5,8 @@ import pytest
 from sqlalchemy import func, insert, select
 
 from megooarti.errors import ApiError
-from megooarti.repositories import service
+from megooarti.repositories import formats, service
+from megooarti.repositories.formats import Format
 from megooarti.repositories.models import (
     Asset,
     NegativeCacheEntry,
@@ -526,3 +527,32 @@ async def test_updating_a_group_needs_its_members_stated(db):
 
     assert (error.status_code, error.details[0]["field"]) == (422, "group")
     assert await service.member_names(db, repository) == ["releases"]
+
+
+class Sticky(Format):
+    """A format whose settings cannot change once stored."""
+
+    name = "sticky"
+
+    def validate_config(self, repository_type, config, current=None):
+        if current is not None and config != current:
+            raise ApiError(409, "immutable", "These settings cannot be changed.")
+        return dict(config)
+
+
+async def test_a_format_sees_its_stored_settings_on_update(db, monkeypatch):
+    monkeypatch.setitem(formats._registry, "sticky", Sticky())
+    repository = await create(db, format="sticky", format_config={"colour": "red"})
+
+    refused = await error_of(
+        service.update_repository(
+            db, repository, online=True, hosted=None, format_config={"colour": "blue"}
+        )
+    )
+    await service.update_repository(
+        db, repository, online=False, hosted=None, format_config={"colour": "red"}
+    )
+
+    assert (refused.status_code, refused.code) == (409, "immutable")
+    assert repository.config["format_config"] == {"colour": "red"}
+    assert repository.online is False

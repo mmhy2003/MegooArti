@@ -348,7 +348,9 @@ async def update_repository(
     before = repository.config.get("proxy")
     repository.config = {
         **_type_settings(repository.type, hosted, proxy, repository.config),
-        "format_config": handler.validate_config(repository.type, format_config or {}),
+        "format_config": handler.validate_config(
+            repository.type, format_config or {}, repository.config.get("format_config")
+        ),
     }
     repository.online = online
     await db.flush()

@@ -51,8 +51,13 @@ class Format:
     name: str = ""
     types: frozenset[str] = frozenset({"hosted", "proxy", "group"})
 
-    def validate_config(self, repository_type: str, config: dict[str, Any]) -> dict[str, Any]:
-        """Check and return this format's own settings. The generic format has none."""
+    def validate_config(
+        self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Check and return this format's own settings. The generic format has none.
+
+        `current` is what is stored, on an update, so a format can refuse a change.
+        """
         if config:
             details = [
                 {"field": "format_config", "message": f"The {self.name} format has no settings."}
@@ -60,10 +65,17 @@ class Format:
             raise ApiError(422, "validation_error", "The request is not valid.", details)
         return {}
 
-    def describe_component(self, path: str) -> ComponentKey:
-        """Which component a stored path belongs to: the file, in its directory."""
+    def describe_component(self, path: str) -> ComponentKey | None:
+        """Which component a stored path belongs to: the file, in its directory.
+
+        A format returns None for a file that belongs to no package.
+        """
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    def content_type(self, path: str, declared: str | None) -> str | None:
+        """The content type to record for an upload. The generic format trusts the client."""
+        return declared
 
     def remote_url(self, base: str, path: str) -> str:
         """Where a proxy repository finds a path on its remote."""
@@ -91,7 +103,7 @@ class Format:
             _, created = await context.put(
                 path,
                 request.stream(),
-                content_type=request.headers.get("Content-Type"),
+                content_type=self.content_type(path, request.headers.get("Content-Type")),
                 expected_size=_declared_size(request),
                 expected_hashes=_declared_hashes(request),
             )

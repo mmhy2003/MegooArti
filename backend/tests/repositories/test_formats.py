@@ -58,3 +58,14 @@ def test_the_generic_remote_url_is_the_base_plus_the_encoded_path(base, path, ex
 
 def test_the_generic_format_has_no_metadata_paths():
     assert get_format("raw").is_metadata("anything/at/all.xml") is False
+
+
+def test_the_generic_content_type_is_whatever_the_client_declared():
+    raw = get_format("raw")
+
+    assert raw.content_type("a/b.bin", "application/x-thing") == "application/x-thing"
+    assert raw.content_type("a/b.bin", None) is None
+
+
+def test_settings_validation_is_given_the_stored_settings():
+    assert get_format("raw").validate_config("hosted", {}, {}) == {}

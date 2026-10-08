@@ -208,10 +208,11 @@ class RepositoryContext:
         now = utcnow()
         media_type = _media_type(content_type, path)
         if existing is None:
-            component = await self._component(self.format.describe_component(path))
+            key = self.format.describe_component(path)
+            component_id = None if key is None else (await self._component(key)).id
             asset = Asset(
                 repository_id=self.repository.id,
-                component_id=component.id,
+                component_id=component_id,
                 path=path,
                 blob_id=blob.id,
                 content_type=media_type,
