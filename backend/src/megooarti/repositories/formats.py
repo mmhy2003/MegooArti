@@ -96,6 +96,15 @@ class Format:
         """
         return False
 
+    def takes_body_credentials(self, method: str, path: str) -> bool:
+        """Whether this request carries its credentials in its body, with no header.
+
+        The content route refuses a write without credentials before any format code
+        runs, except one this says yes to. A handler for such a request must not use
+        the principal, and must check the credentials through the context.
+        """
+        return False
+
     async def handle_hosted(
         self, context: "RepositoryContext", request: Request, path: str
     ) -> Response:

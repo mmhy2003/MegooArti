@@ -50,7 +50,7 @@ async def repository_content(
 
     if request.method in ("GET", "HEAD"):
         authorize(principal, context.permission("read"), scheme="Basic")
-    elif principal is None:
+    elif principal is None and not context.format.takes_body_credentials(request.method, path):
         raise unauthorized(scheme="Basic")
     if not repository.online:
         raise ApiError(503, "repository_offline", "This repository is offline.")

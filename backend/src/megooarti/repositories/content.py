@@ -24,7 +24,8 @@ from megooarti.repositories import serving
 from megooarti.repositories.formats import ComponentKey, Format, get_format
 from megooarti.repositories.models import Asset, Component, Repository
 from megooarti.repositories.paths import normalise_path
-from megooarti.security.authentication import Principal, authorize
+from megooarti.security import client_login
+from megooarti.security.authentication import Principal, authorize, unauthorized
 from megooarti.storage import blobs
 from megooarti.storage.backends import BlobBackend, StagedBlob
 from megooarti.storage.blob_stores import backend_for
@@ -127,6 +128,20 @@ class RepositoryContext:
         if self.outbound is None:
             raise RuntimeError("this context was built without an outbound client")
         return self.outbound()
+
+    async def issue_token(self, request: Request, username: str, secret: str, *, label: str) -> str:
+        """Sign a package client in: check a name and a secret, and return a token.
+
+        For the request a format has named as carrying its credentials in its body.
+        The secret is checked as HTTP Basic credentials are. The caller commits.
+        """
+        return await client_login.issue_token(self.db, request, username, secret, label=label)
+
+    async def revoke_token(self, value: str) -> None:
+        """Revoke the API token with this value, if it is the caller's."""
+        if self.principal is None:
+            raise unauthorized(scheme="Basic")
+        await client_login.revoke_own_token(self.db, self.principal, value)
 
     async def _lock(self, kind: str, key: str) -> None:
         """Serialise work on one path or component until this transaction ends."""

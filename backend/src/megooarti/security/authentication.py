@@ -195,6 +195,20 @@ async def _authenticate_token(
     return await _checked(db, request, None, _no_match)
 
 
+async def authenticate_secret(
+    db: AsyncSession, request: Request, username: str, secret: str
+) -> tuple[User, ApiToken | None]:
+    """The user with this name whose password, or one of whose API tokens, is `secret`.
+
+    Returns the token too when the secret was one. Raises 401 or 429. HTTP Basic
+    credentials are checked here, and so is anything else that takes a name and a
+    secret, so that the limits on failed attempts are the same everywhere.
+    """
+    if secret.startswith(TOKEN_PREFIX):
+        return await _authenticate_token(db, request, secret, username)
+    return await authenticate_password(db, request, username, secret), None
+
+
 def _decode_basic(credentials: str) -> tuple[str, str]:
     try:
         decoded = base64.b64decode(credentials.strip(), validate=True).decode("utf-8")
@@ -214,11 +228,9 @@ async def _from_header(db: AsyncSession, request: Request, header: str) -> Princ
         return await build_principal(db, user, "token", token=token)
     if scheme == "basic":
         username, secret = _decode_basic(credentials)
-        if secret.startswith(TOKEN_PREFIX):
-            user, token = await _authenticate_token(db, request, secret, username)
-            return await build_principal(db, user, "token", token=token)
-        user = await authenticate_password(db, request, username, secret)
-        return await build_principal(db, user, "password")
+        user, token = await authenticate_secret(db, request, username, secret)
+        method = "password" if token is None else "token"
+        return await build_principal(db, user, method, token=token)
     raise unauthorized("The Authorization scheme is not supported.")
 
 
