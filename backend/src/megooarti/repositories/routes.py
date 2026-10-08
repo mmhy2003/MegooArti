@@ -12,7 +12,7 @@ from starlette.responses import Response
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.repositories import dispatch, service
+from megooarti.repositories import dispatch, remote, service
 from megooarti.repositories.content import build_context
 from megooarti.security.authentication import (
     Principal,
@@ -39,7 +39,14 @@ async def repository_content(
     repository = await service.get_repository(db, name)
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
-    context = await build_context(db, request.app.state.settings, repository, principal)
+    context = await build_context(
+        db,
+        request.app.state.settings,
+        repository,
+        principal,
+        # Built on first use: most requests never reach a remote.
+        outbound=lambda: remote.client_of(request.app),
+    )
 
     if request.method in ("GET", "HEAD"):
         authorize(principal, context.permission("read"), scheme="Basic")

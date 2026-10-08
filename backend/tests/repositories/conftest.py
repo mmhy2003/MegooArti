@@ -38,8 +38,10 @@ async def mirror(db) -> Repository:
 
 @pytest.fixture
 def context_for(db, settings):
-    async def make(repository: Repository, principal: Principal | None) -> RepositoryContext:
-        return await build_context(db, settings, repository, principal)
+    async def make(
+        repository: Repository, principal: Principal | None, outbound=None
+    ) -> RepositoryContext:
+        return await build_context(db, settings, repository, principal, outbound=outbound)
 
     return make
 

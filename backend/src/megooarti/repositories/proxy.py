@@ -85,9 +85,7 @@ async def _fail(context: RepositoryContext, path: str, outcome: object) -> str:
     return reason
 
 
-async def _refresh(
-    context: RepositoryContext, request: Request, path: str, asset: Asset | None
-) -> None:
+async def _refresh(context: RepositoryContext, path: str, asset: Asset | None) -> None:
     """Make `path` servable from the cache, or raise 404 or 502.
 
     Returning without raising means there is a copy to serve: a new one, the old one
@@ -109,7 +107,7 @@ async def _refresh(
         return await context.stage(chunks, expected_size=size)
 
     outcome = await remote.download(
-        remote.client_of(request.app),
+        context.http(),
         url,
         authorization=credential,
         stage=stage,
@@ -148,7 +146,7 @@ async def _refresh(
             raise _unavailable(reason)
 
 
-async def _head_remote(context: RepositoryContext, request: Request, path: str) -> Response:
+async def _head_remote(context: RepositoryContext, path: str) -> Response:
     """Answer HEAD for a file that is not cached by asking the remote. Caches nothing."""
     db, repository = context.db, context.repository
     now = utcnow()
@@ -159,7 +157,7 @@ async def _head_remote(context: RepositoryContext, request: Request, path: str) 
     url, credential = await _target(context, path)
     await db.commit()
 
-    outcome = await remote.head(remote.client_of(request.app), url, authorization=credential)
+    outcome = await remote.head(context.http(), url, authorization=credential)
     now = utcnow()
     if isinstance(outcome, remote.Exists):
         await proxy_state.record_success(db, repository, now)
@@ -174,6 +172,26 @@ async def _head_remote(context: RepositoryContext, request: Request, path: str) 
     raise _unavailable(await _fail(context, path, outcome))
 
 
+async def ensure_cached(context: RepositoryContext, path: str) -> None:
+    """Make `path` servable from this proxy's cache, or raise 404 or 502.
+
+    Returning means there is a copy to serve: a fresh one, a new one, the old one
+    confirmed, or the old one kept because the remote could not be asked.
+
+    This commits: before waiting for a download, and to record what came of it. A
+    caller must have no uncommitted work of its own when it calls this.
+    """
+    path = normalise_path(path)
+    asset = await context.get(path)
+    if _fresh(context, asset, path):
+        return
+    await context.db.commit()  # hold no connection while waiting for another's download
+    async with _downloads.hold((context.repository.id, path)):
+        asset = await context.get(path, fresh=True)  # the previous holder may have fetched it
+        if not _fresh(context, asset, path):
+            await _refresh(context, path, asset)
+
+
 async def handle_proxy(context: RepositoryContext, request: Request, path: str) -> Response:
     """Answer a request to a proxy repository. The route has checked `read`."""
     if request.method not in ("GET", "HEAD"):
@@ -184,15 +202,7 @@ async def handle_proxy(context: RepositoryContext, request: Request, path: str) 
             headers={"Allow": "GET, HEAD"},
         )
     path = normalise_path(path)
-    asset = await context.get(path)
-    if _fresh(context, asset, path):
-        return await context.respond(path, request)
-    if asset is None and request.method == "HEAD":
-        return await _head_remote(context, request, path)
-
-    await context.db.commit()  # hold no connection while waiting for another's download
-    async with _downloads.hold((context.repository.id, path)):
-        asset = await context.get(path, fresh=True)  # the previous holder may have fetched it
-        if not _fresh(context, asset, path):
-            await _refresh(context, request, path, asset)
+    if request.method == "HEAD" and await context.get(path) is None:
+        return await _head_remote(context, path)
+    await ensure_cached(context, path)
     return await context.respond(path, request)

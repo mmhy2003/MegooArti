@@ -37,7 +37,11 @@ async def handle_group(context: RepositoryContext, request: Request, path: str, 
             if not member.online:
                 continue
             member_context = await build_context(
-                context.db, context.settings, member, context.principal
+                context.db,
+                context.settings,
+                member,
+                context.principal,
+                outbound=context.outbound,
             )
             try:
                 return await serve(member_context, request, path)

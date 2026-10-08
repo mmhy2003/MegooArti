@@ -1,7 +1,6 @@
 """Many readers of one uncached file, with real concurrent database sessions."""
 
 import asyncio
-from types import SimpleNamespace
 
 from starlette.requests import Request
 
@@ -33,21 +32,12 @@ def test_many_readers_of_one_uncached_file_ask_the_remote_once(empty_database, t
         fake.files["files/big.bin"] = CONTENT
         fake.delay = 0.2
         http = fake.client()
-        application = SimpleNamespace(state=SimpleNamespace(http=http))
 
         async def read_once() -> bytes:
             async with factory() as db:
                 mirror = await db.get(Repository, repository.id)
-                context = await build_context(db, settings, mirror, None)
-                request = Request(
-                    {
-                        "type": "http",
-                        "method": "GET",
-                        "path": "/",
-                        "headers": [],
-                        "app": application,
-                    }
-                )
+                context = await build_context(db, settings, mirror, None, outbound=lambda: http)
+                request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
                 response = await handle_proxy(context, request, "big.bin")
                 return b"".join([chunk async for chunk in response.body_iterator])
 

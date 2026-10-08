@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import func, select, update
 
 from megooarti.clock import utcnow
+from megooarti.errors import ApiError
 from megooarti.repositories import formats, proxy
 from megooarti.repositories.formats import Format
 from megooarti.repositories.models import Asset, NegativeCacheEntry, ProxyState, Repository
@@ -422,3 +423,49 @@ async def test_the_format_chooses_the_type_recorded_for_a_fetched_file(
     response = await client.get(URL, headers=root)
 
     assert response.headers["Content-Type"] == "application/x-chosen"
+
+
+async def test_ensure_cached_fetches_a_missing_file_once(app, context_for, mirror, remote):
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+
+    await proxy.ensure_cached(context, "lib/a.bin")
+    await proxy.ensure_cached(context, "lib/a.bin")
+
+    assert await context.read("lib/a.bin", limit=1000) == CONTENT
+    assert remote.paths() == [REMOTE_PATH]
+
+
+async def test_ensure_cached_raises_what_the_engine_would_answer(app, context_for, mirror, remote):
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+
+    with pytest.raises(ApiError) as missing:
+        await proxy.ensure_cached(context, "lib/absent.bin")
+    remote.down = True
+    with pytest.raises(ApiError) as unavailable:
+        await proxy.ensure_cached(context, "lib/other.bin")
+
+    assert (missing.value.status_code, missing.value.code) == (404, "not_found")
+    assert (unavailable.value.status_code, unavailable.value.code) == (
+        502,
+        "remote_unavailable",
+    )
+
+
+async def test_ensure_cached_keeps_a_stale_copy_when_the_remote_is_down(
+    app, context_for, mirror, remote, db
+):
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+    await proxy.ensure_cached(context, "lib/a.bin")
+    await make_stale(db)
+    remote.down = True
+
+    await proxy.ensure_cached(context, "lib/a.bin")
+
+    assert await context.read("lib/a.bin", limit=1000) == CONTENT
+
+
+async def test_a_context_without_an_outbound_client_cannot_fetch(context_for, mirror):
+    context = await context_for(mirror, None)
+
+    with pytest.raises(RuntimeError):
+        await proxy.ensure_cached(context, "lib/a.bin")

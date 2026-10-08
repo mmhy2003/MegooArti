@@ -108,6 +108,7 @@ class RepositoryContext:
         principal: Principal | None,
         format: Format,
         backend: BlobBackend | None,
+        outbound: Callable[[], Any] | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
@@ -115,9 +116,17 @@ class RepositoryContext:
         self.principal = principal
         self.format = format
         self.backend = backend  # None for a group, which stores nothing itself
+        # How to get the application's outbound HTTP client; None if there is none.
+        self.outbound = outbound
 
     def permission(self, action: str) -> str:
         return f"repository:{self.repository.format}:{self.repository.name}:{action}"
+
+    def http(self) -> Any:
+        """The application's outbound HTTP client, for fetching from a remote."""
+        if self.outbound is None:
+            raise RuntimeError("this context was built without an outbound client")
+        return self.outbound()
 
     async def _lock(self, kind: str, key: str) -> None:
         """Serialise work on one path or component until this transaction ends."""
@@ -582,7 +591,11 @@ class RepositoryContext:
 
 
 async def build_context(
-    db: AsyncSession, settings: Settings, repository: Repository, principal: Principal | None
+    db: AsyncSession,
+    settings: Settings,
+    repository: Repository,
+    principal: Principal | None,
+    outbound: Callable[[], Any] | None = None,
 ) -> RepositoryContext:
     backend = None
     if repository.blob_store_id is not None:
@@ -595,4 +608,5 @@ async def build_context(
         principal=principal,
         format=get_format(repository.format),
         backend=backend,
+        outbound=outbound,
     )
