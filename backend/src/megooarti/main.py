@@ -17,6 +17,7 @@ from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register
 from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories.api import router as repositories_router
+from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.routes import router as content_router
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
