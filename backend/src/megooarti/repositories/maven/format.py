@@ -4,6 +4,7 @@ This is the only Maven module that touches the repository context. What it decid
 about a path comes from the pure functions beside it.
 """
 
+from datetime import datetime
 from typing import Any
 
 from starlette.requests import Request
@@ -12,7 +13,7 @@ from starlette.responses import Response
 from megooarti.errors import ApiError
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.formats import ComponentKey, Format, register
-from megooarti.repositories.maven import paths
+from megooarti.repositories.maven import checksums, paths
 from megooarti.repositories.paths import normalise_path
 
 _SETTINGS = ("version_policy", "layout_policy")
@@ -45,6 +46,64 @@ def _check_policies(settings: dict[str, Any], parsed: paths.MavenPath) -> None:
         raise ApiError(
             400, "version_policy_violation", f"This repository takes {accepted} versions only."
         )
+
+
+def _not_found() -> ApiError:
+    return ApiError(404, "not_found", "No such file.")
+
+
+async def _digest(
+    context: RepositoryContext, target: str, parsed: paths.MavenPath, algorithm: str
+) -> tuple[str, datetime] | None:
+    """The checksum of what a GET of `target` returns, and when that last changed."""
+    stored = await context.stat(target)
+    if stored is None:
+        return None
+    return getattr(stored, algorithm), stored.modified
+
+
+async def _checksum(
+    context: RepositoryContext,
+    request: Request,
+    path: str,
+    target: str,
+    parsed: paths.MavenPath,
+    algorithm: str,
+) -> Response:
+    """Answer for a checksum path. Checksums are computed, never stored."""
+    if request.method in ("GET", "HEAD"):
+        found = await _digest(context, target, parsed, algorithm)
+        if found is None:
+            raise _not_found()
+        digest, modified = found
+        return context.respond_with(
+            digest.encode(),
+            request,
+            filename=path.rpartition("/")[2],
+            content_type="text/plain",
+            last_modified=modified,
+        )
+    if request.method != "PUT":
+        raise ApiError(
+            405,
+            "method_not_allowed",
+            "A checksum is computed from its file. It can be read or uploaded, not deleted.",
+            headers={"Allow": "GET, HEAD, PUT"},
+        )
+
+    context.require_write()
+    body = await context.receive(request.stream(), limit=checksums.LIMIT)
+    found = await _digest(context, target, parsed, algorithm)
+    if found is None:
+        raise ApiError(404, "not_found", "There is no file here for this checksum to belong to.")
+    declared = None if body is None else checksums.read_uploaded(body, algorithm)
+    if declared != found[0]:
+        # The file stays. Removing it would let anyone who may add delete files by
+        # sending a wrong checksum; the client sees its deploy fail instead.
+        raise ApiError(
+            400, "checksum_mismatch", f"The {algorithm} checksum does not match the stored file."
+        )
+    return Response(status_code=201)
 
 
 class MavenFormat(Format):
@@ -85,9 +144,13 @@ class MavenFormat(Format):
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
         path = normalise_path(path)
-        parsed = paths.classify(path)
+        # A checksum path is treated as the path it belongs to.
+        target, algorithm = paths.split_checksum(path)
+        parsed = paths.classify(target)
         if request.method == "PUT":
             _check_policies(context.repository.config["format_config"], parsed)
+        if algorithm is not None:
+            return await _checksum(context, request, path, target, parsed, algorithm)
         return await super().handle_hosted(context, request, path)
 
 
