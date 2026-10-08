@@ -187,3 +187,15 @@ def test_digits_that_are_not_plain_or_are_absurdly_long_are_not_understood(value
     result = plan("GET", Headers(raw=[(b"range", value.encode("latin-1", "replace"))]), ITEM)
 
     assert (result.status, result.byte_range) == (200, (0, 999))
+
+
+def test_an_item_can_name_its_own_etag_and_leave_out_checksums():
+    item = replace(ITEM, sha256="", md5=None, sha1=None, sha512=None, etag="chosen")
+
+    made = make(item=item)
+    unchanged = make(item=item, if_none_match='"chosen"')
+
+    assert made.headers["ETag"] == '"chosen"'
+    assert not [name for name in made.headers if name.startswith("X-Checksum")]
+    assert made.headers["Content-Security-Policy"] == "sandbox"
+    assert (unchanged.status, unchanged.byte_range) == (304, None)

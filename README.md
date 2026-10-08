@@ -42,6 +42,7 @@ All configuration is by environment variable.
 | `MEGOOARTI_COMPACTION_INTERVAL_SECONDS` | `3600` | How often unused blob content is removed; `0` disables it |
 | `MEGOOARTI_BLOB_GRACE_SECONDS` | `86400` | How long content is kept after nothing uses it |
 | `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords; use a long random value. If unset or empty, a key is generated into `secret.key` in the data directory on first use |
+| `MEGOOARTI_NPM_MAX_PUBLISH_BYTES` | `104857600` | Largest `npm publish` request accepted. A publish is read into memory, so this bounds what one costs |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set

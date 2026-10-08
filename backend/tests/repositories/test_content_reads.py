@@ -145,3 +145,24 @@ async def test_generated_bytes_honour_head_conditions_and_ranges(context):
     assert (unchanged.status_code, unchanged.body) == (304, b"")
     assert (partial.status_code, partial.body) == (206, DOCUMENT[1:9])
     assert partial.headers["Content-Range"] == f"bytes 1-8/{len(DOCUMENT)}"
+
+
+async def test_a_response_with_its_own_etag_is_not_hashed(context):
+    def respond(incoming: Request):
+        return context.respond_with(
+            DOCUMENT,
+            incoming,
+            filename="package.json",
+            content_type="application/json",
+            last_modified=WHEN,
+            etag="known-already",
+        )
+
+    response = respond(request())
+    unchanged = respond(request(if_none_match='"known-already"'))
+
+    assert (response.status_code, response.body) == (200, DOCUMENT)
+    assert response.headers["ETag"] == '"known-already"'
+    assert not [name for name in response.headers if name.lower().startswith("x-checksum")]
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert (unchanged.status_code, unchanged.body) == (304, b"")

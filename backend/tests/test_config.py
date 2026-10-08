@@ -119,3 +119,12 @@ def test_secret_key_is_unset_by_default_and_read_from_the_environment(monkeypatc
     monkeypatch.setenv("MEGOOARTI_SECRET_KEY", "a long random value")
 
     assert Settings(_env_file=None, database_url=VALID_URL).secret_key == "a long random value"
+
+
+def test_the_npm_publish_limit(monkeypatch):
+    assert Settings(_env_file=None, database_url=VALID_URL).npm_max_publish_bytes == 104857600
+
+    monkeypatch.setenv("MEGOOARTI_DATABASE_URL", VALID_URL)
+    monkeypatch.setenv("MEGOOARTI_NPM_MAX_PUBLISH_BYTES", "2048")
+
+    assert Settings(_env_file=None).npm_max_publish_bytes == 2048

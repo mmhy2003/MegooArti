@@ -346,21 +346,29 @@ class RepositoryContext:
         filename: str,
         content_type: str,
         last_modified: datetime,
+        etag: str | None = None,
     ) -> Response:
         """Answer a GET or HEAD with bytes made for this request.
 
         The same planning as for a stored file, so the headers, conditions and ranges
-        are the same too.
+        are the same too. With `etag`, the caller already knows a value that changes
+        whenever the bytes do: they are then not hashed here, and no checksum headers
+        are sent.
         """
+
+        def digest(algorithm: str) -> str | None:
+            return None if etag is not None else hashlib.new(algorithm, data).hexdigest()
+
         item = serving.Servable(
-            sha256=hashlib.sha256(data).hexdigest(),
-            md5=hashlib.md5(data).hexdigest(),
-            sha1=hashlib.sha1(data).hexdigest(),
-            sha512=hashlib.sha512(data).hexdigest(),
+            sha256=digest("sha256") or "",
+            md5=digest("md5"),
+            sha1=digest("sha1"),
+            sha512=digest("sha512"),
             size=len(data),
             content_type=content_type,
             last_modified=last_modified,
             filename=filename,
+            etag=etag,
         )
         plan = serving.plan(request.method, request.headers, item)
         if plan.byte_range is None:

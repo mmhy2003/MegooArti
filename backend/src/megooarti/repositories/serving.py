@@ -16,13 +16,16 @@ from megooarti.errors import ApiError
 @dataclass(frozen=True)
 class Servable:
     sha256: str
-    md5: str
-    sha1: str
-    sha512: str
+    md5: str | None
+    sha1: str | None
+    sha512: str | None
     size: int
     content_type: str
     last_modified: datetime
     filename: str
+    # For content made for the request, whose maker already knows a value that changes
+    # whenever it does. The digests are then left out instead of being computed.
+    etag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,7 +43,7 @@ class RangeNotSatisfiable(Exception):
 
 
 def _etag(item: Servable) -> str:
-    return f'"{item.sha256}"'
+    return f'"{item.etag or item.sha256}"'
 
 
 def _disposition(filename: str) -> str:
@@ -53,19 +56,18 @@ def _disposition(filename: str) -> str:
 
 
 def _base_headers(item: Servable) -> dict[str, str]:
-    return {
+    headers = {
         "Content-Type": item.content_type,
         "ETag": _etag(item),
         "Last-Modified": format_datetime(item.last_modified.astimezone(UTC), usegmt=True),
         "Accept-Ranges": "bytes",
-        "X-Checksum-Md5": item.md5,
-        "X-Checksum-Sha1": item.sha1,
-        "X-Checksum-Sha256": item.sha256,
-        "X-Checksum-Sha512": item.sha512,
         "Content-Disposition": _disposition(item.filename),
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox",
     }
+    digests = {"Md5": item.md5, "Sha1": item.sha1, "Sha256": item.sha256, "Sha512": item.sha512}
+    headers.update({f"X-Checksum-{name}": digest for name, digest in digests.items() if digest})
+    return headers
 
 
 def _etag_matches(header: str, etag: str) -> bool:

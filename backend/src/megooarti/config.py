@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     compaction_interval_seconds: int = 3600
     blob_grace_seconds: int = 86400
     secret_key: str | None = None
+    npm_max_publish_bytes: int = 100 * 1024 * 1024
 
     @field_validator("database_url")
     @classmethod
