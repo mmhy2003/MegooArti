@@ -298,3 +298,123 @@ def test_uploaded_plugins_replace_stored_ones_for_the_same_artifact():
         Plugin("Kept", "kept", "b-plugin"),
         Plugin("New", "new", "a-plugin"),
     )
+
+
+def test_a_document_nested_too_deeply_is_refused():
+    acceptable = b"<metadata>" + b"<a>" * 15 + b"</a>" * 15 + b"</metadata>"
+    too_deep = b"<metadata>" + b"<a>" * 16 + b"</a>" * 16 + b"</metadata>"
+
+    assert metadata.parse(acceptable) == Metadata()
+    with pytest.raises(InvalidMetadata, match="nested"):
+        metadata.parse(too_deep)
+
+
+def test_a_document_with_too_many_elements_is_refused():
+    def listing(count: int) -> bytes:
+        versions = "".join(f"<version>{number}</version>" for number in range(count))
+        document = f"<metadata><versioning><versions>{versions}</versions></versioning></metadata>"
+        return document.encode()
+
+    assert len(metadata.parse(listing(20_000)).versions) == 20_000
+    with pytest.raises(InvalidMetadata, match="too many"):
+        metadata.parse(listing(100_000))
+
+
+def test_merging_nothing_is_nothing():
+    assert metadata.merge([]) is None
+
+
+def test_merged_versions_are_the_union_in_maven_order():
+    ours = Metadata(
+        group_id="com.acme",
+        artifact_id="app",
+        versions=("1.0", "1.10"),
+        latest="1.10",
+        release="1.10",
+        last_updated="20261008101500",
+    )
+    theirs = Metadata(
+        group_id="com.acme",
+        artifact_id="app",
+        versions=("1.9", "1.0", "2.0-SNAPSHOT"),
+        latest="1.0",
+        release="1.0",
+        last_updated="20250101000000",
+    )
+
+    assert metadata.merge([ours, theirs]) == Metadata(
+        group_id="com.acme",
+        artifact_id="app",
+        versions=("1.0", "1.9", "1.10", "2.0-SNAPSHOT"),
+        latest="2.0-SNAPSHOT",
+        release="1.10",
+        last_updated="20261008101500",
+    )
+
+
+def test_latest_and_release_are_recomputed_even_for_one_document():
+    misleading = Metadata(versions=("2.0", "1.0"), latest="1.0", release="1.0")
+
+    merged = metadata.merge([misleading])
+
+    assert (merged.versions, merged.latest, merged.release) == (("1.0", "2.0"), "2.0", "2.0")
+
+
+def test_coordinates_come_from_the_first_document_that_has_them():
+    merged = metadata.merge(
+        [PLUGINS, Metadata(group_id="com.acme", artifact_id="app"), Metadata(group_id="other")]
+    )
+
+    assert (merged.group_id, merged.artifact_id) == ("com.acme", "app")
+
+
+def test_plugins_are_merged_by_prefix_and_the_earlier_document_wins():
+    ours = Metadata(plugins=(Plugin("Ours", "acme", "acme-maven-plugin"),))
+    theirs = Metadata(
+        plugins=(Plugin("Theirs", "acme", "their-plugin"), Plugin("Other", "other", "other-plugin"))
+    )
+
+    assert metadata.merge([ours, theirs]).plugins == (
+        Plugin("Ours", "acme", "acme-maven-plugin"),
+        Plugin("Other", "other", "other-plugin"),
+    )
+
+
+def test_the_snapshot_is_the_one_built_last():
+    older = Metadata(snapshot_timestamp="20261008.101500", snapshot_build=9)
+    newer = Metadata(snapshot_timestamp="20261009.080000", snapshot_build=2)
+    none = Metadata()
+
+    merged = metadata.merge([older, none, newer])
+
+    assert (merged.snapshot_timestamp, merged.snapshot_build) == ("20261009.080000", 2)
+
+
+def test_the_higher_build_decides_between_equal_timestamps():
+    lower = Metadata(snapshot_timestamp="20261008.101500", snapshot_build=2)
+    higher = Metadata(snapshot_timestamp="20261008.101500", snapshot_build=3)
+
+    assert metadata.merge([lower, higher]).snapshot_build == 3
+    assert metadata.merge([higher, lower]).snapshot_build == 3
+
+
+def test_each_snapshot_file_comes_from_the_document_that_updated_it_last():
+    ours = Metadata(
+        snapshot_versions=(
+            SnapshotVersion("", "jar", "1.0-20261008.101500-1", "20261008101500"),
+            SnapshotVersion("", "pom", "1.0-20261008.101500-1", "20261008101500"),
+        )
+    )
+    theirs = Metadata(
+        snapshot_versions=(
+            SnapshotVersion("", "jar", "1.0-20261009.080000-2", "20261009080000"),
+            SnapshotVersion("", "pom", "1.0-20261008.101500-7", "20261008101500"),
+            SnapshotVersion("sources", "jar", "1.0-20261009.080000-2", "20261009080000"),
+        )
+    )
+
+    assert metadata.merge([ours, theirs]).snapshot_versions == (
+        SnapshotVersion("", "jar", "1.0-20261009.080000-2", "20261009080000"),
+        SnapshotVersion("", "pom", "1.0-20261008.101500-1", "20261008101500"),
+        SnapshotVersion("sources", "jar", "1.0-20261009.080000-2", "20261009080000"),
+    )

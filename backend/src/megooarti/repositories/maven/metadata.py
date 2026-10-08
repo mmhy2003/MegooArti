@@ -5,7 +5,7 @@ entity can be declared: metadata never needs one, and entities are how XML is ab
 """
 
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from xml.parsers import expat
@@ -16,6 +16,10 @@ from megooarti.repositories.maven.versions import sorted_versions
 # Longer than any real coordinate; a field beyond it is ignored.
 _MAX_FIELD = 255
 _DECLARATION = b'<?xml version="1.0" encoding="UTF-8"?>\n'
+# Real metadata nests five levels and lists a few thousand versions at most. These
+# bound what a document can cost to read, whoever sent it.
+_MAX_DEPTH = 16
+_MAX_ELEMENTS = 100_000
 
 
 class InvalidMetadata(Exception):
@@ -136,6 +140,54 @@ def merge_plugins(stored: Iterable[Plugin], uploaded: Iterable[Plugin]) -> tuple
     )
 
 
+def merge(documents: Sequence[Metadata]) -> Metadata | None:
+    """Several repositories' documents for one path, as one. None if there are none.
+
+    Versions are the union, and `latest` and `release` are worked out again from it:
+    a member's own answer describes only that member. Where two documents disagree
+    about the same thing, the earlier one wins.
+    """
+    if not documents:
+        return None
+    versions = sorted_versions(version for document in documents for version in document.versions)
+    releases = [version for version in versions if not version.endswith(SNAPSHOT)]
+
+    def built(document: Metadata) -> tuple[str, int]:
+        build = -1 if document.snapshot_build is None else document.snapshot_build
+        return document.snapshot_timestamp, build
+
+    newest = max(documents, key=built)
+
+    files: dict[tuple[str, str], SnapshotVersion] = {}
+    plugins: dict[str, Plugin] = {}
+    for document in documents:
+        for entry in document.snapshot_versions:
+            key = (entry.classifier, entry.extension)
+            if key not in files or entry.updated > files[key].updated:
+                files[key] = entry
+        for plugin in document.plugins:
+            plugins.setdefault(plugin.prefix, plugin)
+
+    def first(values: Iterable[str]) -> str:
+        return next((value for value in values if value), "")
+
+    return Metadata(
+        group_id=first(document.group_id for document in documents),
+        artifact_id=first(document.artifact_id for document in documents),
+        version=first(document.version for document in documents),
+        versions=tuple(versions),
+        latest=versions[-1] if versions else "",
+        release=releases[-1] if releases else "",
+        snapshot_timestamp=newest.snapshot_timestamp,
+        snapshot_build=newest.snapshot_build,
+        snapshot_versions=tuple(files[key] for key in sorted(files)),
+        last_updated=max(document.last_updated for document in documents),
+        plugins=tuple(
+            sorted(plugins.values(), key=lambda plugin: (plugin.prefix, plugin.artifact_id))
+        ),
+    )
+
+
 def _add(parent: ET.Element, name: str, value: str) -> None:
     if value:
         ET.SubElement(parent, name).text = value
@@ -192,11 +244,29 @@ def _refuse_doctype(*_: object) -> None:
 
 def _tree(data: bytes) -> ET.Element:
     builder = ET.TreeBuilder()
+    depth = 0
+    elements = 0
+
+    def start(tag: str, attributes: dict[str, str]) -> None:
+        nonlocal depth, elements
+        depth += 1
+        elements += 1
+        if depth > _MAX_DEPTH:
+            raise InvalidMetadata("it is nested too deeply")
+        if elements > _MAX_ELEMENTS:
+            raise InvalidMetadata("it has too many elements")
+        builder.start(tag, attributes)
+
+    def end(tag: str) -> None:
+        nonlocal depth
+        depth -= 1
+        builder.end(tag)
+
     parser = expat.ParserCreate()
     parser.buffer_text = True
     parser.StartDoctypeDeclHandler = _refuse_doctype
-    parser.StartElementHandler = builder.start
-    parser.EndElementHandler = builder.end
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
     parser.CharacterDataHandler = builder.data
     try:
         parser.Parse(data, True)
