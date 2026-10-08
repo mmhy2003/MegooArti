@@ -71,7 +71,8 @@ These amend section 6 of the storage design. Raw's behaviour does not change.
   | Files of a component | Path and modification time of each file of one namespace, name and version |
   | Read a small file | The bytes of a stored file, refused above a stated limit |
 
-- **Server-maintained metadata.** A new operation, `maintain(path, bytes)`, stores a document the server keeps on the uploader's behalf. It needs `add` or `edit`, refuses a read-only repository, is not subject to `disable_redeploy`, records the kind `metadata`, and refuses to replace a file of any other kind. A format therefore cannot use it to overwrite an artifact.
+- **Server-maintained metadata.** A new operation, `maintain(path, update)`, changes a document the server keeps on the uploader's behalf. `update` receives the stored bytes, or nothing, and returns what to store, or nothing to remove the document. It runs under the path's lock, so two changes never overwrite each other. The operation needs `add` or `edit`, refuses a read-only repository, is not subject to `disable_redeploy`, records the kind `metadata` with no component, and refuses to touch a file of any other kind. A format therefore cannot use it to overwrite an artifact.
+- **Reading a small upload.** `receive(stream, limit)` gives the database connection back and reads a body of at most `limit` bytes into memory, so a format never handles the session to do so.
 - **Accepting an upload that stores nothing.** `require_write()` applies the same check as `maintain` without storing. A format calls it before accepting an upload it will drop, so that dropping is never a way around permissions.
 
 ### 4.2 For proxy and group formats (plan 4b)
@@ -106,8 +107,10 @@ A path is classified before anything else happens.
 
 | Setting | Effect |
 | --- | --- |
-| `strict` (default) | Only checksum, metadata, artifact and catalog paths exist. A `PUT` to any other path is `400 invalid_path`; a `GET` or `HEAD` is `404`, and a proxy does not ask its remote for it |
+| `strict` (default) | Only checksum, metadata, artifact and catalog paths can be added. A `PUT` to any other path is `400 invalid_path`, and a proxy does not ask its remote for one |
 | `permissive` | Other paths are stored and served as plain files |
+
+The policy governs what can be added, not what is served: files stored while a repository was permissive stay readable and deletable after it is made strict.
 
 ### 5.2 Version policy
 
@@ -125,7 +128,7 @@ Both policies are settings of hosted and proxy repositories, given in `format_co
 
 ### 5.3 Version order
 
-`latest`, `release` and the order of `<versions>` use Maven's own comparison (`ComparableVersion`): numeric and text segments, the qualifier order `alpha`, `beta`, `milestone`, `rc`, `snapshot`, release, `sp`, and trailing zeros ignored. It is implemented here and tested against the cases in Maven's own test suite.
+`latest`, `release` and the order of `<versions>` use Maven's own comparison (`ComparableVersion`): numeric and text segments, the qualifier order `alpha`, `beta`, `milestone`, `rc`, `snapshot`, release, `sp`, and trailing zeros ignored. It is implemented here from Maven's published Version Order Specification, with a qualifier after a dot treated like one after a hyphen, as Maven 3.9 does. The Docker-marked suite compares it with Maven itself on a list of versions; where they differ, Maven is right.
 
 ## 6. Hosted Maven
 
@@ -261,7 +264,7 @@ There is no migration: a file without a component, the kind `metadata` and the n
 
 ## 11. Testing
 
-- **Pure functions** are tested directly: path classification and its edge cases, version order against Maven's cases, metadata building, parsing (including refused `DOCTYPE` and oversize input) and merging, checksum reading.
+- **Pure functions** are tested directly: path classification and its edge cases, version order against the specification's examples, metadata building, parsing (including refused `DOCTYPE` and oversize input) and merging, checksum reading.
 - **Each repository type** is tested through the HTTP API with the existing fixtures, including the fake remote: every row of the tables in sections 5 to 8, permissions on dropped uploads, and both policies.
 - **Races** that the shared-transaction fixture cannot show (two deploys of different versions at once; a plugin-prefix merge at once) use the real-transaction pattern from the storage tests.
 - **Real client (D8)**, in the Docker-marked suite, which needs internet access:
@@ -273,7 +276,7 @@ There is no migration: a file without a component, the kind `metadata` and the n
 | Risk | Response |
 | --- | --- |
 | A client depends on reading back exactly the metadata it uploaded. | None of Maven, Gradle, sbt or Ivy does. The real-client tests cover Maven; others are covered in plan 11. |
-| The version comparison differs from Maven's in some corner. | It is tested against Maven's own cases, and a difference affects only `latest`, `release` and list order, never which files are served. |
+| The version comparison differs from Maven's in some corner. | It is compared with Maven itself in the Docker-marked suite, and a difference affects only `latest`, `release` and list order, never which files are served. |
 | Generating metadata for an artifact with thousands of versions on every request is slow. | It is one indexed query and an in-memory sort. A cache keyed by `lastUpdated` can be added without changing behaviour. |
 | A corrupted upload under `disable_redeploy` leaves a bad file that cannot be replaced by the same user. | The checksum upload fails, so the deploy fails visibly. Someone with `delete` removes the file. Removing it automatically would let anyone with `add` delete files by sending a wrong checksum. |
 | A checksum request to a proxy can trigger a large download. | Only for a file the client is about to request anyway; the download is then reused. |
