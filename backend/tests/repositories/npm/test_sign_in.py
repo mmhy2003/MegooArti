@@ -189,3 +189,15 @@ async def test_basic_credentials_still_work_everywhere(client, registry, make_us
     assert (await client.get(WHOAMI, headers=basic("dana", PASSWORD))).json() == {
         "username": "dana"
     }
+
+
+async def test_a_revoked_token_in_npmrc_does_not_stop_npm_login(client, registry, make_user):
+    await make_user("dana", roles=["admin"])
+    old = await sign_in(client)
+    await client.delete(f"{URL}/-/user/token/{old}", headers=bearer(old))
+
+    # npm sends the token it has saved with every request, including the next sign-in.
+    response = await client.put(LOGIN, json=credentials(), headers=bearer(old))
+
+    assert response.status_code == 201, response.text
+    assert response.json()["token"] != old

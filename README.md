@@ -104,9 +104,9 @@ The full API is described at `/api/docs`.
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. The formats so far are
-`raw` (arbitrary files by path) and `maven`. A repository has one of three types:
-`hosted` (files you publish), `proxy` (a cache of a remote repository) or `group`
-(several repositories behind one URL).
+`raw` (arbitrary files by path), `maven` and `npm` (hosted repositories only, for now).
+A repository has one of three types: `hosted` (files you publish), `proxy` (a cache of
+a remote repository) or `group` (several repositories behind one URL).
 
 Create a repository, then use it with any HTTP client:
 
@@ -291,6 +291,50 @@ To send everything Maven resolves through the group, mirror it in `~/.m2/setting
 
 Reading through a group needs `read` on the group only, for example
 `repository:maven:maven-public:read`.
+
+### npm repositories
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "npm-hosted", "format": "npm", "type": "hosted",
+  "hosted": {"deployment_policy": "disable_redeploy"}
+}' http://localhost:8000/api/v1/repositories
+```
+
+Point npm at it and sign in. `npm login` asks for a user name and a password, and
+MegooArti answers with a personal API token, which npm keeps in `~/.npmrc`:
+
+```bash
+npm config set registry https://repo.example.com/repository/npm-hosted/
+npm login --auth-type=legacy
+npm publish
+```
+
+In a pipeline, skip `npm login` and give npm a token directly:
+
+```ini
+registry=https://repo.example.com/repository/npm-hosted/
+//repo.example.com/repository/npm-hosted/:_authToken=${NPM_TOKEN}
+```
+
+- **Signing in** accepts a password, or an API token in place of the password. Each
+  sign-in with a password creates a token named `npm login` and the time; it is listed
+  with your other tokens and can be revoked there. `npm logout` revokes it. Failed
+  attempts are limited as for any sign-in.
+- **The package document is generated** on every request from the versions stored, so
+  it is right after an unpublish and after two publishes at the same moment.
+- **A published tarball is checked** against the `shasum` and `integrity` in its
+  manifest. A publish that does not match is refused.
+- **Publishing a version again** follows the deployment policy. Use `disable_redeploy`
+  to get npm's own rule that a version is published once.
+- **Dist-tags.** `latest` is the highest version if the version it named is removed.
+- **Permissions.** `npm publish` needs `add`. `npm deprecate` needs `edit`.
+  `npm unpublish` needs `delete`, and `add` or `edit` as well when it removes a single
+  version, because npm does that by sending the package document back.
+- **A publish is read into memory**, up to `MEGOOARTI_NPM_MAX_PUBLISH_BYTES`.
+- **Search** (`npm search`) finds the packages this repository holds, by name.
+- `npm audit` is not supported; installs do not need it.
+- Proxy and group npm repositories are not available yet.
 
 ## Health endpoints
 

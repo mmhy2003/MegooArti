@@ -157,3 +157,31 @@ async def test_basic_credentials_are_checked_the_same_way_as_before(client, dana
 
     assert (with_password.status_code, with_token.status_code) == (404, 404)
     assert (with_another_name.status_code, wrong.status_code) == (401, 401)
+
+
+@pytest.mark.parametrize(
+    "stale", [bearer("mga_revoked-long-ago"), basic("dana", "an old password"), bearer("junk")]
+)
+async def test_a_stale_credential_in_a_header_does_not_stop_a_sign_in(client, dana, stale):
+    # A client whose saved token was revoked sends it with every request, this one too.
+    response = await client.put(LOGIN, json={"name": "dana", "password": PASSWORD}, headers=stale)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["principal"] is False
+
+
+async def test_a_stale_credential_still_stops_everything_else(client, dana):
+    stale = bearer("mga_revoked-long-ago")
+
+    attempts = [
+        await client.put(FILE, content=b"hello", headers=stale),
+        await client.get(FILE, headers=stale),
+        await client.put("/repository/files/-/logout", headers=stale),
+        await client.post(LOGIN, json={"name": "dana", "password": PASSWORD}, headers=stale),
+        await client.put("/repository/nowhere/-/login", json={}, headers=stale),
+    ]
+
+    assert [response.status_code for response in attempts] == [401] * 5
+    assert all(
+        response.headers["WWW-Authenticate"] == 'Basic realm="MegooArti"' for response in attempts
+    )

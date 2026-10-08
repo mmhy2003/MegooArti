@@ -297,17 +297,22 @@ async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
         raise refusal
 
 
-def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal | None]]:
+def _principal_dependency(
+    scheme: Scheme, *, defer_refusal: bool = False
+) -> Callable[..., Awaitable[Principal | ApiError | None]]:
     async def dependency(
         request: Request, db: AsyncSession = Depends(get_session)
-    ) -> Principal | None:
+    ) -> Principal | ApiError | None:
         await _refuse_cross_site(request, db)
         try:
             principal = await resolve_principal(request, db)
         except ApiError as error:
             if error.status_code != 401:
                 raise
-            raise unauthorized(error.message, scheme=scheme) from None
+            refusal = unauthorized(error.message, scheme=scheme)
+            if defer_refusal:
+                return refusal  # the route decides whether these credentials matter
+            raise refusal from None
         await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
         if (
             principal is not None
@@ -327,7 +332,12 @@ def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal |
 # the challenge a 401 carries.
 current_principal = _principal_dependency("Bearer")  # the JSON API
 client_principal = _principal_dependency("Basic")  # repository content, for package clients
-AUTHENTICATION_DEPENDENCIES = frozenset({current_principal, client_principal})
+# The same, except that credentials that are not accepted come back as the 401 to
+# raise instead of being raised. The content route uses it: for the one request a
+# format takes with credentials in its body, a stale token in a header must not count.
+# The route must raise the refusal for every other request.
+client_credentials = _principal_dependency("Basic", defer_refusal=True)
+AUTHENTICATION_DEPENDENCIES = frozenset({current_principal, client_principal, client_credentials})
 
 
 def _refuse_pending_password_change(principal: Principal) -> None:

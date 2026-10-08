@@ -58,7 +58,7 @@ One design, delivered as two plans.
 
 ### 4.1 For hosted npm (plan 5a)
 
-- **Credentials in the request body.** Today the content route refuses any write without credentials before format code runs. A format can now name requests that carry credentials in their body; the route lets exactly those through without a principal. The npm format names one: `PUT -/user/org.couchdb.user:<name>`. The handler must not use the principal, and checks the credentials through the security package.
+- **Credentials in the request body.** Today the content route refuses any write without credentials before format code runs. A format can now name requests that carry credentials in their body; the route lets exactly those through without a principal. The npm format names one: `PUT -/user/org.couchdb.user:<name>`. The handler must not use the principal, and checks the credentials through the security package. For such a request the route ignores whatever credentials a header carries, valid or not: npm sends its saved token with every request, and a token that has been revoked must not stop the next sign-in.
 - **Signing a client in.** One function in the security package now checks a user name and a secret, for HTTP Basic and for everything else. On it the package gains two operations, reached through the context so that a format never handles the session:
   - *Issue a token:* check a user name and secret exactly as HTTP Basic credentials are checked, including throttling of failures, and refuse a user who must change their password. If the secret is itself one of the user's API tokens, return it; otherwise create a personal API token and return its value.
   - *Revoke a token:* revoke the token with a given value, only if it belongs to the caller.

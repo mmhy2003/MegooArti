@@ -14,10 +14,11 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.repositories import dispatch, remote, service
 from megooarti.repositories.content import build_context
+from megooarti.repositories.formats import get_format
 from megooarti.security.authentication import (
     Principal,
     authorize,
-    client_principal,
+    client_credentials,
     unauthorized,
 )
 
@@ -33,10 +34,24 @@ async def repository_content(
     name: str,
     path: str,
     request: Request,
-    principal: Principal | None = Depends(client_principal),
+    credentials: Principal | ApiError | None = Depends(client_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     repository = await service.get_repository(db, name)
+    handler = None if repository is None else get_format(repository.format)
+    reading = request.method in ("GET", "HEAD")
+    in_body = (
+        handler is not None and not reading and handler.takes_body_credentials(request.method, path)
+    )
+    if in_body:
+        # This request carries its credentials in its body, and the format checks them.
+        # Whatever a header carries is not looked at, valid or not: a client whose
+        # saved token was revoked sends it with every request, the next sign-in too.
+        principal = None
+    elif isinstance(credentials, ApiError):
+        raise credentials
+    else:
+        principal = credentials
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
     context = await build_context(
@@ -48,9 +63,9 @@ async def repository_content(
         outbound=lambda: remote.client_of(request.app),
     )
 
-    if request.method in ("GET", "HEAD"):
+    if reading:
         authorize(principal, context.permission("read"), scheme="Basic")
-    elif principal is None and not context.format.takes_body_credentials(request.method, path):
+    elif principal is None and not in_body:
         raise unauthorized(scheme="Basic")
     if not repository.online:
         raise ApiError(503, "repository_offline", "This repository is offline.")
