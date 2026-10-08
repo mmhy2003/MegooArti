@@ -172,3 +172,5 @@ def test_stored_paths():
         "packages/requests/2.31.0/requests-2.31.0.tar.gz"
     )
     assert classify(names.file_path("requests", "2.31.0", "requests-2.31.0.tar.gz")).kind == "file"
+    assert names.page_path("requests") == "simple/requests"
+    assert classify(names.page_path("requests")) == PypiPath("page", project="requests")

@@ -57,6 +57,11 @@ def file_path(project: str, version: str, filename: str) -> str:
     return f"packages/{project}/{version}/{filename}"
 
 
+def page_path(project: str) -> str:
+    """Where a proxy keeps the remote's page for a project. `project` is in its normal form."""
+    return f"simple/{project}"
+
+
 def version_of(project: str, filename: str) -> str | None:
     """The version a file belongs to, read from its name.
 
