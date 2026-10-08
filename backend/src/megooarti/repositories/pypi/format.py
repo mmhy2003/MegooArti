@@ -13,6 +13,10 @@ out of it as it streams, and the page sent is written from them, pointing here. 
 is fetched from the address the remote's page gives for it, which is often on another
 host, and must match the hash on that page. Reading a page is CPU-bound work whose size
 a remote decides, so it runs on two worker threads of its own.
+
+A group answers for a project from its hosted members if one of them holds it, and only
+otherwise from its proxies: a public project must never add files to a private name.
+That holds for the page and for the files alike.
 """
 
 import asyncio
@@ -26,9 +30,9 @@ from starlette.responses import Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import proxy
-from megooarti.repositories.content import RepositoryContext, Stored
-from megooarti.repositories.formats import ComponentKey, Format, register
+from megooarti.repositories import group, proxy
+from megooarti.repositories.content import PackageFile, RepositoryContext, Stored
+from megooarti.repositories.formats import ComponentKey, Format, Serve, register
 from megooarti.repositories.pypi import names, pages, upload
 
 _FILE = "application/octet-stream"
@@ -58,6 +62,10 @@ def _not_allowed(allowed: str) -> ApiError:
         f"This address accepts {allowed}.",
         headers={"Allow": allowed},
     )
+
+
+def _offline() -> ApiError:
+    return ApiError(503, "repository_offline", "A repository that holds this project is offline.")
 
 
 def _invalid(reason: object) -> ApiError:
@@ -99,13 +107,9 @@ async def _root_index(
     return _page(context, request, pages.root_page(name for _, name in found))
 
 
-async def _project_page(context: RepositoryContext, request: Request, project: str) -> Response:
-    """A hosted project's page, from the files stored. `project` is in its normal form."""
-    files = await context.package_files("", project)
-    if not files:
-        raise _not_found("No such project.")
-    await context.release()  # writing the page needs no connection
-    links = [
+def _links(files: Sequence[PackageFile]) -> list[pages.Link]:
+    """What a page says of the files a hosted repository holds."""
+    return [
         pages.Link(
             filename=held.path.rpartition("/")[2],
             version=held.version,
@@ -114,7 +118,15 @@ async def _project_page(context: RepositoryContext, request: Request, project: s
         )
         for held in files
     ]
-    return _page(context, request, pages.project_page(project, links))
+
+
+async def _project_page(context: RepositoryContext, request: Request, project: str) -> Response:
+    """A hosted project's page, from the files stored. `project` is in its normal form."""
+    files = await context.package_files("", project)
+    if not files:
+        raise _not_found("No such project.")
+    await context.release()  # writing the page needs no connection
+    return _page(context, request, pages.project_page(project, _links(files)))
 
 
 # --- Uploading -----------------------------------------------------------------------
@@ -299,10 +311,62 @@ async def _proxied_file(
     return await context.respond(path, request)
 
 
+# --- What a group serves -------------------------------------------------------------
+
+
+async def _group_page(context: RepositoryContext, request: Request, project: str) -> Response:
+    """A project's page from the repositories behind a group that answer for it."""
+    leaves = await group.leaves(context)
+    owners, offline = await group.owners(leaves, "", project)
+    if owners:
+        links: dict[str, pages.Link] = {}
+        for owner in owners:
+            for link in _links(await owner.package_files("", project)):
+                links.setdefault(link.filename, link)  # the earlier repository's
+        if not links:
+            raise _not_found("No such project.")  # its last file went between the two questions
+        await context.release()  # writing the page needs no connection
+        return _page(context, request, pages.project_page(project, links.values()))
+    if offline:
+        raise _offline()
+
+    page = names.page_path(project)
+    sources = []
+    for member in group.proxies(leaves):
+        try:
+            await proxy.ensure_cached(member, page)
+        except ApiError as error:
+            # A proxy that cannot answer is left out: the group answers from the others.
+            if error.status_code not in group.TRY_NEXT:
+                raise
+            continue
+        stored = await member.stat(page)
+        if stored is not None:
+            sources.append((member, stored))
+    if not sources:
+        raise _not_found("No such project.")
+    return await _written(context, request, project, sources)
+
+
+async def _group_file(
+    context: RepositoryContext, request: Request, parsed: names.PypiPath, path: str, serve: Serve
+) -> Response:
+    """A file, from the same repositories that answer for its project's page."""
+    leaves = await group.leaves(context)
+    owners, offline = await group.owners(leaves, "", parsed.project)
+    if not owners and offline:
+        raise _offline()
+    for member in owners or group.proxies(leaves):
+        try:
+            return await serve(member, request, path)
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+    raise _not_found("No such file.")
+
+
 class PypiFormat(Format):
     name = "pypi"
-    # A group needs PyPI's own handling of index pages.
-    types = frozenset({"hosted", "proxy"})
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""
@@ -373,6 +437,24 @@ class PypiFormat(Format):
             return await _proxied_page(context, request, parsed.project)
         if parsed.kind in ("file", "metadata"):
             return await _proxied_file(context, request, parsed, path)
+        raise _not_found()
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        parsed = names.classify(path)
+        if not _is_read(request):
+            raise _not_allowed("GET, HEAD")
+        if parsed.kind in ("index", "page"):
+            moved = _canonical(parsed)
+            if moved is not None:
+                return moved
+            if parsed.kind == "page":
+                return await _group_page(context, request, parsed.project)
+            online = [leaf.context for leaf in await group.leaves(context) if leaf.online]
+            return await _root_index(context, request, online)
+        if parsed.kind in ("file", "metadata"):
+            return await _group_file(context, request, parsed, path, serve)
         raise _not_found()
 
 
