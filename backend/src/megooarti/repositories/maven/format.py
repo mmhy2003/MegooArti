@@ -4,19 +4,29 @@ This is the only Maven module that touches the repository context. What it decid
 about a path comes from the pure functions beside it.
 """
 
+import hashlib
+from collections.abc import Iterable
+from contextlib import suppress
 from datetime import datetime
 from typing import Any
 
+import structlog
 from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
-from megooarti.repositories.content import RepositoryContext
+from megooarti.repositories.content import RepositoryContext, TooLarge
 from megooarti.repositories.formats import ComponentKey, Format, register
-from megooarti.repositories.maven import checksums, paths
+from megooarti.repositories.maven import checksums, metadata, paths
 from megooarti.repositories.paths import normalise_path
 
+log = structlog.get_logger(__name__)
+
 _SETTINGS = ("version_policy", "layout_policy")
+# The most that is read into memory: of an upload, and of the record the server keeps.
+METADATA_LIMIT = 1024 * 1024
+STORED_LIMIT = 4 * 1024 * 1024
+_XML = "application/xml"
 
 
 def _invalid(field: str, message: str) -> ApiError:
@@ -56,10 +66,135 @@ async def _digest(
     context: RepositoryContext, target: str, parsed: paths.MavenPath, algorithm: str
 ) -> tuple[str, datetime] | None:
     """The checksum of what a GET of `target` returns, and when that last changed."""
+    if parsed.is_metadata:
+        found = await document(context, target, parsed)
+        if found is None:
+            return None
+        data, modified = found
+        return hashlib.new(algorithm, data).hexdigest(), modified
     stored = await context.stat(target)
     if stored is None:
         return None
     return getattr(stored, algorithm), stored.modified
+
+
+async def _plugins(
+    context: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[tuple[metadata.Plugin, ...], datetime | None]:
+    """The plugin entries kept for a group that still have a file, and when they changed."""
+    if not parsed.plugin_group:
+        return (), None
+    stored = await context.stat(path)
+    if stored is None or stored.kind != "metadata":
+        return (), None
+    try:
+        record = metadata.parse(await context.read(path, limit=STORED_LIMIT) or b"")
+    except (metadata.InvalidMetadata, TooLarge) as error:
+        log.warning(
+            "plugin_record_unreadable",
+            repository=context.repository.name,
+            path=path,
+            reason=type(error).__name__,
+        )
+        return (), None
+    present = await context.names(
+        parsed.plugin_group, [plugin.artifact_id for plugin in record.plugins]
+    )
+    kept = tuple(plugin for plugin in record.plugins if plugin.artifact_id in present)
+    return kept, stored.modified if kept else None
+
+
+async def document(
+    context: RepositoryContext, path: str, parsed: paths.MavenPath
+) -> tuple[bytes, datetime] | None:
+    """The metadata a GET of `path` returns now, and when it last changed.
+
+    Built from the files the repository holds, so it is right after a delete and after
+    two deploys at once. None when there is nothing to list.
+    """
+    if parsed.kind == "snapshot_metadata":
+        entries = await context.files(parsed.group_id, parsed.artifact_id, parsed.version)
+        built = metadata.for_snapshot(
+            parsed.group_id,
+            parsed.artifact_id,
+            parsed.version,
+            [(paths.classify(entry.path), entry.modified) for entry in entries],
+        )
+        changes = [entry.modified for entry in entries]
+    else:
+        versions = {}
+        if parsed.artifact_id:
+            versions = await context.versions(parsed.group_id, parsed.artifact_id)
+        plugins, plugins_changed = await _plugins(context, path, parsed)
+        built = metadata.for_artifact(parsed.group_id, parsed.artifact_id, versions, plugins)
+        changes = [*versions.values(), *([plugins_changed] if plugins_changed else [])]
+    if built is None:
+        return None
+    return metadata.serialise(built), max(changes)
+
+
+async def keep_plugins(
+    context: RepositoryContext, path: str, group_id: str, uploaded: Iterable[metadata.Plugin]
+) -> None:
+    """Merge uploaded plugin entries into the record kept for a group.
+
+    Only the plugin's jar knows its prefix, so this is the one part of uploaded
+    metadata that cannot be derived and has to be kept.
+    """
+    uploaded = tuple(uploaded)
+
+    async def merged(current: bytes | None) -> bytes | None:
+        stored: tuple[metadata.Plugin, ...] = ()
+        if current is not None:
+            with suppress(metadata.InvalidMetadata):
+                stored = metadata.parse(current).plugins
+        plugins = metadata.merge_plugins(stored, uploaded)
+        present = await context.names(group_id, [plugin.artifact_id for plugin in plugins])
+        kept = tuple(plugin for plugin in plugins if plugin.artifact_id in present)
+        return metadata.serialise(metadata.Metadata(plugins=kept)) if kept else None
+
+    await context.maintain(path, merged, content_type=_XML, limit=STORED_LIMIT)
+
+
+async def _metadata(
+    context: RepositoryContext, request: Request, path: str, parsed: paths.MavenPath
+) -> Response:
+    """Answer for a maven-metadata.xml path. The document is generated, never stored."""
+    if request.method in ("GET", "HEAD"):
+        found = await document(context, path, parsed)
+        if found is None:
+            raise _not_found()
+        data, modified = found
+        return context.respond_with(
+            data,
+            request,
+            filename=paths.METADATA_FILE,
+            content_type=_XML,
+            last_modified=modified,
+        )
+    if request.method != "PUT":
+        raise ApiError(
+            405,
+            "method_not_allowed",
+            "Metadata is generated from the files stored. It can be read or uploaded, not deleted.",
+            headers={"Allow": "GET, HEAD, PUT"},
+        )
+
+    context.require_write()
+    body = await context.receive(request.stream(), limit=METADATA_LIMIT)
+    if body is None:
+        raise ApiError(400, "invalid_metadata", "The metadata is larger than 1 MiB.")
+    if parsed.kind == "metadata":
+        try:
+            uploaded = metadata.parse(body)
+        except metadata.InvalidMetadata as error:
+            raise ApiError(
+                400, "invalid_metadata", f"The metadata cannot be read: {error}."
+            ) from None
+        if parsed.plugin_group and uploaded.plugins:
+            await keep_plugins(context, path, parsed.plugin_group, uploaded.plugins)
+    # Everything else a client puts in metadata is derived here from the files stored.
+    return Response(status_code=201)
 
 
 async def _checksum(
@@ -93,6 +228,9 @@ async def _checksum(
 
     context.require_write()
     body = await context.receive(request.stream(), limit=checksums.LIMIT)
+    if parsed.is_metadata:
+        # It cannot be checked: the client's document is not the one served.
+        return Response(status_code=201)
     found = await _digest(context, target, parsed, algorithm)
     if found is None:
         raise ApiError(404, "not_found", "There is no file here for this checksum to belong to.")
@@ -151,6 +289,8 @@ class MavenFormat(Format):
             _check_policies(context.repository.config["format_config"], parsed)
         if algorithm is not None:
             return await _checksum(context, request, path, target, parsed, algorithm)
+        if parsed.is_metadata:
+            return await _metadata(context, request, path, parsed)
         return await super().handle_hosted(context, request, path)
 
 
