@@ -73,7 +73,7 @@ These amend section 6 of the storage design. Raw's behaviour does not change.
 
 - **Server-maintained metadata.** A new operation, `maintain(path, update)`, changes a document the server keeps on the uploader's behalf. `update` receives the stored bytes, or nothing, and returns what to store, or nothing to remove the document. It runs under the path's lock, so two changes never overwrite each other. The operation needs `add` or `edit`, refuses a read-only repository, is not subject to `disable_redeploy`, records the kind `metadata` with no component, and refuses to touch a file of any other kind. A format therefore cannot use it to overwrite an artifact.
 - **Reading a small upload.** `receive(stream, limit)` gives the database connection back and reads a body of at most `limit` bytes into memory, so a format never handles the session to do so.
-- **Accepting an upload that stores nothing.** `require_write()` applies the same check as `maintain` without storing. A format calls it before accepting an upload it will drop, so that dropping is never a way around permissions.
+- **Accepting an upload that stores nothing.** `require_write()` applies the same check as `maintain` without storing. A format calls it before accepting an upload it will drop, so that dropping is never a way around permissions. Both it and `maintain` refuse to run on a repository that is not hosted.
 
 ### 4.2 For proxy and group formats (plan 4b)
 
@@ -196,11 +196,11 @@ When a document is generated, stored plugin entries whose artifact no longer has
 
 ### 6.4 XML
 
-Metadata is the only XML that is parsed. The parser refuses any document with a `DOCTYPE`, so entity expansion and external entities cannot occur, and input is bounded by the size limits above and in section 8.
+Metadata is the only XML that is parsed. The parser refuses any document with a `DOCTYPE`, so entity expansion and external entities cannot occur, and input is bounded by the size limits above and in section 8. A document nested more than 16 levels deep, or holding more than 100,000 elements, is refused as well.
 
 ## 7. Proxy Maven (plan 4b)
 
-`GET` and `HEAD` only. The path is classified and checked against the layout and version policy before anything else, so an excluded path is `404` without a remote request.
+`GET` and `HEAD` only. The path is classified and checked against the layout and version policy before anything else, so an excluded path is `404` without a remote request. A file cached before the layout policy was tightened is still served.
 
 | Path kind | Result |
 | --- | --- |
@@ -238,7 +238,7 @@ A request for the checksum of a file that is not yet cached downloads that file.
 - `snapshotVersions`: the union by classifier and extension, keeping the entry updated most recently; the earlier member wins a tie.
 - `lastUpdated`: the latest.
 
-The merged document is built on each request and is not cached; for a proxy member that is fresh, collecting is one database read. Its `Last-Modified` is the latest among the contributing members.
+The merged document is built on each request and is not cached; for a proxy member that is fresh, collecting is one database read. Its `Last-Modified` is the latest among the contributing members. Building and merging run in a worker thread, so a long list of versions does not hold up other requests.
 
 ## 9. Error codes added
 

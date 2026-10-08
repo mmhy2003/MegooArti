@@ -125,6 +125,49 @@ public class Consumer {
 """
 
 
+# Everything Maven asks for goes to one group: nothing comes from Maven Central directly.
+MIRRORED = f"""<settings>
+  <servers>
+    <server>
+      <id>megooarti</id><username>{USERNAME}</username><password>{PASSWORD}</password>
+    </server>
+  </servers>
+  <mirrors>
+    <mirror>
+      <id>megooarti</id>
+      <mirrorOf>*</mirrorOf>
+      <url>{INSIDE}/maven-public/</url>
+    </mirror>
+    <mirror>
+      <id>maven-default-http-blocker</id>
+      <mirrorOf>external:does-not-match-anything:*</mirrorOf>
+      <url>http://0.0.0.0/</url>
+      <blocked>false</blocked>
+    </mirror>
+  </mirrors>
+</settings>
+"""
+
+MIRRORED_CONSUMER_POM = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.megooarti.test</groupId>
+  <artifactId>mirrored-consumer</artifactId>
+  <version>1</version>
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>io.megooarti.test</groupId>
+      <artifactId>library</artifactId>
+      <version>2.0</version>
+    </dependency>
+  </dependencies>
+</project>
+"""
+
+
 def write(directory: Path, files: dict[str, str]) -> Path:
     for name, content in files.items():
         target = directory / name
@@ -204,6 +247,21 @@ def repositories(administrator) -> Iterator[None]:
         }
         status, _, body = call("POST", "/repositories", repository, administrator)
         assert status == 201, body
+    central = {
+        "name": "central",
+        "format": "maven",
+        "type": "proxy",
+        "proxy": {"remote_url": "https://repo1.maven.org/maven2"},
+    }
+    everything = {
+        "name": "maven-public",
+        "format": "maven",
+        "type": "group",
+        "group": {"members": ["releases", "snapshots", "central"]},
+    }
+    for repository in (central, everything):
+        status, _, body = call("POST", "/repositories", repository, administrator)
+        assert status == 201, body
     role = {
         "name": "maven-deployers",
         "permissions": ["repository:maven:*:add", "repository:maven:*:read"],
@@ -269,6 +327,51 @@ def test_maven_deploys_a_release_and_two_snapshot_builds_and_resolves_them(repos
         f"Downloaded from megooarti-snapshots: {INSIDE}/{directory}/library-{newest['jar']}.jar"
         in resolved.stdout
     )
+
+
+def test_maven_builds_from_an_empty_local_repository_through_a_group(
+    repositories, administrator, tmp_path
+):
+    files = {
+        "settings.xml": MIRRORED,
+        "pom.xml": LIBRARY_POM.format(version="2.0", server=INSIDE),
+        "src/main/java/io/megooarti/test/Library.java": LIBRARY_SOURCE,
+        "consumer/pom.xml": MIRRORED_CONSUMER_POM,
+        "consumer/src/main/java/io/megooarti/test/consumer/Consumer.java": CONSUMER_SOURCE,
+    }
+    project = write(tmp_path / "mirrored", files)
+    # One local repository that starts empty. The library is removed from it between
+    # the two builds, so the consumer has to resolve it through the group as well.
+    local = f"{MAVEN} -Dmaven.repo.local=/tmp/local-repository"
+    forget = "rm -rf /tmp/local-repository/io/megooarti"
+
+    built = maven(project, f"{local} deploy && {forget} && {local} -f consumer/pom.xml compile")
+
+    through = f"Downloaded from megooarti: {INSIDE}/maven-public"
+    assert built.returncode == 0, built.stdout[-6000:]
+    assert "repo.maven.apache.org" not in built.stdout
+    assert f"{through}/org/apache/maven/plugins/" in built.stdout
+    assert f"{through}/{LIBRARY}/2.0/library-2.0.jar" in built.stdout
+
+    # What came through the group from Maven Central is now in the proxy, and the
+    # checksum the proxy computes is of those bytes.
+    proxied = re.search(rf"{re.escape(through)}/(org/apache/maven/\S+\.pom)", built.stdout)
+    assert proxied is not None
+    pom = fetch(f"central/{proxied[1]}")
+    assert pom.lstrip().startswith(b"<")
+    assert fetch(f"central/{proxied[1]}.sha1").decode() == hashlib.sha1(pom).hexdigest()
+
+    # Metadata through the group: ours generated, Maven Central's fetched, both merged.
+    ours = metadata.parse(fetch(f"maven-public/{LIBRARY}/maven-metadata.xml"))
+    assert "2.0" in ours.versions
+    compiler = "org/apache/maven/plugins/maven-compiler-plugin"
+    theirs = metadata.parse(fetch(f"maven-public/{compiler}/maven-metadata.xml"))
+    assert len(theirs.versions) > 10
+    assert theirs.release == theirs.versions[-1]
+
+    status, _, shown = call("GET", "/repositories/central", headers=administrator)
+    assert status == 200
+    assert (shown["status"]["blocked"], shown["status"]["auto_blocked_until"]) == (False, None)
 
 
 # Ordinary versions, the qualifiers, and the forms that are easy to get wrong.

@@ -103,9 +103,9 @@ The full API is described at `/api/docs`.
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. The formats so far are
-`raw` (arbitrary files by path) and `maven` (hosted repositories only, for now). A
-repository has one of three types: `hosted` (files you publish), `proxy` (a cache of a
-remote repository) or `group` (several repositories behind one URL).
+`raw` (arbitrary files by path) and `maven`. A repository has one of three types:
+`hosted` (files you publish), `proxy` (a cache of a remote repository) or `group`
+(several repositories behind one URL).
 
 Create a repository, then use it with any HTTP client:
 
@@ -209,9 +209,19 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "snapshots", "format": "maven", "type": "hosted",
   "format_config": {"version_policy": "snapshot"}
 }' http://localhost:8000/api/v1/repositories
+
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "central", "format": "maven", "type": "proxy",
+  "proxy": {"remote_url": "https://repo1.maven.org/maven2"}
+}' http://localhost:8000/api/v1/repositories
+
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "maven-public", "format": "maven", "type": "group",
+  "group": {"members": ["releases", "snapshots", "central"]}
+}' http://localhost:8000/api/v1/repositories
 ```
 
-Point a project at them in its `pom.xml`:
+Point a project at the hosted repositories in its `pom.xml`:
 
 ```xml
 <distributionManagement>
@@ -257,7 +267,29 @@ and give Maven the credentials in `~/.m2/settings.xml`, under the same `id`:
   repository's metadata before it uploads. It does not need `edit`.
 - **Maven refuses plain HTTP** to any host but `localhost` (since Maven 3.8.1). Put
   MegooArti behind HTTPS for clients on other machines.
-- Proxy and group Maven repositories are not available yet.
+- **A proxy** caches what it fetches. It serves the remote's `maven-metadata.xml` as
+  received, and answers checksum requests from the cached file: it never asks the
+  remote for a checksum file. Metadata and old-style snapshot files are checked again
+  after `metadata_max_age_minutes`; release files after `content_max_age_minutes`. A
+  proxy with the `release` policy does not ask its remote for snapshots.
+- **A group** serves a file from the first member that has it, and merges
+  `maven-metadata.xml` from every member that can answer, so one URL lists your own
+  versions and the remote's. A group has no policies of its own.
+
+To send everything Maven resolves through the group, mirror it in `~/.m2/settings.xml`:
+
+```xml
+<mirrors>
+  <mirror>
+    <id>megooarti</id>
+    <mirrorOf>*</mirrorOf>
+    <url>https://repo.example.com/repository/maven-public/</url>
+  </mirror>
+</mirrors>
+```
+
+Reading through a group needs `read` on the group only, for example
+`repository:maven:maven-public:read`.
 
 ## Health endpoints
 
