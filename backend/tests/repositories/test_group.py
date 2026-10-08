@@ -1,10 +1,12 @@
 import pytest
 from sqlalchemy import insert
+from starlette.requests import Request
 
-from megooarti.repositories import service
+from megooarti.repositories import group, service
 from megooarti.repositories.models import RepositoryMember
 from megooarti.security import roles
 from tests.accounts import PASSWORD, basic, error_code
+from tests.repositories.conftest import someone
 
 FILE = "docs/a.txt"
 GROUP = f"/repository/all/{FILE}"
@@ -190,3 +192,39 @@ async def test_a_cycle_that_slipped_into_the_data_ends_in_not_found(client, root
     response = await client.get(GROUP, headers=root)
 
     assert (response.status_code, error_code(response)) == (404, "not_found")
+
+
+def bare_request() -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+
+
+async def test_member_contexts_are_the_online_members_in_order(db, everything, context_for):
+    reader = someone("repository:raw:all:read")
+    context = await context_for(everything, reader, outbound=bare_request)
+
+    members = await group.member_contexts(context, bare_request())
+
+    assert [member.repository.name for member in members] == ["one", "two"]
+    assert all(member.principal is reader for member in members)
+    assert all(member.outbound is bare_request for member in members)
+
+
+async def test_an_offline_member_has_no_context(db, everything, context_for):
+    one = await service.get_repository(db, "one")
+    await service.update_repository(db, one, online=False)
+    await db.commit()
+    context = await context_for(everything, None)
+
+    members = await group.member_contexts(context, bare_request())
+
+    assert [member.repository.name for member in members] == ["two"]
+
+
+async def test_a_group_gives_its_members_once_in_a_request(everything, context_for):
+    context = await context_for(everything, None)
+    request = bare_request()
+
+    first = await group.member_contexts(context, request)
+    again = await group.member_contexts(context, request)
+
+    assert (len(first), again) == (2, [])

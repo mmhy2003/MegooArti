@@ -298,6 +298,9 @@ class RepositoryContext:
         For an upload a format accepts without storing it as sent: it needs `add` or
         `edit`, and the repository must not be read-only.
         """
+        if self.repository.type != "hosted":
+            # A programming error, like caching into a repository that is not a proxy.
+            raise RuntimeError("only a hosted repository takes uploads")
         try:
             authorize(self.principal, self.permission("add"), scheme="Basic")
         except ApiError:

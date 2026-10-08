@@ -158,3 +158,12 @@ async def test_maintain_needs_permission_to_write(files, context_for):
 
     assert error.status_code == 403
     assert await context.stat(PATH) is None
+
+
+async def test_only_a_hosted_repository_takes_uploads(mirror, context_for):
+    context = await context_for(mirror, someone("repository:raw:mirror"))
+
+    with pytest.raises(RuntimeError):
+        context.require_write()
+    with pytest.raises(RuntimeError):
+        await context.maintain(PATH, becomes(b"one"), content_type=XML, limit=1000)
