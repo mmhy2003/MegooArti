@@ -1,0 +1,77 @@
+import base64
+import hashlib
+
+import pytest
+
+from megooarti.repositories import service
+from megooarti.repositories.models import Repository
+from tests.accounts import PASSWORD, basic
+
+URL = "/repository/npm"
+
+
+async def create(db, name: str, *, hosted: dict | None = None) -> Repository:
+    """A hosted npm repository, committed."""
+    repository = await service.create_repository(
+        db,
+        name=name,
+        format="npm",
+        type="hosted",
+        online=True,
+        blob_store="default",
+        hosted=hosted,
+        format_config={},
+    )
+    await db.commit()
+    return repository
+
+
+def tarball_of(package: str, version: str) -> bytes:
+    """Stand-in tarball bytes, different for every package and version."""
+    return f"\x1f\x8b tarball of {package}@{version}".encode()
+
+
+def publish_body(package: str, version: str, *, tag: str = "latest", **manifest) -> dict:
+    """What `npm publish` sends for one version."""
+    data = tarball_of(package, version)
+    dist = {
+        "shasum": hashlib.sha1(data).hexdigest(),
+        "integrity": "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode(),
+        "tarball": f"http://client.example/{package}/-/{package}-{version}.tgz",
+    }
+    return {
+        "_id": package,
+        "name": package,
+        "dist-tags": {tag: version},
+        "versions": {version: {"name": package, "version": version, "dist": dist, **manifest}},
+        "_attachments": {
+            f"{package}-{version}.tgz": {
+                "content_type": "application/octet-stream",
+                "data": base64.b64encode(data).decode(),
+                "length": len(data),
+            }
+        },
+    }
+
+
+def address(package: str, repository: str = "npm") -> str:
+    """A package's address as npm writes it: a scoped name has its slash encoded."""
+    return f"/repository/{repository}/{package.replace('/', '%2f')}"
+
+
+async def publish(client, headers, package: str, version: str, **changes):
+    """Publish one version. Returns the response."""
+    repository = changes.pop("repository", "npm")
+    body = publish_body(package, version, **changes)
+    return await client.put(address(package, repository), json=body, headers=headers)
+
+
+@pytest.fixture
+async def registry(db) -> Repository:
+    return await create(db, "npm")
+
+
+@pytest.fixture
+async def root(make_user) -> dict[str, str]:
+    await make_user("root", roles=["admin"])
+    return basic("root", PASSWORD)

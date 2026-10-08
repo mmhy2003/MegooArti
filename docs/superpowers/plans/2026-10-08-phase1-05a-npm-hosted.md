@@ -2816,6 +2816,8 @@ async def test_other_methods_are_not_allowed(client, registry, root, method):
 `backend/tests/repositories/npm/test_hosted_changes.py`:
 
 ```python
+import copy
+
 from sqlalchemy import func, select
 
 from megooarti.repositories import service
@@ -2899,7 +2901,7 @@ async def test_deprecating_changes_the_stored_manifest(client, registry, root):
 
     deprecated = await client.put(f"{DOCUMENT}/-rev/{sent['_rev']}", json=sent, headers=root)
     after = await document(client, root)
-    sent = dict(after)
+    sent = copy.deepcopy(after)
     sent["versions"]["1.0.0"]["deprecated"] = ""  # how npm lifts a deprecation
     lifted = await client.put(DOCUMENT, json=sent, headers=root)
 
