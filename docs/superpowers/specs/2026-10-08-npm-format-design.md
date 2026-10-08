@@ -44,7 +44,7 @@ One design, delivered as two plans.
 | # | Decision | Reason |
 | --- | --- | --- |
 | D1 | `npm login` is supported through the classic endpoint. It checks a user name and password exactly as HTTP Basic credentials are checked, and returns a personal API token. | The BRD requires it (FMT-2, SEC-9), and it is how most developers set up a workstation. |
-| D2 | In a group, if any hosted member has a package, only hosted members contribute to that package's document. | npm's namespace is flat and unverified. Merging a proxy's versions into a private name is the dependency-confusion attack. |
+| D2 | In a group, if any hosted member has a package, only hosted members answer for that package: its document and its tarballs. A hosted member that is offline still counts. | npm's namespace is flat and unverified. Merging a proxy's versions into a private name is the dependency-confusion attack, and so is serving a proxy's tarball for a version of it. |
 | D3 | A publish is read into memory, up to a configured limit, and at most two are decoded at once. | The client sends the tarball base64-encoded inside one JSON document, so it cannot be streamed to disk. A limit makes the cost bounded. |
 | D4 | On a hosted repository, the package document is generated on each request from the versions stored. Each version's manifest is stored on its component at publish. | The same reason as Maven's metadata: it cannot go stale or lose a version to a concurrent publish. |
 | D5 | A proxy serves the remote's package document with tarball links rewritten by a streaming, byte-level substitution. It is never parsed. | These documents reach tens of megabytes. Parsing one costs hundreds of megabytes of memory per request. |
@@ -70,6 +70,8 @@ One design, delivered as two plans.
 ### 4.2 For proxy and group npm (plan 5b)
 
 - **A stored file served through a transformation.** The context can stream a stored file through a function that rewrites it chunk by chunk. The response has the same protective headers as any content, an `ETag` derived from the file's hash and a name for the transformation, no `Content-Length`, and no ranges. Conditional requests and `HEAD` work.
+- **Every repository behind a group.** The group engine can list the hosted and proxy repositories behind a group, through nested groups, in the order they are tried, each marked online or offline. A format that answers from all of them at once uses it.
+- **Package names across repositories.** The search for package names can cover several repositories and lists a package once.
 
 ## 5. npm paths
 
@@ -194,7 +196,7 @@ The sign-in body is limited to 16 KiB. A token created this way is named `npm lo
 
 `GET -/v1/search?text=…&size=…&from=…` answers in npm's format: `objects`, each with a `package` holding `name`, `version` (the highest held), `description` and `date`; and `total`.
 
-A package matches if `text` appears in its name or scope. `size` is at most 250. A hosted repository takes the description from the manifest; a proxy has none to give. A group returns its members' results in order, without duplicates.
+A package matches if `text` appears in its name or scope. `size` is at most 250. A hosted repository takes the description from the manifest; a proxy has none to give, and lists the packages it has cached a tarball of. A group lists every package its online members hold, once, ordered by name; a package's version and description come from a hosted member if one holds it.
 
 ## 9. Proxy npm (plan 5b)
 
@@ -217,21 +219,24 @@ The package document is requested from the remote at `<remote>/<name>`, or `<rem
 
 | Path | Result |
 | --- | --- |
-| Tarball | The generic group behaviour: the first member that has it |
+| Tarball | The first member that has it, among the members that answer for its package (below) |
 | Package document | Below |
 | Search | Section 8 |
 | Version manifest, dist-tags | `405` |
 
-**Who has the package.** Every online member is asked, in order: a hosted member has it if it holds a version; a proxy has it if `ensure_cached` succeeds; a group member answers for its own members. A member that cannot answer is left out, as in the Maven design.
+**Who answers for a package.** The repositories behind the group are taken in the order they are tried, with a nested group replaced by its own members. A hosted repository has the package if it holds a version of it; a proxy has it if `ensure_cached` succeeds for its document. A proxy that is offline or cannot answer is left out, as in the Maven design.
+
+- **A hosted repository has it (D2):** only hosted repositories answer, and proxies are not asked. If every hosted repository that has it is offline, the answer is `503 repository_offline`: the remote's package of the same name must not stand in for it.
+- **No hosted repository has it:** the online proxies answer.
 
 **The document.**
 
-- **A hosted member has it (D2):** the documents of the hosted members that have it are merged, and proxies are not asked to contribute. Versions are the union, the earlier member winning a version both hold. Dist-tags are the union, the earlier member winning a tag, and `latest` is recomputed if the version it names is not in the result.
-- **Only one proxy has it:** that proxy's cached document is streamed through the link rewriter, with the group's address in the links.
-- **Several proxies have it:** their documents are parsed and merged in the same way, each up to 16 MiB. One that is larger is left out and logged; if that leaves a single document, it is streamed as above.
+- **From hosted repositories:** the documents of those that have it are merged. Versions are the union, the earlier one winning a version both hold. Dist-tags are the union, the earlier one winning a tag, and `latest` is recomputed if the version it names is not in the result.
+- **From one proxy:** that proxy's cached document is streamed through the link rewriter, with the group's address in the links.
+- **From several proxies:** their documents are parsed and merged in the same way, up to 16 MiB together and two merges at a time. One that does not fit or cannot be read is left out and logged; if that leaves fewer than two, one document is streamed as above.
 - **Nobody has it:** `404`.
 
-Tarball links always name the group, so every download goes through the group, where the first member that has the file answers. Because the earlier member wins a version in the document, that is the same member whose manifest the client was given.
+Tarball links always name the group, so every download goes through the group. A tarball is served by the first repository that has it among those that answer for its package, so a proxy listed before a hosted repository cannot serve its own file for a version the hosted repository published.
 
 ## 11. Configuration and errors added
 
@@ -269,7 +274,7 @@ Under `backend/src/megooarti/`:
 - **Races** use real transactions: two versions published at once, and two dist-tag changes at once.
 - **Real clients**, in the Docker-marked suite, which needs internet access:
   - *Plan 5a:* npm in a container publishes an unscoped and a scoped package, then runs `view`, `install`, `dist-tag`, `deprecate` and `unpublish` against a hosted repository, using a token obtained from the sign-in endpoint.
-  - *Plan 5b:* npm, pnpm and Yarn each install a project, from an empty cache, through a group of the hosted repository and a proxy of registry.npmjs.org. The project depends on the package published in 5a and on one small public package.
+  - *Plan 5b:* npm, pnpm and Yarn 1 each install a project, from an empty cache, through a group of the hosted repository and a proxy of registry.npmjs.org. The project depends on a package published to the hosted repository and on one small public package. A package published under a name the public registry also has is listed through the group with our version only.
 
 `npm login` prompts on a terminal. The tests send the same request npm sends and then use the token with the real client. If the client can be driven without a terminal, the test uses it directly.
 
@@ -281,6 +286,7 @@ Under `backend/src/megooarti/`:
 | Every `npm login` creates a token that never expires. | Tokens are listed and revocable per user and by an administrator. `npm logout` revokes its own. An expiry policy can be added to the token settings later. |
 | A publish holds up to three times its size in memory while it is decoded. | The limit bounds one publish, and two workers bound how many are decoded at once. |
 | A team needs its own build of a public package alongside the public versions (D2 hides them). | Publish it under a scope. A per-group switch can be added if this proves common. |
+| Taking a hosted repository offline makes the packages it holds unavailable through its groups (`503`), where a Maven group would answer from the other members. | That is D2 holding while the repository is away. The message says which state causes it. |
 | The link rewriter misses a link in an unusual document. | The client fetches that tarball from the remote directly. Nothing breaks, but that download bypasses the cache. |
 | Clients always receive full package documents, so a first install transfers more. | It is correct for all three clients, and they revalidate with `ETag` afterwards. Serving the short form is a later optimisation. |
 | Search over many components is a scan. | Plan 8 builds the search index; this endpoint will use it. |
