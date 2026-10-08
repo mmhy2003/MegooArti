@@ -184,6 +184,75 @@ class Shout:
         return self._held + b"!"
 
 
+async def letters():
+    for letter in (b"a", b"b", b"c"):
+        yield letter
+
+
+async def test_a_stored_file_can_be_read_as_a_stream(context):
+    await context.put("notes/big.txt", body(b"0123456789" * 200_000))
+    stored = await context.stat("notes/big.txt")
+
+    pieces = [piece async for piece in context.open(stored)]
+
+    assert b"".join(pieces) == b"0123456789" * 200_000
+    assert len(pieces) > 1  # never one piece of two megabytes
+
+
+def streamed(context, incoming: Request, etag: str = "known"):
+    return context.respond_stream(
+        incoming,
+        letters,
+        etag=etag,
+        content_type="text/html; charset=utf-8",
+        filename="index.html",
+        last_modified=WHEN,
+    )
+
+
+async def test_a_stream_is_answered_like_content_without_a_length(context):
+    response = await streamed(context, request())
+
+    assert (response.status_code, await sent(response)) == (200, b"abc")
+    assert response.headers["ETag"] == '"known"'
+    assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+    assert response.headers["Last-Modified"] == "Wed, 04 Mar 2026 05:06:07 GMT"
+    assert response.headers["Accept-Ranges"] == "none"
+    assert "content-length" not in response.headers
+    assert response.headers["Content-Disposition"].startswith('attachment; filename="index.html"')
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Content-Security-Policy"] == "sandbox"
+
+
+async def test_a_stream_is_not_started_when_it_is_not_sent(context, db):
+    started = []
+
+    def body_of_the_answer():
+        started.append(True)
+        return letters()
+
+    def answer(incoming: Request):
+        return context.respond_stream(
+            incoming,
+            body_of_the_answer,
+            etag="known",
+            content_type="text/plain",
+            filename="x.txt",
+            last_modified=WHEN,
+        )
+
+    head = await answer(request("HEAD"))
+    unchanged = await answer(request(if_none_match='"known"'))
+    ranged = await answer(request(range="bytes=0-0"))
+
+    assert (head.status_code, await sent(head)) == (200, b"")
+    assert "content-length" not in head.headers
+    assert (unchanged.status_code, unchanged.body) == (304, b"")
+    assert started == [True]  # only for the one that sends it
+    assert (ranged.status_code, await sent(ranged)) == (200, b"abc")
+    assert db.in_transaction() is False  # the connection is given back before the body
+
+
 async def sent(response) -> bytes:
     return b"".join([chunk async for chunk in response.body_iterator])
 

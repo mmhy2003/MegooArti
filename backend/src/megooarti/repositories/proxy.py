@@ -5,6 +5,8 @@ Every exit that the client should remember (a cached file, a remembered miss, a
 recorded failure) is committed here, because several of them end in an error response.
 """
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -27,6 +29,19 @@ log = structlog.get_logger(__name__)
 
 # Within this process, concurrent requests for one uncached path share one download.
 _downloads = KeyedLocks()
+
+
+@dataclass(frozen=True)
+class Source:
+    """Where a path is found when the remote's own content says so, not the path.
+
+    A PyPI index, for one, names the address of each of its files, often on another
+    host, and the hash each must have. `digests` maps an algorithm the blob store
+    computes to lower-case hex.
+    """
+
+    url: str
+    digests: Mapping[str, str] = field(default_factory=dict)
 
 
 def _not_found() -> ApiError:
@@ -55,9 +70,19 @@ def _fresh(context: RepositoryContext, asset: Asset | None, path: str) -> bool:
     return is_fresh(settings, context.format, asset, path, utcnow())
 
 
-async def _target(context: RepositoryContext, path: str) -> tuple[str, str | None]:
+async def _target(
+    context: RepositoryContext, path: str, source: Source | None = None
+) -> tuple[str, str | None]:
     """The remote URL for a path and the Authorization header to send with it."""
     settings = context.repository.config["proxy"]
+    if source is not None:
+        refused = remote.refusal(settings["remote_url"], source.url)
+        if refused is not None:
+            failed = remote.Failed(f"its index names a file's address, and {refused}", False)
+            raise _unavailable(await _fail(context, path, failed))
+        if not remote.same_origin(settings["remote_url"], source.url):
+            # The credential is the remote's. Another host named by its content gets none.
+            return source.url, None
     try:
         credential = remote.authorization(context.settings, settings["remote_auth"])
     except SecretUnreadable:
@@ -68,6 +93,8 @@ async def _target(context: RepositoryContext, path: str) -> tuple[str, str | Non
             blockable=False,
         )
         raise _unavailable(await _fail(context, path, unreadable)) from None
+    if source is not None:
+        return source.url, credential
     return context.format.remote_url(settings["remote_url"], path), credential
 
 
@@ -85,7 +112,9 @@ async def _fail(context: RepositoryContext, path: str, outcome: object) -> str:
     return reason
 
 
-async def _refresh(context: RepositoryContext, path: str, asset: Asset | None) -> None:
+async def _refresh(
+    context: RepositoryContext, path: str, asset: Asset | None, source: Source | None = None
+) -> None:
     """Make `path` servable from the cache, or raise 404 or 502.
 
     Returning without raising means there is a copy to serve: a new one, the old one
@@ -99,7 +128,7 @@ async def _refresh(context: RepositoryContext, path: str, asset: Asset | None) -
         if asset is None:
             raise _unavailable("it is blocked")
         return
-    url, credential = await _target(context, path)
+    url, credential = await _target(context, path, source)
     known = {} if asset is None else asset.attributes
     await db.commit()  # give the connection back for the length of the download
 
@@ -115,6 +144,13 @@ async def _refresh(context: RepositoryContext, path: str, asset: Asset | None) -
         last_modified=known.get("remote_last_modified"),
     )
     now = utcnow()
+
+    if isinstance(outcome, remote.Fetched) and source is not None:
+        staged = outcome.staged
+        if any(getattr(staged, name, None) != digest for name, digest in source.digests.items()):
+            # Not the file the index describes. It is not kept, and not served.
+            await context.discard(staged)
+            outcome = remote.Failed("a file does not match the hash its index gives", False)
 
     if isinstance(outcome, remote.Fetched):
         origin = {"remote_etag": outcome.etag, "remote_last_modified": outcome.last_modified}
@@ -172,11 +208,18 @@ async def _head_remote(context: RepositoryContext, path: str) -> Response:
     raise _unavailable(await _fail(context, path, outcome))
 
 
-async def ensure_cached(context: RepositoryContext, path: str) -> None:
+async def ensure_cached(
+    context: RepositoryContext, path: str, *, source: Source | None = None
+) -> None:
     """Make `path` servable from this proxy's cache, or raise 404 or 502.
 
     Returning means there is a copy to serve: a fresh one, a new one, the old one
     confirmed, or the old one kept because the remote could not be asked.
+
+    `source` says where the path is found when the remote's own content names the
+    address. The remote's credential then goes only to the remote's own origin, an
+    internal address is refused unless the remote is at that host, and content that
+    does not match the hashes given is not cached.
 
     This commits: before waiting for a download, and to record what came of it. A
     caller must have no uncommitted work of its own when it calls this.
@@ -189,7 +232,7 @@ async def ensure_cached(context: RepositoryContext, path: str) -> None:
     async with _downloads.hold((context.repository.id, path)):
         asset = await context.get(path, fresh=True)  # the previous holder may have fetched it
         if not _fresh(context, asset, path):
-            await _refresh(context, path, asset)
+            await _refresh(context, path, asset, source)
 
 
 async def handle_proxy(context: RepositoryContext, request: Request, path: str) -> Response:

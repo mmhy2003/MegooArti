@@ -7,7 +7,7 @@ from sqlalchemy import func, select, update
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import formats, proxy
+from megooarti.repositories import formats, proxy, service
 from megooarti.repositories.formats import Format
 from megooarti.repositories.models import Asset, NegativeCacheEntry, ProxyState, Repository
 from megooarti.security import roles
@@ -469,3 +469,156 @@ async def test_a_context_without_an_outbound_client_cannot_fetch(context_for, mi
 
     with pytest.raises(RuntimeError):
         await proxy.ensure_cached(context, "lib/a.bin")
+
+
+ELSEWHERE = "http://files.test/store/ab/a.bin"  # what a remote's index says, on another host
+DIGESTS = {"sha256": hashlib.sha256(CONTENT).hexdigest(), "md5": hashlib.md5(CONTENT).hexdigest()}
+
+
+async def asked(remote_seen) -> list[tuple[str, str]]:
+    return [(seen["host"], seen["path"]) for seen in remote_seen.requests]
+
+
+async def test_a_file_is_fetched_from_the_address_given_for_it(
+    app, context_for, mirror, fake_remote
+):
+    fake_remote.files["store/ab/a.bin"] = CONTENT
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+    source = proxy.Source(ELSEWHERE, DIGESTS)
+
+    await proxy.ensure_cached(context, "lib/a.bin", source=source)
+    await proxy.ensure_cached(context, "lib/a.bin", source=source)
+
+    assert await context.read("lib/a.bin", limit=1000) == CONTENT
+    assert await asked(fake_remote) == [("files.test", "/store/ab/a.bin")]
+
+
+async def test_a_file_that_does_not_match_its_hash_is_not_kept(
+    app, context_for, mirror, fake_remote, db, settings
+):
+    fake_remote.files["store/ab/a.bin"] = b"not the file the index describes"
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+
+    for _ in range(6):  # more often than a failing remote is allowed before it is blocked
+        with pytest.raises(ApiError) as refused:
+            await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+
+    assert (refused.value.status_code, refused.value.code) == (502, "remote_unavailable")
+    assert "hash" in refused.value.message
+    assert await count(db, Asset) == 0
+    store = settings.data_dir / "blobs" / "default"
+    assert not [path for path in store.rglob("*") if path.is_file()]
+    state = await db.scalar(select(ProxyState))
+    assert "hash" in state.last_error
+    assert state.blocked_until is None  # one wrong file does not block the remote
+
+
+async def test_an_algorithm_that_cannot_be_checked_is_a_mismatch(
+    app, context_for, mirror, fake_remote
+):
+    fake_remote.files["store/ab/a.bin"] = CONTENT
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+
+    with pytest.raises(ApiError) as refused:
+        await proxy.ensure_cached(
+            context, "lib/a.bin", source=proxy.Source(ELSEWHERE, {"blake2b": "0" * 64})
+        )
+
+    assert refused.value.status_code == 502
+
+
+async def test_the_remotes_credential_stays_with_the_remote(
+    admin_client, app, context_for, db, fake_remote
+):
+    for path in ("files/lib/a.bin", "store/ab/a.bin", "other/b.bin"):
+        fake_remote.files[path] = CONTENT
+    private = {
+        "name": "private",
+        "format": "raw",
+        "type": "proxy",
+        "proxy": {
+            "remote_url": "http://remote.test/files",
+            "remote_auth": {"type": "basic", "username": "robot", "secret": "s3cret"},
+        },
+    }
+    await admin_client.post(REPOSITORIES, json=private)
+    repository = await service.get_repository(db, "private")
+    context = await context_for(repository, None, outbound=lambda: app.state.http)
+
+    await proxy.ensure_cached(context, "lib/a.bin")
+    await proxy.ensure_cached(context, "one", source=proxy.Source(ELSEWHERE))
+    await proxy.ensure_cached(context, "two", source=proxy.Source("http://remote.test/other/b.bin"))
+    await proxy.ensure_cached(
+        context, "three", source=proxy.Source("http://remote.test:8080/other/b.bin")
+    )
+    await proxy.ensure_cached(
+        context, "four", source=proxy.Source("https://remote.test/other/b.bin")
+    )
+
+    sent = [
+        (seen["host"], seen["path"], "authorization" in seen["headers"])
+        for seen in fake_remote.requests
+    ]
+    assert sent == [
+        ("remote.test", "/files/lib/a.bin", True),
+        ("files.test", "/store/ab/a.bin", False),  # another host
+        ("remote.test", "/other/b.bin", True),  # the remote's own origin
+        ("remote.test", "/other/b.bin", False),  # another port
+        ("remote.test", "/other/b.bin", False),  # another scheme
+    ]
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "http://127.0.0.1/a.bin",
+        "http://localhost:8000/a.bin",
+        "http://LOCALHOST/a.bin",
+        "http://10.0.0.5/a.bin",
+        "http://192.168.1.1/a.bin",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/a.bin",
+        "ftp://files.test/a.bin",
+        "file:///etc/passwd",
+        "//files.test/a.bin",
+        "/store/ab/a.bin",
+        "",
+    ],
+)
+async def test_an_address_a_remote_must_not_send_us_to_is_refused(
+    app, context_for, mirror, fake_remote, db, address
+):
+    fake_remote.files["a.bin"] = CONTENT
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+
+    with pytest.raises(ApiError) as refused:
+        await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(address))
+
+    assert (refused.value.status_code, refused.value.code) == (502, "remote_unavailable")
+    assert fake_remote.requests == []
+    assert await count(db, Asset) == 0
+
+
+async def test_a_remote_on_an_internal_network_may_name_its_own_host(
+    admin_client, app, context_for, db, fake_remote
+):
+    fake_remote.files["elsewhere/a.bin"] = CONTENT
+    inside = {
+        "name": "inside",
+        "format": "raw",
+        "type": "proxy",
+        "proxy": {"remote_url": "http://10.1.2.3/files"},
+    }
+    await admin_client.post(REPOSITORIES, json=inside)
+    repository = await service.get_repository(db, "inside")
+    context = await context_for(repository, None, outbound=lambda: app.state.http)
+
+    await proxy.ensure_cached(
+        context, "a.bin", source=proxy.Source("http://10.1.2.3/elsewhere/a.bin")
+    )
+    with pytest.raises(ApiError) as refused:
+        await proxy.ensure_cached(context, "b.bin", source=proxy.Source("http://10.9.9.9/b.bin"))
+
+    assert await context.read("a.bin", limit=1000) == CONTENT
+    assert refused.value.status_code == 502
+    assert await asked(fake_remote) == [("10.1.2.3", "/elsewhere/a.bin")]

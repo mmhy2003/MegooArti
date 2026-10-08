@@ -572,36 +572,6 @@ async def _streamed(
 # --- What a group serves -------------------------------------------------------------
 
 
-async def _owners(
-    leaves: Sequence[group.Leaf], package: str
-) -> tuple[list[RepositoryContext], bool]:
-    """The hosted repositories behind a group that hold a package.
-
-    Returns those that are online, in order, and whether one that is offline holds it
-    too. A package that a hosted repository holds is answered for by hosted
-    repositories only: npm's names are not verified, so a public package of the same
-    name must not add versions to it, nor stand in for it while its repository is
-    offline.
-    """
-    scope, name = _coordinates(package)
-    online, offline = [], False
-    for leaf in leaves:
-        member = leaf.context
-        if member.repository.type != "hosted" or not await member.names(scope, [name]):
-            continue
-        if leaf.online:
-            online.append(member)
-        else:
-            offline = True
-    return online, offline
-
-
-def _proxies(leaves: Sequence[group.Leaf]) -> list[RepositoryContext]:
-    return [
-        leaf.context for leaf in leaves if leaf.online and leaf.context.repository.type == "proxy"
-    ]
-
-
 async def _cached_by(members: Sequence[RepositoryContext], package: str) -> list[RepositoryContext]:
     """Those of `members` that have a package's document, fetching it where need be.
 
@@ -673,7 +643,7 @@ async def _several(
 
 async def _group_document(context: RepositoryContext, request: Request, package: str) -> Response:
     leaves = await group.leaves(context)
-    owners, offline = await _owners(leaves, package)
+    owners, offline = await group.owners(leaves, *_coordinates(package))
     # The links name the group, so every download comes back through it.
     base = await context.public_url(request)
     if owners:
@@ -688,7 +658,7 @@ async def _group_document(context: RepositoryContext, request: Request, package:
         return _as_document(context, request, package, rendered)
     if offline:
         raise _offline()
-    have = await _cached_by(_proxies(leaves), package)
+    have = await _cached_by(group.proxies(leaves), package)
     if not have:
         raise _not_found()
     if len(have) == 1:
@@ -701,11 +671,11 @@ async def _group_tarball(
 ) -> Response:
     """A tarball, from the same members that answer for its package's document."""
     leaves = await group.leaves(context)
-    owners, offline = await _owners(leaves, parsed.package)
+    owners, offline = await group.owners(leaves, *_coordinates(parsed.package))
     if not owners and offline:
         raise _offline()
     path = paths.tarball_path(parsed.package, parsed.version)
-    for member in owners or _proxies(leaves):
+    for member in owners or group.proxies(leaves):
         try:
             return await serve(member, request, path)
         except ApiError as error:

@@ -5,6 +5,7 @@ decided on the group, by the route, before this runs: members are not checked ag
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from starlette.requests import Request
@@ -84,6 +85,35 @@ async def leaves(context: RepositoryContext) -> list[Leaf]:
         )
         found[member.id] = Leaf(made, usable)
     return list(found.values())
+
+
+async def owners(
+    found: Sequence[Leaf], namespace: str, name: str
+) -> tuple[list[RepositoryContext], bool]:
+    """The hosted repositories behind a group that hold a package.
+
+    Returns those that are online, in order, and whether one that is offline holds it
+    too. A package that a hosted repository holds is answered for by hosted
+    repositories only: package names are not verified, so a public package of the
+    same name must not add to it, nor stand in for it while its repository is offline.
+    """
+    online, offline = [], False
+    for leaf in found:
+        member = leaf.context
+        if member.repository.type != "hosted" or not await member.names(namespace, [name]):
+            continue
+        if leaf.online:
+            online.append(member)
+        else:
+            offline = True
+    return online, offline
+
+
+def proxies(found: Sequence[Leaf]) -> list[RepositoryContext]:
+    """The online proxy repositories behind a group, in order."""
+    return [
+        leaf.context for leaf in found if leaf.online and leaf.context.repository.type == "proxy"
+    ]
 
 
 async def handle_group(

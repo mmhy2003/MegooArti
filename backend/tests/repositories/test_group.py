@@ -278,3 +278,38 @@ async def test_leaves_of_a_cycle_that_slipped_into_the_data_end(db, context_for)
     await db.commit()
 
     assert await group.leaves(await context_for(first, None)) == []
+
+
+async def test_owners_are_the_hosted_repositories_that_hold_a_package(
+    client, root, db, everything, mirror, context_for
+):
+    await put(client, root, "one", b"from one")
+    await put(client, root, "two", b"from two")
+    mixed = await create(db, "mixed", "group", group={"members": ["mirror", "one", "two"]})
+    context = await context_for(mixed, None)
+
+    behind = await group.leaves(context)
+    online, offline = await group.owners(behind, "docs", "a.txt")
+    nobody = await group.owners(behind, "docs", "another.txt")
+
+    assert ([member.repository.name for member in online], offline) == (["one", "two"], False)
+    assert nobody == ([], False)
+    assert [member.repository.name for member in group.proxies(behind)] == ["mirror"]
+
+
+async def test_an_offline_repository_still_holds_what_it_holds(
+    client, root, db, everything, mirror, context_for
+):
+    await put(client, root, "one", b"from one")
+    mixed = await create(db, "mixed", "group", group={"members": ["one", "mirror", "two"]})
+    for name in ("one", "mirror"):
+        repository = await service.get_repository(db, name)
+        repository.online = False
+    await db.commit()
+    context = await context_for(mixed, None)
+
+    behind = await group.leaves(context)
+    online, offline = await group.owners(behind, "docs", "a.txt")
+
+    assert (online, offline) == ([], True)
+    assert group.proxies(behind) == []  # an offline proxy answers nothing

@@ -267,3 +267,20 @@ async def test_a_remote_that_is_itself_internal_may_redirect_internally(fake, st
         )
 
     assert isinstance(outcome, remote.Fetched)
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        ("https://pypi.org", "https://pypi.org/simple/x/", True),
+        ("https://pypi.org:443/a", "https://PyPI.org/b", True),
+        ("http://remote.test", "http://remote.test:80/x", True),
+        ("https://pypi.org", "https://files.pythonhosted.org/x", False),
+        ("https://pypi.org", "http://pypi.org/x", False),
+        ("https://pypi.org", "https://pypi.org:8443/x", False),
+        ("https://pypi.org", "https://pypi.org.evil.example/x", False),
+        ("https://pypi.org", "not an address", False),
+    ],
+)
+def test_two_addresses_have_the_same_origin(first, second, same):
+    assert remote.same_origin(first, second) is same

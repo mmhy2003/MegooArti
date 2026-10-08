@@ -100,6 +100,37 @@ async def _refuse_inward_redirects(response: httpx.Response) -> None:
         raise InwardRedirect("redirect to an internal address", request=response.request)
 
 
+def _origin(address: httpx.URL) -> tuple[str, str, int | None]:
+    port = address.port or {"http": 80, "https": 443}.get(address.scheme)
+    return address.scheme, address.host.lower(), port
+
+
+def same_origin(first: str, second: str) -> bool:
+    """Whether two addresses have the same scheme, host and port."""
+    try:
+        return _origin(httpx.URL(first)) == _origin(httpx.URL(second))
+    except httpx.InvalidURL:
+        return False
+
+
+def refusal(remote_url: str, address: str) -> str | None:
+    """Why an address that a remote's own content points at is not fetched, or None.
+
+    A page a remote serves can name any address. One on a loopback, link-local or
+    private network is refused unless the remote itself is at that host: the remote
+    must not be able to make this server read from the network it is on.
+    """
+    try:
+        target, configured = httpx.URL(address), httpx.URL(remote_url)
+    except httpx.InvalidURL:
+        return "it points at an address that cannot be read"
+    if target.scheme not in ("http", "https") or not target.host:
+        return "it points at an address that is not HTTP"
+    if _is_internal(target.host) and target.host.lower() != configured.host.lower():
+        return "it points at an internal address"
+    return None
+
+
 def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=transport,

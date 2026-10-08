@@ -395,6 +395,10 @@ class RepositoryContext:
             raise TooLarge(path)
         return b"".join([chunk async for chunk in self.backend.open(row.sha256)])
 
+    def open(self, stored: Stored) -> AsyncIterator[bytes]:
+        """The bytes of what `stat` described, in pieces. Uses no database."""
+        return self.backend.open(stored.sha256)
+
     async def release(self) -> None:
         """Give the database connection back before slow work that needs none.
 
@@ -882,6 +886,43 @@ class RepositoryContext:
         # A streaming response even for HEAD: a plain one would declare a length of 0.
         body = self._transformed(blob.sha256, transformer) if plan.send_body else _nothing()
         return StreamingResponse(body, status_code=plan.status, headers=plan.headers)
+
+    async def respond_stream(
+        self,
+        request: Request,
+        body: Callable[[], AsyncIterator[bytes]],
+        *,
+        etag: str,
+        content_type: str,
+        filename: str,
+        last_modified: datetime,
+    ) -> Response:
+        """Answer a GET or HEAD with content that is made as it is sent.
+
+        For content put together from stored files that are too large to hold, such
+        as one page made from several. `etag` must change whenever the content would:
+        the caller makes it from what the content is built from, so a request that
+        already has it is answered without `body` being called. No length is
+        declared and ranges are not served.
+        """
+        item = serving.Servable(
+            sha256="",
+            md5=None,
+            sha1=None,
+            sha512=None,
+            size=0,
+            content_type=content_type,
+            last_modified=last_modified,
+            filename=filename,
+            etag=etag,
+        )
+        plan = serving.plan_stream(request.method, request.headers, item)
+        await self.db.commit()  # give the connection back before the body is sent
+        if plan.status == 304:
+            return Response(status_code=304, headers=plan.headers)
+        # A streaming response even for HEAD: a plain one would declare a length of 0.
+        content = body() if plan.send_body else _nothing()
+        return StreamingResponse(content, status_code=plan.status, headers=plan.headers)
 
     async def _transformed(self, sha256: str, transformer: Transformer) -> AsyncIterator[bytes]:
         async for chunk in self.backend.open(sha256):
