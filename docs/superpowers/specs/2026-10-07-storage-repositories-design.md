@@ -146,6 +146,8 @@ Formats never touch tables or files. They receive a **repository context** holdi
 
 Formats do not commit. The route commits once the format's handler returns, and nothing is kept if it raises.
 
+The [Maven format design](2026-10-08-maven-format-design.md), section 4, extends this interface: proxy and group hooks, an optional component, read operations on the context, and server-maintained metadata.
+
 ## 7. Requests for repository content
 
 Every method on `/repository/{name}/{path}` goes through one route:
