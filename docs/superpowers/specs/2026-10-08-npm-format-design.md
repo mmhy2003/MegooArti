@@ -59,11 +59,11 @@ One design, delivered as two plans.
 ### 4.1 For hosted npm (plan 5a)
 
 - **Credentials in the request body.** Today the content route refuses any write without credentials before format code runs. A format can now name requests that carry credentials in their body; the route lets exactly those through without a principal. The npm format names one: `PUT -/user/org.couchdb.user:<name>`. The handler must not use the principal, and checks the credentials through the security package.
-- **Signing a client in.** The security package gains two operations, reached through the context so that a format never handles the session:
+- **Signing a client in.** One function in the security package now checks a user name and a secret, for HTTP Basic and for everything else. On it the package gains two operations, reached through the context so that a format never handles the session:
   - *Issue a token:* check a user name and secret exactly as HTTP Basic credentials are checked, including throttling of failures, and refuse a user who must change their password. If the secret is itself one of the user's API tokens, return it; otherwise create a personal API token and return its value.
   - *Revoke a token:* revoke the token with a given value, only if it belongs to the caller.
 - **Component attributes.** `store` can set attributes on the component a file belongs to. New read operations list a package's components with their attributes and times, and find package names matching a text. A new operation changes a component's attributes; it needs `edit` and refuses a read-only repository.
-- **A response with its own `ETag`.** A response built in memory can supply its `ETag`, and is then not hashed. Such a response carries no `X-Checksum-*` headers and ignores `Range`.
+- **A response with its own `ETag`.** A response built in memory can supply its `ETag`, and is then not hashed. Such a response carries no `X-Checksum-*` headers.
 - **The public address.** One helper gives the address clients use to reach a repository: the `base_url` setting if it is set, otherwise the address of the current request.
 - **A size limit that says so.** A new error, `413 payload_too_large`.
 
@@ -153,11 +153,13 @@ Changes go through `maintain`, so they need `add` or `edit`, are refused on a re
 
 ### 6.4 Update, deprecate and unpublish
 
-`npm deprecate` and `npm unpublish` both read the package document, change it, and send it back without attachments. The server compares what it receives with what it holds:
+`npm deprecate` and `npm unpublish` both read the package document, change it, and send it back without attachments. Such an update needs `add` or `edit` before its body is read, as any upload does. The server then compares what it receives with what it holds:
 
 - **A version whose `deprecated` text differs:** the stored manifest is changed. This needs `edit`.
 - **A stored version missing from `versions`:** its tarball is deleted, which removes the version. This needs `delete`. Nothing is removed if the body has no `versions` at all.
 - **`dist-tags`:** replace the stored tags, keeping only those that point at a version that still exists.
+
+A tag that points at a version removed some other way is not rewritten; it is ignored wherever tags are read, and dropped at the next change.
 
 Nothing else in the body is applied.
 
