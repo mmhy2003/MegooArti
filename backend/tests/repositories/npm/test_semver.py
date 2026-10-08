@@ -75,3 +75,10 @@ def test_invalid_versions_sort_before_valid_ones_and_never_fail():
 def test_the_highest_of_nothing_is_nothing():
     assert semver.highest([]) is None
     assert semver.sorted_versions(["1.0.0", "1.0.0"]) == ["1.0.0"]
+
+
+def test_a_version_fits_where_it_is_stored():
+    longest = "1.0.0-" + "a" * 249
+
+    assert (len(longest), semver.is_valid(longest)) == (255, True)
+    assert semver.is_valid(longest + "a") is False

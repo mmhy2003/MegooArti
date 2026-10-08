@@ -302,7 +302,6 @@ def test_an_update_names_what_was_deprecated_and_what_was_removed():
             "1.0.0": {"deprecated": "use 2"},
             "1.1.0": {"deprecated": ""},
             "1.2.0": {"deprecated": "keep", "description": "ignored"},
-            "3.0.0": {"note": "a version we do not hold is ignored"},
         }
     }
 
@@ -362,3 +361,69 @@ def test_search_results_are_in_the_shape_npm_reads():
 )
 def test_tag_names(tag, valid):
     assert documents.is_valid_tag(tag) is valid
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"a": NaN}',
+        b'{"a": -Infinity}',
+        b'{"a": 1e999}',
+        b'{"a": "nul \\u0000 inside"}',
+        b'{"nul \\u0000 key": 1}',
+        b'{"a": ["deep", {"b": "half a pair \\ud800"}]}',
+        b'{"\\udfff": 1}',
+    ],
+    ids=["nan", "infinity", "overflow", "nul", "nul-key", "lone-surrogate", "surrogate-key"],
+)
+def test_json_that_cannot_be_stored_is_refused(raw):
+    with pytest.raises(InvalidPackage):
+        documents.loads(raw)
+
+
+def test_ordinary_json_is_read():
+    raw = b'{"emoji": "\\ud83d\\ude00", "number": 1.5, "big": 123456789012345678901234567890}'
+
+    assert documents.loads(raw) == {
+        "emoji": "\U0001f600",
+        "number": 1.5,
+        "big": 123456789012345678901234567890,
+    }
+    assert documents.loads(b"[" * 500 + b"]" * 500) is not None
+
+
+def test_a_publish_is_read_without_keeping_the_encoded_tarballs():
+    upload = read(publish())
+
+    assert "_attachments" not in upload.document
+    assert upload.releases[0].data == TARBALL
+
+
+def test_empty_attachments_are_refused_not_taken_for_an_update():
+    with pytest.raises(InvalidPackage):
+        read(publish(_attachments={}))
+
+
+def test_too_many_dist_tags_are_refused():
+    tags = {f"tag-{number}": "1.0.0" for number in range(251)}
+
+    with pytest.raises(InvalidPackage):
+        read(publish(**{"dist-tags": tags}))
+    assert len(read(publish(**{"dist-tags": dict(list(tags.items())[:250])})).tags) == 250
+
+
+def test_an_update_naming_a_version_that_is_not_stored_is_refused():
+    with pytest.raises(InvalidPackage):
+        documents.update_plan({"1.0.0": {}}, {"versions": {"1.0.0": {}, "2.0.0": {}}})
+
+
+def test_the_readme_is_shown_once_not_with_every_version():
+    built = documents.document(
+        "left-pad",
+        [stored("1.0.0", readme="first readme"), stored("1.1.0", readme="latest readme")],
+        {},
+        BASE,
+    )
+
+    assert built["readme"] == "latest readme"
+    assert all("readme" not in manifest for manifest in built["versions"].values())

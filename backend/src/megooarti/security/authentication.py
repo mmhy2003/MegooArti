@@ -297,46 +297,67 @@ async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
         raise refusal
 
 
-def _principal_dependency(
-    scheme: Scheme, *, defer_refusal: bool = False
-) -> Callable[..., Awaitable[Principal | ApiError | None]]:
+async def _identify(request: Request, db: AsyncSession, scheme: Scheme) -> Principal | None:
+    """Check what the request presents. Raises 401 with a challenge, 403 or 429."""
+    try:
+        principal = await resolve_principal(request, db)
+    except ApiError as error:
+        if error.status_code != 401:
+            raise
+        raise unauthorized(error.message, scheme=scheme) from None
+    await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
+    if (
+        principal is not None
+        and principal.session is not None
+        and request.method in _UNSAFE_METHODS
+    ):
+        sent = request.headers.get(CSRF_HEADER, "")
+        expected = principal.session.csrf_token
+        if not secrets.compare_digest(sent.encode(), expected.encode()):
+            raise ApiError(403, "csrf_failed", "The CSRF token is missing or wrong.")
+    return principal
+
+
+def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal | None]]:
     async def dependency(
         request: Request, db: AsyncSession = Depends(get_session)
-    ) -> Principal | ApiError | None:
+    ) -> Principal | None:
         await _refuse_cross_site(request, db)
-        try:
-            principal = await resolve_principal(request, db)
-        except ApiError as error:
-            if error.status_code != 401:
-                raise
-            refusal = unauthorized(error.message, scheme=scheme)
-            if defer_refusal:
-                return refusal  # the route decides whether these credentials matter
-            raise refusal from None
-        await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
-        if (
-            principal is not None
-            and principal.session is not None
-            and request.method in _UNSAFE_METHODS
-        ):
-            sent = request.headers.get(CSRF_HEADER, "")
-            expected = principal.session.csrf_token
-            if not secrets.compare_digest(sent.encode(), expected.encode()):
-                raise ApiError(403, "csrf_failed", "The CSRF token is missing or wrong.")
-        return principal
+        return await _identify(request, db, scheme)
 
     return dependency
+
+
+class Credentials:
+    """What a request presents to say who is calling, not yet looked at.
+
+    The content route gets this instead of a principal, because of one request: a
+    format's sign-in, which carries its credentials in its body. For that request
+    nothing in a header or a cookie is looked at, so a client's revoked token is not a
+    failed attempt and cannot lock its user out. For every other request the route
+    calls `principal()`, which is the check every other route gets.
+    """
+
+    def __init__(self, request: Request, db: AsyncSession, scheme: Scheme) -> None:
+        self._request, self._db, self._scheme = request, db, scheme
+
+    async def principal(self) -> Principal | None:
+        """Who is calling, if anyone. Raises 401 with a challenge, 403 or 429."""
+        return await _identify(self._request, self._db, self._scheme)
+
+
+async def client_credentials(
+    request: Request, db: AsyncSession = Depends(get_session)
+) -> Credentials:
+    """For the content route: refuse a cross-site write now, identify the caller later."""
+    await _refuse_cross_site(request, db)
+    return Credentials(request, db, "Basic")
 
 
 # Who is calling, if anyone. Both enforce CSRF for cookie requests; they differ only in
 # the challenge a 401 carries.
 current_principal = _principal_dependency("Bearer")  # the JSON API
-client_principal = _principal_dependency("Basic")  # repository content, for package clients
-# The same, except that credentials that are not accepted come back as the 401 to
-# raise instead of being raised. The content route uses it: for the one request a
-# format takes with credentials in its body, a stale token in a header must not count.
-# The route must raise the refusal for every other request.
-client_credentials = _principal_dependency("Basic", defer_refusal=True)
+client_principal = _principal_dependency("Basic")  # for package clients
 AUTHENTICATION_DEPENDENCIES = frozenset({current_principal, client_principal, client_credentials})
 
 

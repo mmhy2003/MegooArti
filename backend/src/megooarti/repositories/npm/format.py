@@ -11,6 +11,7 @@ worker threads of their own.
 """
 
 import asyncio
+import weakref
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -38,6 +39,13 @@ _MAX_SEARCH_RESULTS = 250
 # Not the default executor: that one also reads and writes blobs and checks passwords.
 _workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="npm-documents")
 
+# How many publishes may be in memory at once. Each can be as large as the limit, and
+# stays that large from the first byte read until its tarballs are stored.
+_PUBLISHES_AT_ONCE = 2
+_gates: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
+
 # Given the tags stored and the versions that exist, the tags to keep.
 TagChange = Callable[[dict[str, str], set[str]], dict[str, str]]
 
@@ -45,6 +53,18 @@ TagChange = Callable[[dict[str, str], set[str]], dict[str, str]]
 async def off_loop[T](function: Callable[..., T], *arguments: Any) -> T:
     """Run document work in a worker thread, at most two at a time."""
     return await asyncio.get_running_loop().run_in_executor(_workers, function, *arguments)
+
+
+def publishing() -> asyncio.Semaphore:
+    """The turn a publish takes: `async with publishing():` around reading and storing it.
+
+    One for each event loop, since a semaphore belongs to the loop that first waits on it.
+    """
+    loop = asyncio.get_running_loop()
+    gate = _gates.get(loop)
+    if gate is None:
+        gate = _gates[loop] = asyncio.Semaphore(_PUBLISHES_AT_ONCE)
+    return gate
 
 
 def _answer(value: Any, status: int = 200) -> Response:
@@ -197,8 +217,10 @@ async def _change_tags(context: RepositoryContext, package: str, change: TagChan
     """
 
     async def update(current: bytes | None) -> bytes | None:
-        held = await context.components(*_coordinates(package))
-        kept = change(_read_tags(current), {info.version for info in held})
+        held = await context.versions(*_coordinates(package))
+        kept = change(_read_tags(current), set(held))
+        if len(kept) > documents.MAX_TAGS:
+            raise _invalid(f"a package has at most {documents.MAX_TAGS} dist-tags")
         return documents.dumps(kept) if kept else None
 
     await context.maintain(
@@ -257,22 +279,28 @@ async def _search(context: RepositoryContext, request: Request) -> Response:
 
     def number(name: str, default: int, most: int) -> int:
         value = request.query_params.get(name, "")
-        return min(int(value), most) if value.isascii() and value.isdigit() else default
+        plain = value.isascii() and value.isdigit() and len(value) <= 9
+        return min(int(value), most) if plain else default
 
     text = request.query_params.get("text", "").strip()[: paths.MAX_NAME_LENGTH]
     size = number("size", 20, _MAX_SEARCH_RESULTS)
     names, total = await context.package_names(text, limit=size, offset=number("from", 0, 10**9))
     found = []
     for scope, name in names:
-        held = await context.components(scope, name)
-        newest = max(held, key=lambda info: semver.sort_key(info.version))
-        description = (newest.attributes.get(_MANIFEST) or {}).get("description")
+        held = await context.versions(scope, name)
+        if not held:
+            continue  # its last file was removed between the two questions
+        newest = max(held, key=semver.sort_key)
+        # Only the newest version's manifest is read: a package can have thousands.
+        info = await context.component(scope, name, newest)
+        manifest = (info.attributes.get(_MANIFEST) if info is not None else None) or {}
+        description = manifest.get("description")
         found.append(
             documents.Found(
                 name=f"@{scope}/{name}" if scope else name,
-                version=newest.version,
+                version=newest,
                 description=description if isinstance(description, str) else "",
-                date=newest.modified,
+                date=held[newest],
             )
         )
     return _answer(documents.search_results(found, total, utcnow()))
@@ -291,7 +319,7 @@ async def _publish(context: RepositoryContext, package: str, upload: documents.U
             documents.verify(
                 release.manifest, sha1=blob.sha1, sha256=blob.sha256, sha512=blob.sha512
             )
-        held = await context.components(*_coordinates(package))
+        held = await context.versions(*_coordinates(package))
         if not held and package != package.lower():
             raise _invalid("the name of a new package must be in lower case")
     except BaseException as error:
@@ -327,34 +355,50 @@ async def _publish(context: RepositoryContext, package: str, upload: documents.U
     return _answer({"ok": True, "id": package, "rev": "1-0"}, 201)
 
 
-async def _update(context: RepositoryContext, package: str, upload: documents.Upload) -> Response:
-    """Apply a document sent back without attachments: `npm deprecate` and `npm unpublish`."""
+async def _update(
+    context: RepositoryContext, request: Request, package: str, upload: documents.Upload
+) -> Response:
+    """Apply a document sent back without attachments: `npm deprecate` and `npm unpublish`.
+
+    The client read the document, changed it and sent all of it back. Acting on it is
+    only right if nothing changed in between: otherwise a version published meanwhile
+    is missing from what was sent, and would be removed.
+    """
     scope, name = _coordinates(package)
-    held = {
-        info.version: info.attributes.get(_MANIFEST) or {}
-        for info in await context.components(scope, name)
-    }
-    if not held:
+    found = await built(context, request, package)
+    if found is None:
         raise _not_found()
+    versions, stored_tags, base = found
+    held = {version.version: version.manifest for version in versions}
     try:
         plan = documents.update_plan(held, upload.document)
     except documents.InvalidPackage as error:
         raise _invalid(error) from None
+    tags = upload.tags
+    answer = _answer({"ok": True, "id": package, "rev": "1-0"})
+    if not plan.deprecations and not plan.removals and tags is None:
+        return answer
+
+    current = await off_loop(documents.document, package, versions, stored_tags, base)
+    if upload.document.get("_rev") != current["_rev"]:
+        raise ApiError(
+            409,
+            "conflict",
+            "The package has changed since it was read. Read it again and repeat the change.",
+        )
 
     for version, message in plan.deprecations.items():  # needs `edit`
         changed = documents.deprecated(held[version], message)
         await context.annotate(scope, name, version, {_MANIFEST: changed})
     for version in plan.removals:  # needs `delete`
         await context.delete(paths.tarball_path(package, version))
-
-    tags = upload.tags
     if tags is not None:
         await _change_tags(
-            context, package, lambda _, versions: documents.effective_tags(tags, versions)
+            context, package, lambda _, existing: documents.effective_tags(tags, existing)
         )
     elif plan.removals:
         await _change_tags(context, package, documents.effective_tags)
-    return _answer({"ok": True, "id": package, "rev": "1-0"})
+    return answer
 
 
 async def _write_document(
@@ -363,18 +407,26 @@ async def _write_document(
     """A document sent to a package's address: a publish, or an update."""
     # Refused before the body is read; the facade checks each operation again.
     context.require_write()
-    raw = await context.receive(request.stream(), limit=context.settings.npm_max_publish_bytes)
-    if raw is None:
-        raise ApiError(413, "payload_too_large", "The package is larger than this server takes.")
-    try:
-        upload = await off_loop(documents.read_upload, parsed.package, raw)
-    except documents.InvalidPackage as error:
-        raise _invalid(error) from None
-    except documents.ChecksumMismatch as error:
-        raise _mismatch(error) from None
-    if upload.releases:
-        return await _publish(context, parsed.package, upload)
-    return await _update(context, parsed.package, upload)
+    limit = context.settings.npm_max_publish_bytes
+    too_large = ApiError(413, "payload_too_large", "The package is larger than this server takes.")
+    declared = request.headers.get("Content-Length", "")
+    if declared.isascii() and declared.isdigit() and (len(declared) > 18 or int(declared) > limit):
+        raise too_large
+    await context.release()  # waiting for a turn needs no connection
+    async with publishing():
+        raw = await context.receive(request.stream(), limit=limit)
+        if raw is None:
+            raise too_large
+        try:
+            upload = await off_loop(documents.read_upload, parsed.package, raw)
+        except documents.InvalidPackage as error:
+            raise _invalid(error) from None
+        except documents.ChecksumMismatch as error:
+            raise _mismatch(error) from None
+        del raw  # what is needed from it has been decoded
+        if upload.releases:
+            return await _publish(context, parsed.package, upload)
+        return await _update(context, request, parsed.package, upload)
 
 
 async def _unpublish(context: RepositoryContext, parsed: paths.NpmPath) -> Response:
@@ -407,7 +459,7 @@ async def _dist_tags(
 ) -> Response:
     package, tag = parsed.package, parsed.tag
     if _is_read(request) and not tag:
-        versions = {info.version for info in await context.components(*_coordinates(package))}
+        versions = set(await context.versions(*_coordinates(package)))
         if not versions:
             raise _not_found()
         return _answer(documents.effective_tags(await _stored_tags(context, package), versions))
@@ -416,8 +468,7 @@ async def _dist_tags(
         version = await _json_body(context, request, SMALL_LIMIT)
         if not isinstance(version, str) or not documents.is_valid_tag(tag):
             raise _invalid("a dist-tag is set by sending a version as a JSON string")
-        versions = {info.version for info in await context.components(*_coordinates(package))}
-        if version not in versions:
+        if version not in await context.versions(*_coordinates(package)):
             raise _not_found("No such version.")
         await _change_tags(
             context,

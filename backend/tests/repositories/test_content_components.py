@@ -172,3 +172,13 @@ async def test_the_public_address_is_the_requests_unless_one_is_configured(conte
 
     assert from_request == "http://internal.example:8000/repository/files"
     assert configured == "https://packages.example/repository/files"
+
+
+async def test_component_reads_one_version(context):
+    await store(context, "acme/app/1.0/app.tgz", component_attributes={"n": 1})
+    await store(context, "acme/app/2.0/app.tgz", component_attributes={"n": 2})
+
+    found = await context.component("acme", "app", "2.0")
+
+    assert (found.version, found.attributes) == ("2.0", {"n": 2})
+    assert await context.component("acme", "app", "9.9") is None

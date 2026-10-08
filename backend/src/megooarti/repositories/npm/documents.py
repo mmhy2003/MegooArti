@@ -7,6 +7,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,8 @@ from megooarti.repositories.npm import paths, semver
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_DEPRECATION_LENGTH = 1024
 _MAX_TAG_LENGTH = 214
+# The tags are read with every package document, so there cannot be many.
+MAX_TAGS = 250
 # What the package document repeats at the top from the latest version's manifest.
 _COPIED = (
     "description",
@@ -101,12 +104,45 @@ def dumps(value: Any) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+def _refuse_constant(name: str) -> Any:
+    raise ValueError(name)  # NaN and the infinities are not JSON, and JSONB refuses them
+
+
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(text)  # 1e999 reads as infinity
+    return value
+
+
+def _check_storable(value: Any) -> None:
+    """Refuse text that cannot be kept: PostgreSQL has no NUL, and JSON no half pair."""
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if "\x00" in item:
+                raise InvalidPackage("it contains a NUL character")
+            if not item.isascii():
+                try:
+                    item.encode("utf-8")
+                except UnicodeEncodeError:
+                    raise InvalidPackage("it contains text that is not valid Unicode") from None
+        elif isinstance(item, dict):
+            pending.extend(item)
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
+
 def loads(raw: bytes) -> Any:
-    """Parse JSON a client sent. Raises InvalidPackage."""
+    """Parse JSON a client sent, refusing what could not be stored. Raises InvalidPackage."""
     try:
-        return json.loads(raw)
+        value = json.loads(raw, parse_constant=_refuse_constant, parse_float=_finite)
     except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
         raise InvalidPackage("the body is not JSON") from None
+    _check_storable(value)
+    return value
 
 
 def iso(moment: datetime) -> str:
@@ -120,6 +156,8 @@ def _tags(value: Any) -> dict[str, str] | None:
         return None
     if not isinstance(value, dict):
         raise InvalidPackage("dist-tags is not an object")
+    if len(value) > MAX_TAGS:
+        raise InvalidPackage(f"it has more than {MAX_TAGS} dist-tags")
     for tag, version in value.items():
         if not is_valid_tag(tag) or not isinstance(version, str):
             raise InvalidPackage(f"the dist-tag {tag!r} is not valid")
@@ -157,12 +195,15 @@ def read_upload(package: str, raw: bytes) -> Upload:
     if document.get("name") != package:
         raise InvalidPackage("its name is not the package it was sent to")
     tags = _tags(document.get("dist-tags"))
-    attachments = document.get("_attachments")
-    if not attachments:
+    if "_attachments" not in document:
         return Upload(document=document, releases=(), tags=tags)
 
-    versions = document.get("versions")
-    if not isinstance(attachments, dict) or not isinstance(versions, dict) or not versions:
+    # Attachments that are present but empty are a broken publish, not an update: taken
+    # for an update, a body listing one new version would remove every other.
+    attachments, versions = document["_attachments"], document.get("versions")
+    if not isinstance(attachments, dict) or not attachments:
+        raise InvalidPackage("its attachments are empty")
+    if not isinstance(versions, dict) or not versions:
         raise InvalidPackage("it has attachments but no versions")
     releases = []
     for version, manifest in versions.items():
@@ -176,7 +217,9 @@ def read_upload(package: str, raw: bytes) -> Upload:
             raise InvalidPackage(f"the manifest of version {version} is larger than 1 MiB")
         data = _attachment(attachments, package, version)
         releases.append(Release(version=version, manifest=manifest, data=data))
-    return Upload(document=document, releases=tuple(releases), tags=tags)
+    # The tarballs are decoded now; their encoded copies need not stay in memory.
+    rest = {key: value for key, value in document.items() if key != "_attachments"}
+    return Upload(document=rest, releases=tuple(releases), tags=tags)
 
 
 def _hex_of(encoded: str) -> str | None:
@@ -248,8 +291,11 @@ def merge_tags(
 
 
 def _shown(package: str, version: Version, base: str) -> dict[str, Any]:
-    """A stored manifest as a client sees it, with its identity and its link."""
-    manifest = dict(version.manifest)
+    """A stored manifest as a client sees it, with its identity and its link.
+
+    Without its readme: the document shows the latest one once, not one for each version.
+    """
+    manifest = {key: value for key, value in version.manifest.items() if key != "readme"}
     dist = manifest.get("dist")
     link = f"{base}/{paths.tarball_path(package, version.version)}"
     manifest["_id"] = f"{package}@{version.version}"
@@ -280,7 +326,7 @@ def document(
             **{version.version: iso(version.created) for version in ordered},
         },
     }
-    latest = shown[shown_tags["latest"]]
+    latest = next(v.manifest for v in ordered if v.version == shown_tags["latest"])
     built.update({field: latest[field] for field in _COPIED if field in latest})
     # It changes whenever the document does. It is accepted back and not checked.
     built["_rev"] = f"{len(shown)}-{hashlib.sha1(dumps(built)).hexdigest()[:32]}"
@@ -316,6 +362,11 @@ def update_plan(stored: Mapping[str, Mapping[str, Any]], sent: Mapping[str, Any]
     versions = sent.get("versions")
     if not isinstance(versions, dict):
         return Update(deprecations={}, removals=())  # nothing is removed by saying nothing
+    unknown = next((version for version in versions if version not in stored), None)
+    if unknown is not None:
+        # A version arrives with its tarball, in a publish. Listed here, it is a publish
+        # gone wrong, and acting on the rest of the list would remove real versions.
+        raise InvalidPackage(f"it names version {unknown!r}, which is not stored")
     deprecations: dict[str, str | None] = {}
     for version, manifest in stored.items():
         theirs = versions.get(version)

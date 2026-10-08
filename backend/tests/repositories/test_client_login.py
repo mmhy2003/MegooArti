@@ -185,3 +185,18 @@ async def test_a_stale_credential_still_stops_everything_else(client, dana):
     assert all(
         response.headers["WWW-Authenticate"] == 'Basic realm="MegooArti"' for response in attempts
     )
+
+
+async def test_a_stale_header_credential_is_not_counted_as_a_failed_attempt(client, dana, app):
+    assert app.state.settings.login_max_failures == 5
+    stale = bearer("mga_revoked-long-ago")
+
+    async def attempt(password: str):
+        return await client.put(LOGIN, json={"name": "dana", "password": password}, headers=stale)
+
+    mistyped = [(await attempt("typo")).status_code for _ in range(2)]
+    then_right = await attempt(PASSWORD)
+
+    # Two failures, not four: only the body is a sign-in attempt.
+    assert mistyped == [401, 401]
+    assert then_right.status_code == 200, then_right.text

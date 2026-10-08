@@ -201,3 +201,12 @@ async def test_a_revoked_token_in_npmrc_does_not_stop_npm_login(client, registry
 
     assert response.status_code == 201, response.text
     assert response.json()["token"] != old
+
+
+async def test_a_secret_that_cannot_be_text_is_refused_not_an_error(client, registry, make_user):
+    await make_user("dana", roles=["admin"])
+    half_a_pair = b'{"name": "dana", "password": "\\ud800"}'
+
+    response = await client.put(LOGIN, content=half_a_pair)
+
+    assert (response.status_code, error_code(response)) == (400, "invalid_package")

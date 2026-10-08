@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 
@@ -5,6 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from megooarti.repositories.models import Asset, Component
+from megooarti.repositories.npm import format as npm_format
 from megooarti.security import roles
 from megooarti.system.settings_store import set_setting
 from tests.accounts import PASSWORD, basic, error_code
@@ -258,3 +260,42 @@ async def test_other_methods_are_not_allowed(client, registry, root, method):
     response = await client.request(method, f"{URL}/left-pad", json={}, headers=root)
 
     assert (response.status_code, error_code(response)) == (405, "method_not_allowed")
+
+
+async def test_a_manifest_the_database_cannot_hold_is_refused_before_anything_is_stored(
+    client, registry, root, db, settings
+):
+    with_nul = b'{"name": "left-pad", "versions": {"1.0.0": {"description": "a\\u0000b"}}}'
+    body = publish_body("left-pad", "1.0.0")
+    not_a_number = (
+        b'{"name": "left-pad", "_attachments": {"left-pad-1.0.0.tgz": {"data": "aGk="}},'
+        b' "versions": {"1.0.0": {"name": "left-pad", "version": "1.0.0", "weight": NaN}}}'
+    )
+    too_long = publish_body("left-pad", "1.0.0-" + "a" * 250)
+
+    for sent in (with_nul, not_a_number):
+        response = await client.put(f"{URL}/left-pad", content=sent, headers=root)
+        assert (response.status_code, error_code(response)) == (400, "invalid_package")
+    response = await client.put(f"{URL}/left-pad", json=too_long, headers=root)
+
+    assert (response.status_code, error_code(response)) == (400, "invalid_package")
+    assert body["name"] == "left-pad"
+    assert await count(db, Asset) == 0
+    content = settings.data_dir / "blobs" / "default" / "content"
+    assert not content.exists() or not [path for path in content.rglob("*") if path.is_file()]
+
+
+async def test_at_most_two_publishes_are_in_memory_at_once():
+    running, most = 0, 0
+
+    async def one() -> None:
+        nonlocal running, most
+        async with npm_format.publishing():
+            running += 1
+            most = max(most, running)
+            await asyncio.sleep(0.01)
+            running -= 1
+
+    await asyncio.gather(*(one() for _ in range(6)))
+
+    assert most == 2

@@ -328,6 +328,8 @@ registry=https://repo.example.com/repository/npm-hosted/
 - **Publishing a version again** follows the deployment policy. Use `disable_redeploy`
   to get npm's own rule that a version is published once.
 - **Dist-tags.** `latest` is the highest version if the version it named is removed.
+- **`npm deprecate` and `npm unpublish` act on the package as it is now.** If someone
+  published in between, they answer `409`; run the command again.
 - **Permissions.** `npm publish` needs `add`. `npm deprecate` needs `edit`.
   `npm unpublish` needs `delete`, and `add` or `edit` as well when it removes a single
   version, because npm does that by sending the package document back.

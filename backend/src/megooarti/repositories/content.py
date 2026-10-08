@@ -266,6 +266,23 @@ class RepositoryContext:
             for version, attributes, created, changed in rows
         ]
 
+    async def component(self, namespace: str, name: str, version: str) -> ComponentInfo | None:
+        """One version of a package, or None if it has no file."""
+        row = (
+            await self.db.execute(
+                select(Component.attributes, Component.created_at, func.max(Asset.updated_at))
+                .join(Asset, Asset.component_id == Component.id)
+                .where(
+                    Component.repository_id == self.repository.id,
+                    Component.namespace == namespace,
+                    Component.name == name,
+                    Component.version == version,
+                )
+                .group_by(Component.id)
+            )
+        ).one_or_none()
+        return None if row is None else ComponentInfo(version, *row)
+
     async def package_names(
         self, text: str, *, limit: int, offset: int
     ) -> tuple[list[tuple[str, str]], int]:
@@ -633,6 +650,11 @@ class RepositoryContext:
         wanted = await update(current)
         if wanted == current:
             return
+        if wanted is not None and len(wanted) > limit:
+            # Stored, it could never be read back, and every later change would fail.
+            raise ApiError(
+                413, "payload_too_large", "The document would be larger than this server keeps."
+            )
         if wanted is None:
             blob_id = existing.blob_id
             await self.db.delete(existing)

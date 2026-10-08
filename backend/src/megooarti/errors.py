@@ -11,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from megooarti.log import redact
 from megooarti.request_id import HEADER as REQUEST_ID_HEADER
 
 log = structlog.get_logger(__name__)
@@ -114,7 +115,7 @@ class UnhandledErrorMiddleware:
             log.error(
                 "unhandled_exception",
                 method=request.method,
-                path=request.url.path,
+                path=redact(request.url.path),
                 exc_info=error,
             )
             response = error_response(

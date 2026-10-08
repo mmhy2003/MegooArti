@@ -23,7 +23,7 @@
 | P7 | A tarball cannot be uploaded on its own (`405`). | A version without a manifest could not be listed. |
 | P8 | In this plan the npm format offers only `hosted`. Plan 5b adds `proxy` and `group`. | A proxy on the generic engine would serve the remote's document with links that bypass MegooArti. |
 | P9 | The real client is driven with a token obtained by sending the request `npm login` sends. | `npm login` prompts on a terminal. The same request, then the real client with the token it produced, tests the same code. |
-| P10 | Found while executing: for the request that carries credentials in its body, the route ignores credentials in a header. The content route uses a dependency that returns a refused credential instead of raising it, and raises it itself for every other request. `npm login` itself is also run, through a pseudo-terminal. | The real `npm login` failed with a revoked token saved in `.npmrc`: npm sends the saved token with the sign-in, and the route refused it before the format was asked. |
+| P10 | Found while executing, and tightened after review: for the request that carries credentials in its body, the route does not look at credentials in a header. The content route's dependency returns the credentials unchecked (`Credentials`), and the route checks them for every other request. `npm login` itself is also run, through a pseudo-terminal. | The real `npm login` failed with a revoked token saved in `.npmrc`: npm sends the saved token with the sign-in, and the route refused it before the format was asked. |
 
 ## Global Constraints
 

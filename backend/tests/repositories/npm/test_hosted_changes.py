@@ -155,22 +155,28 @@ async def test_each_change_needs_its_own_permission(client, registry, root, make
     editor = await account(db, make_user, "eve", "read", "edit")
     remover = await account(db, make_user, "del", "read", "edit", "delete")
     reader = await account(db, make_user, "rae", "read")
-    sent = await document(client, root)
-    deprecating = {**sent, "versions": {**sent["versions"]}}
-    deprecating["versions"]["1.0.0"] = {**sent["versions"]["1.0.0"], "deprecated": "old"}
-    removing = {**sent, "versions": {k: v for k, v in sent["versions"].items() if k != "2.0.0"}}
     tarball = f"{URL}/left-pad/-/left-pad-1.1.0.tgz"
 
+    async def deprecating(headers):
+        sent = await document(client, root)
+        sent["versions"]["1.0.0"]["deprecated"] = "old"
+        return await client.put(DOCUMENT, json=sent, headers=headers)
+
+    async def removing(headers):
+        sent = await document(client, root)
+        del sent["versions"]["2.0.0"]
+        return await client.put(DOCUMENT, json=sent, headers=headers)
+
     outcomes = {
-        "reader deprecates": await client.put(DOCUMENT, json=deprecating, headers=reader),
-        "publisher deprecates": await client.put(DOCUMENT, json=deprecating, headers=publisher),
-        "editor deprecates": await client.put(DOCUMENT, json=deprecating, headers=editor),
-        "editor removes a version": await client.put(DOCUMENT, json=removing, headers=editor),
+        "reader deprecates": await deprecating(reader),
+        "publisher deprecates": await deprecating(publisher),
+        "editor deprecates": await deprecating(editor),
+        "editor removes a version": await removing(editor),
         "editor deletes a tarball": await client.delete(tarball, headers=editor),
         "editor deletes the package": await client.delete(DOCUMENT, headers=editor),
         "reader sets a tag": await client.put(f"{TAGS}/x", json="1.0.0", headers=reader),
         "publisher sets a tag": await client.put(f"{TAGS}/x", json="1.0.0", headers=publisher),
-        "remover removes a version": await client.put(DOCUMENT, json=removing, headers=remover),
+        "remover removes a version": await removing(remover),
         "remover deletes a tarball": await client.delete(tarball, headers=remover),
     }
 
@@ -186,7 +192,9 @@ async def test_each_change_needs_its_own_permission(client, registry, root, make
         "remover removes a version": 200,
         "remover deletes a tarball": 200,
     }
-    assert list((await document(client, root))["versions"]) == ["1.0.0"]
+    after = await document(client, root)
+    assert list(after["versions"]) == ["1.0.0"]
+    assert after["versions"]["1.0.0"]["deprecated"] == "old"
 
 
 async def test_a_read_only_repository_takes_no_changes(client, db, root):
@@ -210,3 +218,51 @@ async def test_a_read_only_repository_takes_no_changes(client, db, root):
 
     assert [error_code(response) for response in attempts] == ["repository_read_only"] * 5
     assert (await client.get(f"{base}/left-pad", headers=root)).status_code == 200
+
+
+async def test_an_update_from_a_stale_document_changes_nothing(client, registry, root):
+    await publish(client, root, "left-pad", "1.0.0")
+    read_earlier = await document(client, root)
+    await publish(client, root, "left-pad", "1.1.0")  # by someone else, meanwhile
+    read_earlier["versions"]["1.0.0"]["deprecated"] = "old"
+
+    response = await client.put(DOCUMENT, json=read_earlier, headers=root)
+
+    after = await document(client, root)
+    assert (response.status_code, error_code(response)) == (409, "conflict")
+    assert list(after["versions"]) == ["1.0.0", "1.1.0"]
+    assert "deprecated" not in after["versions"]["1.0.0"]
+
+
+async def test_an_update_cannot_name_a_version_that_is_not_stored(client, registry, root):
+    await three_versions(client, root)
+    sent = await document(client, root)
+    sent["versions"]["3.0.0"] = {"name": "left-pad", "version": "3.0.0"}
+
+    response = await client.put(DOCUMENT, json=sent, headers=root)
+
+    assert (response.status_code, error_code(response)) == (400, "invalid_package")
+    assert list((await document(client, root))["versions"]) == ["1.0.0", "1.1.0", "2.0.0"]
+
+
+async def test_empty_attachments_are_not_an_update(client, registry, root):
+    await three_versions(client, root)
+    sent = {"name": "left-pad", "versions": {"1.0.0": {}}, "_attachments": {}}
+
+    response = await client.put(DOCUMENT, json=sent, headers=root)
+
+    assert (response.status_code, error_code(response)) == (400, "invalid_package")
+    assert list((await document(client, root))["versions"]) == ["1.0.0", "1.1.0", "2.0.0"]
+
+
+async def test_a_package_has_a_limited_number_of_dist_tags(client, registry, root):
+    await three_versions(client, root)
+    sent = await document(client, root)
+    sent["dist-tags"] = {f"tag-{number}": "1.0.0" for number in range(251)}
+
+    too_many = await client.put(DOCUMENT, json=sent, headers=root)
+    still_works = await publish(client, root, "left-pad", "3.0.0")
+
+    assert (too_many.status_code, error_code(too_many)) == (400, "invalid_package")
+    assert still_works.status_code == 201
+    assert (await client.get(TAGS, headers=root)).json() == {"latest": "3.0.0"}

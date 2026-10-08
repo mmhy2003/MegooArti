@@ -37,7 +37,6 @@ One design, delivered as two plans.
 | Web login (`/-/v1/login`), two-factor prompts, `npm token`, `npm owner`, `npm access`, `npm star` | Not planned. npm falls back to the classic login when web login is absent |
 | A remote that serves tarballs outside the standard path (GitHub Packages) | Later, if wanted |
 | Forwarding search to the remote | Not planned: search answers from what MegooArti holds |
-| Enforcing `_rev` on updates (optimistic concurrency) | Not planned: the path lock already orders writers |
 | Usage snippets, README rendering, search by keyword | Plan 8 |
 
 ## 3. Decisions
@@ -58,14 +57,15 @@ One design, delivered as two plans.
 
 ### 4.1 For hosted npm (plan 5a)
 
-- **Credentials in the request body.** Today the content route refuses any write without credentials before format code runs. A format can now name requests that carry credentials in their body; the route lets exactly those through without a principal. The npm format names one: `PUT -/user/org.couchdb.user:<name>`. The handler must not use the principal, and checks the credentials through the security package. For such a request the route ignores whatever credentials a header carries, valid or not: npm sends its saved token with every request, and a token that has been revoked must not stop the next sign-in.
+- **Credentials in the request body.** Today the content route refuses any write without credentials before format code runs. A format can now name requests that carry credentials in their body; the route lets exactly those through without a principal. The npm format names one: `PUT -/user/org.couchdb.user:<name>`. The handler must not use the principal, and checks the credentials through the security package. For such a request the route does not look at whatever credentials a header or cookie carries, valid or not: npm sends its saved token with every request, and a token that has been revoked must not stop the next sign-in or count as a failed attempt. The route therefore receives the request's credentials unchecked, and checks them itself for every other request.
 - **Signing a client in.** One function in the security package now checks a user name and a secret, for HTTP Basic and for everything else. On it the package gains two operations, reached through the context so that a format never handles the session:
   - *Issue a token:* check a user name and secret exactly as HTTP Basic credentials are checked, including throttling of failures, and refuse a user who must change their password. If the secret is itself one of the user's API tokens, return it; otherwise create a personal API token and return its value.
   - *Revoke a token:* revoke the token with a given value, only if it belongs to the caller.
 - **Component attributes.** `store` can set attributes on the component a file belongs to. New read operations list a package's components with their attributes and times, and find package names matching a text. A new operation changes a component's attributes; it needs `edit` and refuses a read-only repository.
 - **A response with its own `ETag`.** A response built in memory can supply its `ETag`, and is then not hashed. Such a response carries no `X-Checksum-*` headers.
 - **The public address.** One helper gives the address clients use to reach a repository: the `base_url` setting if it is set, otherwise the address of the current request.
-- **A size limit that says so.** A new error, `413 payload_too_large`.
+- **A size limit that says so.** A new error, `413 payload_too_large`. `maintain` answers with it rather than store a document larger than the limit it reads with.
+- **A token in an address is not logged.** `npm logout` puts the token it revokes in the address. The request log and the error log write such an address with the token removed.
 
 ### 4.2 For proxy and group npm (plan 5b)
 
@@ -112,7 +112,9 @@ A request path is classified before anything else. A package name is `name` or `
 
 ### 6.1 Publish
 
-The body is read with `receive`, up to `MEGOOARTI_NPM_MAX_PUBLISH_BYTES` (default 100 MiB); a larger one is `413 payload_too_large`. Decoding runs on two worker threads of its own.
+The body is read with `receive`, up to `MEGOOARTI_NPM_MAX_PUBLISH_BYTES` (default 100 MiB); a larger one is `413 payload_too_large`, from its `Content-Length` alone when it declares one. At most two publishes are read, decoded and stored at once; others wait their turn. Decoding runs on two worker threads of its own.
+
+JSON that could not be stored is refused as `400 invalid_package` before anything else happens: `NaN` and the infinities, a NUL character, and half of a surrogate pair. The same applies to every JSON body these endpoints read.
 
 The document is refused with `400 invalid_package` unless all of these hold:
 
@@ -136,8 +138,8 @@ Built from the package's components:
 - `versions`: each stored manifest, with `_id` and `dist.tarball` added. The link is the repository's public address followed by the tarball's path.
 - `dist-tags`: the stored tags that point at a version that exists. If none is `latest`, `latest` is the highest version.
 - `time`: `created`, `modified`, and when each version was published.
-- `description`, `readme`, `license`, `repository`, `homepage`, `keywords`, `author`, `maintainers` and `bugs`, copied from the `latest` version's manifest.
-- `_rev`: a value that changes whenever the document does. It is accepted back on updates and not checked.
+- `description`, `readme`, `license`, `repository`, `homepage`, `keywords`, `author`, `maintainers` and `bugs`, copied from the `latest` version's manifest. The `readme` is shown only here, not again with every version.
+- `_rev`: a value that changes whenever the document does. An update must carry the current one (6.4).
 
 If the package has no version, the answer is `404`. The `ETag` is the hash of the document. `Last-Modified` is `time.modified`.
 
@@ -149,11 +151,15 @@ If the package has no version, the answer is `404`. The `ETag` is the hash of th
 | `PUT …/dist-tags/<tag>` with a version as a JSON string | Sets the tag. The version must exist. `200` |
 | `DELETE …/dist-tags/<tag>` | Removes the tag. `latest` cannot be removed. `200` |
 
-Changes go through `maintain`, so they need `add` or `edit`, are refused on a read-only repository, and never overwrite each other. On a proxy or a group these requests are `405`.
+Changes go through `maintain`, so they need `add` or `edit`, are refused on a read-only repository, and never overwrite each other. A package has at most 250 dist-tags. On a proxy or a group these requests are `405`.
 
 ### 6.4 Update, deprecate and unpublish
 
-`npm deprecate` and `npm unpublish` both read the package document, change it, and send it back without attachments. Such an update needs `add` or `edit` before its body is read, as any upload does. The server then compares what it receives with what it holds:
+`npm deprecate` and `npm unpublish` both read the package document, change it, and send it back without attachments. Such an update needs `add` or `edit` before its body is read, as any upload does.
+
+An update that changes anything must carry the `_rev` of the document as it is now; otherwise it is `409 conflict` and nothing changes. The client sends the whole document back, so one read before somebody else's publish would otherwise remove that publish. An update that names a version that is not stored is `400 invalid_package`, and so is a body whose `_attachments` is present but empty: both are a publish gone wrong.
+
+The server then compares what it receives with what it holds:
 
 - **A version whose `deprecated` text differs:** the stored manifest is changed. This needs `edit`.
 - **A stored version missing from `versions`:** its tarball is deleted, which removes the version. This needs `delete`. Nothing is removed if the body has no `versions` at all.

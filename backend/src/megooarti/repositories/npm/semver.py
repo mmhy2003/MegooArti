@@ -13,8 +13,9 @@ _SEMVER = re.compile(
     rf"(?:-({_IDENTIFIER}(?:\.{_IDENTIFIER})*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
-# No real version is longer, and a bound keeps the numbers small enough to compare.
-_MAX_LENGTH = 256
+# What a component can hold. No real version comes near it, and a bound keeps the
+# numbers small enough to compare.
+_MAX_LENGTH = 255
 
 Key = tuple
 

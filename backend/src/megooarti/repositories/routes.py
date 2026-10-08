@@ -16,7 +16,7 @@ from megooarti.repositories import dispatch, remote, service
 from megooarti.repositories.content import build_context
 from megooarti.repositories.formats import get_format
 from megooarti.security.authentication import (
-    Principal,
+    Credentials,
     authorize,
     client_credentials,
     unauthorized,
@@ -34,7 +34,7 @@ async def repository_content(
     name: str,
     path: str,
     request: Request,
-    credentials: Principal | ApiError | None = Depends(client_credentials),
+    credentials: Credentials = Depends(client_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     repository = await service.get_repository(db, name)
@@ -43,15 +43,10 @@ async def repository_content(
     in_body = (
         handler is not None and not reading and handler.takes_body_credentials(request.method, path)
     )
-    if in_body:
-        # This request carries its credentials in its body, and the format checks them.
-        # Whatever a header carries is not looked at, valid or not: a client whose
-        # saved token was revoked sends it with every request, the next sign-in too.
-        principal = None
-    elif isinstance(credentials, ApiError):
-        raise credentials
-    else:
-        principal = credentials
+    # A request that carries its credentials in its body has them checked by its
+    # format. Whatever a header carries is then not looked at, valid or not: a client
+    # whose saved token was revoked sends it with every request, the next sign-in too.
+    principal = None if in_body else await credentials.principal()
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
     context = await build_context(

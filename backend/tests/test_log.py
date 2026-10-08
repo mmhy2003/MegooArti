@@ -4,7 +4,7 @@ import logging
 import pytest
 import structlog
 
-from megooarti.log import configure_logging
+from megooarti.log import configure_logging, redact
 
 
 @pytest.fixture
@@ -78,3 +78,19 @@ def test_the_http_client_does_not_log_each_request(isolated_logging):
 
     assert logging.getLogger("httpx").level == logging.WARNING
     assert logging.getLogger("httpcore").level == logging.WARNING
+
+
+def test_a_token_in_an_address_is_not_logged(isolated_logging, capsys):
+    configure_logging("INFO")
+    address = "/repository/npm/-/user/token/mga_a-secret-value"
+
+    # The line uvicorn writes for every request.
+    logging.getLogger("uvicorn.access").info(
+        '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", "DELETE", address, "1.1", 503
+    )
+
+    (line,) = read_lines(capsys)
+    assert "mga_a-secret-value" not in line["event"]
+    assert "/repository/npm/-/user/token/[redacted]" in line["event"]
+    assert redact("/x/-/user/token/mga_abc?write=true") == "/x/-/user/token/[redacted]?write=true"
+    assert redact("/repository/npm/left-pad") == "/repository/npm/left-pad"

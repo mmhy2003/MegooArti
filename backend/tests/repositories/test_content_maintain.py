@@ -167,3 +167,15 @@ async def test_only_a_hosted_repository_takes_uploads(mirror, context_for):
         context.require_write()
     with pytest.raises(RuntimeError):
         await context.maintain(PATH, becomes(b"one"), content_type=XML, limit=1000)
+
+
+async def test_maintain_refuses_a_document_larger_than_it_could_read_back(files, context_for):
+    context = await context_for(files, ADD)
+    await context.maintain(PATH, becomes(b"x" * 1000), content_type=XML, limit=1000)
+
+    error = await error_of(
+        context.maintain(PATH, becomes(b"x" * 1001), content_type=XML, limit=1000)
+    )
+
+    assert (error.status_code, error.code) == (413, "payload_too_large")
+    assert await context.read(PATH, limit=1000) == b"x" * 1000

@@ -71,3 +71,7 @@ async def test_search_is_read_only_and_needs_read(client, packages, root):
 
     assert (written.status_code, error_code(written)) == (405, "method_not_allowed")
     assert anonymous.status_code == 401
+
+
+async def test_absurd_paging_numbers_fall_back_too(client, packages, root):
+    assert len(await names(client, root, size="9" * 5000, **{"from": "9" * 5000})) == 4
