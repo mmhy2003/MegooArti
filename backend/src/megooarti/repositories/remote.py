@@ -6,6 +6,7 @@ means: serve a cached copy, answer 404, or count it towards blocking the remote.
 
 import base64
 import ipaddress
+import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from http.cookiejar import CookieJar
@@ -75,18 +76,25 @@ class InwardRedirect(httpx.RequestError):
 
 
 def _is_internal(host: str) -> bool:
-    """Whether a host is a loopback, link-local or private address, written as one.
+    """Whether a host is an address that is not on the public internet, however written.
 
-    Names are not resolved, so a name that resolves to an internal address is not
-    caught here; network-level egress rules are the complete defence.
+    A resolver reads `2130706433`, `0x7f000001` and `127.1` as 127.0.0.1, so those
+    count as it does. Names are not resolved, so a name that resolves to an internal
+    address is not caught here; network-level egress rules are the complete defence.
     """
-    if host.lower() == "localhost":
+    host = host.lower().removesuffix(".")
+    if host == "localhost" or host.endswith(".localhost"):
         return True
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return False
-    return address.is_loopback or address.is_link_local or address.is_private
+        try:
+            # The other ways to write an IPv4 address, as a resolver reads them.
+            address = ipaddress.ip_address(socket.inet_aton(host))
+        except (OSError, ValueError):
+            return False
+    address = getattr(address, "ipv4_mapped", None) or address
+    return not address.is_global
 
 
 async def _refuse_inward_redirects(response: httpx.Response) -> None:

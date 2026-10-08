@@ -86,6 +86,9 @@ class Stored:
     sha512: str
     content_type: str
     modified: datetime
+    # A proxy's cached file: when the remote last confirmed it. None once the cache
+    # was invalidated, and for anything that is not a proxy's.
+    verified: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -204,6 +207,7 @@ class RepositoryContext:
                     Asset.kind,
                     Asset.content_type,
                     Asset.updated_at,
+                    Asset.last_verified_at,
                     Blob.size,
                     Blob.md5,
                     Blob.sha1,
@@ -217,6 +221,7 @@ class RepositoryContext:
         if row is None:
             return None
         return Stored(
+            verified=row.last_verified_at,
             path=path,
             kind=row.kind,
             size=row.size,

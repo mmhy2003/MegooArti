@@ -276,6 +276,10 @@ def test_an_unescaped_greater_than_in_an_attribute_does_not_end_the_tag():
         '<abbr href="https://f.example/requests-1.0.tar.gz">',
         '<link href="https://f.example/requests-1.0.tar.gz">',
         f'<a href="{FILE}"',  # never closed
+        # Addresses a parser refuses.
+        '<a href="http://[::1/requests-1.0.tar.gz">',
+        '<a href="http://[not-an-address]/requests-1.0.tar.gz">',
+        '<a href="//[/requests-1.0.tar.gz">',
     ],
 )
 def test_what_is_not_a_link_to_a_file_of_the_project_is_left_out(tag):
@@ -410,3 +414,13 @@ def test_a_hash_that_can_be_checked(text, expected):
 )
 def test_a_metadata_file_is_beside_its_file(address, expected):
     assert pages.metadata_address(address) == expected
+
+
+def test_a_link_that_cannot_be_read_does_not_stop_the_others():
+    page = (
+        f'<a href="{FILE}">a</a>'
+        '<a href="http://[::1/requests-2.0.tar.gz">b</a>'
+        '<a href="https://f.example/requests-3.0.tar.gz">c</a>'
+    ).encode()
+
+    assert [link.version for link in read_in_pieces(page, [])] == ["1.0", "3.0"]

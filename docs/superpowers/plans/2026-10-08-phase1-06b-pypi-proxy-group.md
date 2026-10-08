@@ -28,6 +28,7 @@
 | P12 | In a group, the page from hosted repositories is built in memory as on a hosted repository; the page from proxies is written as it streams, its `ETag` made from the hashes of the proxies' cached pages. | Hosted pages are one query. Proxies' pages are megabytes. |
 | P13 | Between Tasks 3 and 4 the format offers `hosted` and `proxy`. Task 4 adds `group`. | On the generic group engine a group would serve the first member's page only. |
 | P14 | The real-client test installs pip's, uv's and Poetry's own packages through the group, and has Poetry publish a package it built. | The tools' dependency trees are several dozen real projects through the proxy. The README of plan 6a says `poetry publish` works; this runs it. |
+| P15 | Changed after review. A link whose address a URL parser refuses is left out, where it raised and took the page with it. A cached file whose cache was invalidated is checked against the page again (P8 made that impossible), and a stale file that is not the one the index describes is fetched whole, without asking whether it changed. An internal address is recognised in every notation a resolver reads as one, and by whether it is globally reachable, not by three address classes. | One bad link broke a project and a group's merged page. A file replaced at the remote could never be replaced here. `http://2130706433/` and `http://localhost./` passed the guard of P1. |
 
 ## Global Constraints
 

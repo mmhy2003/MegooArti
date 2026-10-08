@@ -169,8 +169,11 @@ class Reader:
         if not href:
             return None
         target, _, fragment = href.partition("#")
-        address = urljoin(self._address, target)
-        parts = urlsplit(address)
+        try:
+            address = urljoin(self._address, target)
+            parts = urlsplit(address)
+        except ValueError:
+            return None  # not an address at all: one bad link must not cost the others
         filename = unquote(parts.path.rpartition("/")[2])
         if parts.scheme not in ("http", "https") or not names.is_valid_segment(filename):
             return None

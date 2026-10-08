@@ -51,7 +51,7 @@ One design, delivered as two plans.
 | D5 | An upload is streamed to the blob store as it arrives. It is never held in memory or in a second temporary file, and has no size limit of its own. | Wheels reach gigabytes. Raw and Maven uploads are streamed and unlimited too. |
 | D6 | Links in every index page are relative (`../../packages/...`). A project page is served only at its one address, `simple/<normalised name>/`; other spellings redirect there. | A page is then the same whatever host or proxy prefix the client used, so nothing depends on the base URL and its `ETag` is the same for everyone. |
 | D7 | A proxy does not serve the remote's page. It reads the links out of it as it streams and writes its own page from them. | The remote's links point elsewhere, often at another host, and a page built here carries nothing the remote wrote but file names, hashes and four known attributes. |
-| D8 | A proxy fetches a file from the address the remote's page gives for it, and checks it against the hash on the page. The remote's credentials are sent only to the remote's own origin. A file address on a loopback, link-local or private network is refused unless the remote itself is at that host. | pypi.org keeps its files on another host. The page is written by the remote, so what it points at is not trusted to be the same place, or a safe one. |
+| D8 | A proxy fetches a file from the address the remote's page gives for it, and checks it against the hash on the page. The remote's credentials are sent only to the remote's own origin. A file address that is not on the public internet (loopback, link-local, private and the like, in whatever notation a resolver would read as one) is refused unless the remote itself is at that host. | pypi.org keeps its files on another host. The page is written by the remote, so what it points at is not trusted to be the same place, or a safe one. |
 | D9 | A file is stored at `packages/<project>/<version>/<file name>` in every repository type, and the version is the one read from the file name. | One address for a file name wherever it is, so a group can serve it from any member, and so that the deployment policy and the `add` and `edit` permissions apply to a file name whatever version an upload declares. The layout is the one Nexus users know. |
 | D10 | The root index (`simple/`) lists the projects a repository holds. A proxy lists the projects it has cached a file of, not the remote's. | pypi.org's list is tens of megabytes and installers never ask for it. |
 
@@ -154,7 +154,7 @@ A signature sent with the file (`gpg_signature`) is read past: signatures are no
 | File | The cached file. If it is not cached: find its link in the cached page, fetch it from the address the link gives, check it against the link's hash, cache it (D8). No link, `404` |
 | File metadata | The same, from the file's address with `.metadata` added, if the link has a metadata attribute. Otherwise `404` |
 
-A cached file is never asked about again: a file on an index does not change once published.
+A cached file is not asked about again: a file on an index does not change once published. Invalidating the proxy's cache, or changing its remote, is the exception: each file is then checked against the page once more, fetched whole if the page describes another file, and kept if the remote no longer lists it or cannot be asked.
 
 **Reading the remote's page.** Links are read out of the page as it streams: the opening tag of each `<a>` with an `href`, and its attributes. The page is never held in memory, and nothing else on it is used. A tag is settled before anything after it is looked at, so what is read does not depend on the pieces the page arrives in. Reading is CPU-bound work whose size the remote decides: it runs on two worker threads of its own, as npm's documents do. From each link:
 
@@ -163,7 +163,7 @@ A cached file is never asked about again: a file on an index does not change onc
 - the hash in the fragment, if it is one the blob store computes (`sha256`, `sha512`, `sha1`, `md5`);
 - `data-requires-python`, `data-yanked`, `data-core-metadata` and `data-dist-info-metadata`.
 
-A link whose file name is not valid, or does not fit the project, is left out. A link longer than 16 KiB is not read.
+A link whose address cannot be read, whose file name is not valid, or whose file does not fit the project, is left out. A link longer than 16 KiB is not read.
 
 **The page served** has one link for each link read, in the remote's order, pointing at this repository (section 6), with the remote's hash and those attributes. If a link has either metadata attribute, both are written, so that old and new clients find it.
 

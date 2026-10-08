@@ -482,14 +482,19 @@ poetry config http-basic.megooarti __token__ "$MEGOOARTI_TOKEN"
   The remote's marks for yanked files, required Python versions and metadata files
   (PEP 658) are passed on, and the metadata files themselves are fetched and cached
   like any file. A project's page is checked again with the remote after
-  `metadata_max_age_minutes`; a file, once cached, is never asked about again.
+  `metadata_max_age_minutes`. A file, once cached, is not asked about again until
+  the proxy's cache is invalidated; it is then checked against the page once more.
 - **The remote address** of a proxy is the index's root (`https://pypi.org`), or the
   index itself if the address ends in `/simple` (or devpi's `/+simple`).
 - **A proxy fetches each file from the address the remote's page gives for it**, which
-  for pypi.org is another host. The file must match the hash on the page, or it is
-  not kept (`502`). The remote's credentials are sent only to the remote's own scheme,
-  host and port. A file address on a loopback, link-local or private network is
-  refused unless the remote itself is at that host.
+  for pypi.org is another host. If the page gives a `sha256`, `sha512`, `sha1` or
+  `md5` hash for the file, the file must match it, or it is not kept (`502`); a file
+  the page gives no such hash for is kept unchecked and listed without one. The
+  remote's credentials are sent only to the remote's own scheme, host and port. A
+  file address that is not on the public internet (loopback, link-local, private,
+  however the address is written) is refused unless the remote itself is at that
+  host. Host names are not resolved for this check: network egress rules are the
+  complete defence.
 - **A group protects the names you upload.** If a hosted member holds a project, only
   hosted members answer for it, for its page and its files alike: a project on the
   public index with the same name as one of yours cannot add a file to it or stand in

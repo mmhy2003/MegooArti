@@ -4,6 +4,7 @@ import hashlib
 import pytest
 from sqlalchemy import select
 
+from megooarti.repositories import service
 from megooarti.repositories.models import Asset, Component
 from tests.accounts import error_code
 from tests.repositories.pypi.conftest import (
@@ -421,3 +422,76 @@ async def test_a_file_listed_twice_is_written_once(client, root, upstream, fake_
     response = await client.get(PAGE, headers=root)
 
     assert [text for _, text in links(response)] == [OLD, SDIST]
+
+
+async def invalidate(db, name: str = "upstream") -> None:
+    await service.invalidate_cache(db, await service.get_repository(db, name))
+    await db.commit()
+
+
+async def test_a_cached_file_is_fetched_again_after_the_cache_is_invalidated(
+    client, root, remote, db
+):
+    await client.get(WHEEL_URL, headers=root)
+    rebuilt = b"rebuilt at the remote"
+    described = f'data-core-metadata="sha256={hashlib.sha256(METADATA).hexdigest()}"'
+    remote.files["pypi/simple/requests/"] = remote_page(
+        "requests", remote_link(WHEEL, described, data=rebuilt)
+    )
+    remote.files[f"packages/{WHEEL}"] = rebuilt
+    untouched = await client.get(WHEEL_URL, headers=root)
+
+    await invalidate(db)
+    page = await client.get(PAGE, headers=root)
+    after = await client.get(WHEEL_URL, headers=root)
+    remote.requests.clear()
+    again = await client.get(WHEEL_URL, headers=root)
+
+    assert untouched.content == content_of(WHEEL)  # a cached file is not asked about
+    assert links(page)[0][0]["href"].endswith(f"#sha256={hashlib.sha256(rebuilt).hexdigest()}")
+    assert (after.content, again.content) == (rebuilt, rebuilt)  # what the page describes
+    assert remote.requests == []  # and once checked, it is not asked about again
+
+
+async def test_an_invalidated_file_that_has_not_changed_is_not_downloaded_again(
+    client, root, remote, db
+):
+    await client.get(WHEEL_URL, headers=root)
+    await invalidate(db)
+    remote.requests.clear()
+
+    first = await client.get(WHEEL_URL, headers=root)
+    second = await client.get(WHEEL_URL, headers=root)
+
+    assert (first.content, second.content) == (content_of(WHEEL), content_of(WHEEL))
+    answered = [(seen["host"], "if-none-match" in seen["headers"]) for seen in remote.requests]
+    assert answered == [("remote.test", True), ("files.test", True)]  # both said "unchanged"
+
+
+async def test_an_invalidated_file_is_kept_when_the_remote_cannot_replace_it(
+    client, root, remote, db
+):
+    await client.get(WHEEL_URL, headers=root)
+    await invalidate(db)
+    remote.files["pypi/simple/requests/"] = remote_page("requests", OLD)  # no longer listed
+
+    dropped = await client.get(WHEEL_URL, headers=root)
+    remote.down = True
+    unreachable = await client.get(WHEEL_URL, headers=root)
+
+    assert (dropped.status_code, dropped.content) == (200, content_of(WHEEL))
+    assert (unreachable.status_code, unreachable.content) == (200, content_of(WHEEL))
+
+
+async def test_a_page_with_a_link_that_cannot_be_read_still_lists_and_serves_the_rest(
+    client, root, upstream, fake_remote
+):
+    broken = '<a href="http://[::1/requests-9.9.tar.gz">requests-9.9.tar.gz</a>'
+    fake_remote.files["pypi/simple/requests/"] = remote_page("requests", OLD, broken, SDIST)
+    fake_remote.files[f"packages/{OLD}"] = content_of(OLD)
+
+    page = await client.get(PAGE, headers=root)
+    fetched = await client.get(f"{PROXY}/packages/requests/2.30.0/{OLD}", headers=root)
+
+    assert [text for _, text in links(page)] == [OLD, SDIST]
+    assert fetched.content == content_of(OLD)

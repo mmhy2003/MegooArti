@@ -578,6 +578,18 @@ async def test_the_remotes_credential_stays_with_the_remote(
         "http://192.168.1.1/a.bin",
         "http://169.254.169.254/latest/meta-data",
         "http://[::1]/a.bin",
+        # The same places, written in other ways.
+        "http://2130706433/a.bin",
+        "http://0x7f000001/a.bin",
+        "http://127.1/a.bin",
+        "http://017700000001/a.bin",
+        "http://0/a.bin",
+        "http://2852039166/latest/meta-data",
+        "http://localhost./a.bin",
+        "http://127.0.0.1./a.bin",
+        "http://anything.localhost/a.bin",
+        "http://[::ffff:127.0.0.1]/a.bin",
+        "http://100.64.0.1/a.bin",
         "ftp://files.test/a.bin",
         "file:///etc/passwd",
         "//files.test/a.bin",
@@ -622,3 +634,39 @@ async def test_a_remote_on_an_internal_network_may_name_its_own_host(
     assert await context.read("a.bin", limit=1000) == CONTENT
     assert refused.value.status_code == 502
     assert await asked(fake_remote) == [("10.1.2.3", "/elsewhere/a.bin")]
+
+
+async def test_a_stale_file_that_is_not_the_one_described_is_asked_for_whole(
+    app, context_for, mirror, fake_remote, db
+):
+    # What is held is not what the index now describes. Asking the remote "has it
+    # changed?" could be answered "no" and leave the wrong file in place.
+    fake_remote.files["store/ab/a.bin"] = b"what was there before"
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+    await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE))
+    await make_stale(db)
+
+    with pytest.raises(ApiError):
+        await proxy.ensure_cached(context, "lib/b.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+    await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+    kept = await context.read("lib/a.bin", limit=1000)
+    fake_remote.files["store/ab/a.bin"] = CONTENT
+    await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+
+    conditional = ["if-none-match" in seen["headers"] for seen in fake_remote.requests]
+    assert conditional == [False, False, False, False]
+    assert kept == b"what was there before"  # the remote had nothing better; it is kept
+    assert await context.read("lib/a.bin", limit=1000) == CONTENT
+
+
+async def test_a_stale_file_that_is_the_one_described_is_only_asked_about(
+    app, context_for, mirror, fake_remote, db
+):
+    fake_remote.files["store/ab/a.bin"] = CONTENT
+    context = await context_for(mirror, None, outbound=lambda: app.state.http)
+    await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+    await make_stale(db)
+
+    await proxy.ensure_cached(context, "lib/a.bin", source=proxy.Source(ELSEWHERE, DIGESTS))
+
+    assert fake_remote.requests[1]["headers"]["if-none-match"] == etag_of(CONTENT)

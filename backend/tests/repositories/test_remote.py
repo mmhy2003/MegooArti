@@ -284,3 +284,50 @@ async def test_a_remote_that_is_itself_internal_may_redirect_internally(fake, st
 )
 def test_two_addresses_have_the_same_origin(first, second, same):
     assert remote.same_origin(first, second) is same
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1",
+        "localhost",
+        "LocalHost.",
+        "app.localhost",
+        "10.0.0.5",
+        "192.168.1.1",
+        "172.16.0.1",
+        "169.254.169.254",
+        "::1",
+        "fe80::1",
+        "fd00::1",
+        "::ffff:10.0.0.1",
+        "0.0.0.0",
+        "100.64.0.1",
+        # Numbers a resolver reads as an address.
+        "2130706433",
+        "0x7f000001",
+        "127.1",
+        "017700000001",
+        "0",
+        "2852039166",
+        "127.0.0.1.",
+    ],
+)
+def test_an_internal_address_is_recognised_however_it_is_written(host):
+    assert remote._is_internal(host) is True
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "pypi.org",
+        "files.pythonhosted.org",
+        "151.101.0.223",
+        "2a04:4e42::223",
+        "localhost.example",
+        "8.8.8.8",
+        "1.1.1.1.",
+    ],
+)
+def test_a_public_address_is_not_internal(host):
+    assert remote._is_internal(host) is False

@@ -130,6 +130,14 @@ async def _refresh(
         return
     url, credential = await _target(context, path, source)
     known = {} if asset is None else asset.attributes
+    if asset is not None and source is not None and source.digests:
+        held = await context.stat(path)
+        if held is None or any(
+            getattr(held, name, None) != digest for name, digest in source.digests.items()
+        ):
+            # What is held is not the file the index describes. Asked "has it
+            # changed?", the remote could say no and leave it in place: ask for it whole.
+            known = {}
     await db.commit()  # give the connection back for the length of the download
 
     async def stage(chunks, size: int | None) -> StagedBlob:

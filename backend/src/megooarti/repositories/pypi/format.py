@@ -235,7 +235,7 @@ async def _written(
     once, from the earlier one. The pages are never held in memory.
     """
     made_from = "\n".join(stored.sha256 for _, stored in sources)
-    etag = hashlib.sha256(f"pypi page 1\n{project}\n{made_from}".encode()).hexdigest()
+    etag = hashlib.sha256(f"pypi page 2\n{project}\n{made_from}".encode()).hexdigest()
     read_from = [(member, stored, _page_address(member, project)) for member, stored in sources]
 
     async def body() -> AsyncIterator[bytes]:
@@ -294,20 +294,35 @@ async def _proxied_file(
 ) -> Response:
     """A file, or the metadata file beside it, from the cache or from where the remote keeps it.
 
-    A file on an index never changes once published, so one that is cached is never
-    asked about again.
+    A file on an index does not change once published, so one that is cached is not
+    asked about again, until the cache is invalidated. Then it is checked against
+    the page once more: fetched again if the page describes another file, and kept
+    if the remote no longer lists it or cannot be asked.
     """
-    if await context.stat(path) is None:
-        link = await _link_to(context, parsed)
-        if link is None or (parsed.kind == "metadata" and link.metadata is None):
+    held = await context.stat(path)
+    if held is None or held.verified is None:
+        try:
+            link = await _link_to(context, parsed)
+        except ApiError as error:
+            if held is None or error.status_code not in group.TRY_NEXT:
+                raise
+            link = None  # the remote cannot say: what is held is served
+        if link is not None and parsed.kind == "metadata" and link.metadata is None:
+            link = None
+        if link is None and held is None:
             raise _not_found("No such file.")
-        if parsed.kind == "metadata":
-            address, described = pages.metadata_address(link.url), link.metadata
-        else:
-            address, described = link.url, link.digest
-        checked = pages.digest_of(described)
-        source = proxy.Source(address, {} if checked is None else dict([checked]))
-        await proxy.ensure_cached(context, path, source=source)
+        if link is not None:
+            if parsed.kind == "metadata":
+                address, described = pages.metadata_address(link.url), link.metadata
+            else:
+                address, described = link.url, link.digest
+            checked = pages.digest_of(described)
+            source = proxy.Source(address, {} if checked is None else dict([checked]))
+            try:
+                await proxy.ensure_cached(context, path, source=source)
+            except ApiError as error:
+                if held is None or error.status_code not in group.TRY_NEXT:
+                    raise  # with nothing held there is nothing to fall back on
     return await context.respond(path, request)
 
 
