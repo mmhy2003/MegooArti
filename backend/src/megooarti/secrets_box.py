@@ -1,0 +1,75 @@
+"""Sealing of secrets MegooArti must be able to read back, such as remote passwords.
+
+The key is MEGOOARTI_SECRET_KEY when set. Otherwise one is generated into the data
+directory on first use. Losing the key makes sealed secrets unreadable.
+"""
+
+import base64
+import hashlib
+import os
+import time
+from functools import lru_cache
+from pathlib import Path
+
+from cryptography.fernet import Fernet, InvalidToken
+
+from megooarti.config import Settings
+
+_MARK = "enc:v1:"
+_KEY_FILE = "secret.key"
+
+
+class Sealed(str):
+    """Text produced by `seal`. Code that stores a secret accepts only this type."""
+
+
+class SecretUnreadable(Exception):
+    """The stored value was not sealed with the current key."""
+
+
+def _generated_key(path: Path) -> bytes:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Another container may be writing it at this moment: wait for the content.
+        for _ in range(50):
+            key = path.read_bytes().strip()
+            if key:
+                return key
+            time.sleep(0.1)
+        raise
+    key = Fernet.generate_key()
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(key)
+    return key
+
+
+@lru_cache(maxsize=8)
+def _fernet(secret_key: str | None, data_dir: str) -> Fernet:
+    if secret_key:
+        # Any text is accepted as the key; hashing gives it the length Fernet needs.
+        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret_key.encode()).digest()))
+    return Fernet(_generated_key(Path(data_dir) / _KEY_FILE))
+
+
+def _box(settings: Settings) -> Fernet:
+    return _fernet(settings.secret_key, str(settings.data_dir))
+
+
+def seal(settings: Settings, plaintext: str) -> Sealed:
+    return Sealed(_MARK + _box(settings).encrypt(plaintext.encode()).decode())
+
+
+def unseal(settings: Settings, stored: str) -> str:
+    if not stored.startswith(_MARK):
+        raise SecretUnreadable
+    try:
+        return _box(settings).decrypt(stored.removeprefix(_MARK).encode()).decode()
+    except InvalidToken:
+        raise SecretUnreadable from None
+
+
+def forget_keys() -> None:
+    """Drop cached keys, so the next use reads them again. For tests."""
+    _fernet.cache_clear()

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     login_failure_window_seconds: int = 900
     compaction_interval_seconds: int = 3600
     blob_grace_seconds: int = 86400
+    secret_key: str | None = None
 
     @field_validator("database_url")
     @classmethod

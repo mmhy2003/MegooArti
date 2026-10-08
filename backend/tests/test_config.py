@@ -111,3 +111,11 @@ def test_storage_defaults():
     settings = Settings(_env_file=None, database_url=VALID_URL)
     assert settings.compaction_interval_seconds == 3600
     assert settings.blob_grace_seconds == 86400
+
+
+def test_secret_key_is_unset_by_default_and_read_from_the_environment(monkeypatch):
+    assert Settings(_env_file=None, database_url=VALID_URL).secret_key is None
+
+    monkeypatch.setenv("MEGOOARTI_SECRET_KEY", "a long random value")
+
+    assert Settings(_env_file=None, database_url=VALID_URL).secret_key == "a long random value"
