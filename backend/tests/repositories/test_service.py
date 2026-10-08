@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, text
 
 from megooarti.errors import ApiError
 from megooarti.repositories import formats, service
@@ -190,6 +190,11 @@ async def test_a_repository_with_very_many_assets_can_be_deleted(db):
             for number, blob_id in enumerate(blob_ids)
         ],
     )
+    # Give the planner real numbers, as a database in use has. Without this the test
+    # takes minutes whenever autovacuum happens to analyse these tables earlier in the
+    # run, while they hold only rolled-back rows, and records them as empty.
+    await db.execute(text("ANALYZE blobs"))
+    await db.execute(text("ANALYZE assets"))
 
     await service.delete_repository(db, repository, NOW)
 
