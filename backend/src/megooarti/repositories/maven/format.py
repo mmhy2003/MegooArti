@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
+from megooarti.repositories import proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
 from megooarti.repositories.formats import ComponentKey, Format, register
 from megooarti.repositories.maven import checksums, metadata, paths
@@ -23,7 +24,7 @@ from megooarti.repositories.paths import normalise_path
 log = structlog.get_logger(__name__)
 
 _SETTINGS = ("version_policy", "layout_policy")
-# The most that is read into memory: of an upload, and of the record the server keeps.
+# The most that is read into memory: of an upload, and of a stored or cached document.
 METADATA_LIMIT = 1024 * 1024
 STORED_LIMIT = 4 * 1024 * 1024
 _XML = "application/xml"
@@ -41,25 +42,39 @@ def _choice(config: dict[str, Any], field: str, choices: tuple[str, ...], defaul
     return value
 
 
-def _check_policies(settings: dict[str, Any], parsed: paths.MavenPath) -> None:
-    """Refuse an upload to a path this repository does not take.
+def _excluded(settings: dict[str, Any], parsed: paths.MavenPath) -> ApiError | None:
+    """Why this repository does not take such a path: the error an upload gets, or None.
 
-    Checked for uploads only. What is already stored stays readable and deletable,
-    so a repository can be made strict without stranding files.
+    It governs what is added, not what is served. What is already stored or cached
+    stays readable, so a repository can be made strict without stranding files.
     """
     if parsed.kind == "other" and settings["layout_policy"] == "strict":
-        raise ApiError(
+        return ApiError(
             400, "invalid_path", "The path is not valid: it is not in the Maven repository layout."
         )
     if not paths.allowed_by(settings["version_policy"], parsed):
         accepted = settings["version_policy"]
-        raise ApiError(
+        return ApiError(
             400, "version_policy_violation", f"This repository takes {accepted} versions only."
         )
+    return None
 
 
 def _not_found() -> ApiError:
     return ApiError(404, "not_found", "No such file.")
+
+
+def _checksum_response(
+    context: RepositoryContext, request: Request, path: str, digest: str, modified: datetime
+) -> Response:
+    """A checksum file's content: the digest in lower-case hex, and nothing else."""
+    return context.respond_with(
+        digest.encode(),
+        request,
+        filename=path.rpartition("/")[2],
+        content_type="text/plain",
+        last_modified=modified,
+    )
 
 
 async def _digest(
@@ -205,19 +220,12 @@ async def _checksum(
     parsed: paths.MavenPath,
     algorithm: str,
 ) -> Response:
-    """Answer for a checksum path. Checksums are computed, never stored."""
+    """Answer for a checksum path on a hosted repository. Checksums are never stored."""
     if request.method in ("GET", "HEAD"):
         found = await _digest(context, target, parsed, algorithm)
         if found is None:
             raise _not_found()
-        digest, modified = found
-        return context.respond_with(
-            digest.encode(),
-            request,
-            filename=path.rpartition("/")[2],
-            content_type="text/plain",
-            last_modified=modified,
-        )
+        return _checksum_response(context, request, path, *found)
     if request.method != "PUT":
         raise ApiError(
             405,
@@ -246,7 +254,7 @@ async def _checksum(
             by=context.principal.user.username,
         )
         # The file stays. Removing it would let anyone who may add delete files by
-        # sending a wrong checksum; the client sees its deploy fail instead.
+        # sending a wrong checksum.
         raise ApiError(
             400, "checksum_mismatch", f"The {algorithm} checksum does not match the stored file."
         )
@@ -255,12 +263,15 @@ async def _checksum(
 
 class MavenFormat(Format):
     name = "maven"
-    # Proxy and group repositories need Maven's own handling of checksums and metadata.
-    types = frozenset({"hosted"})
 
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        if repository_type == "group":
+            # A group holds nothing of its own, so it has no policy of its own.
+            if config:
+                raise _invalid(sorted(config)[0], "A Maven group has no settings.")
+            return {}
         unknown = sorted(set(config) - set(_SETTINGS))
         if unknown:
             raise _invalid(unknown[0], "Maven repositories have no such setting.")
@@ -287,6 +298,16 @@ class MavenFormat(Format):
         # Maven clients rarely declare a type, and never a useful one.
         return paths.content_type(path) or declared
 
+    def is_metadata(self, path: str) -> bool:
+        """What changes at a remote: metadata, the catalog, and old-style snapshot files.
+
+        Release files and timestamped snapshot files never change once published.
+        """
+        parsed = paths.classify(path)
+        if parsed.is_metadata or parsed.kind == "catalog":
+            return True
+        return parsed.kind == "artifact" and parsed.is_snapshot and parsed.build is None
+
     async def handle_hosted(
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
@@ -295,12 +316,40 @@ class MavenFormat(Format):
         target, algorithm = paths.split_checksum(path)
         parsed = paths.classify(target)
         if request.method == "PUT":
-            _check_policies(context.repository.config["format_config"], parsed)
+            refusal = _excluded(context.repository.config["format_config"], parsed)
+            if refusal is not None:
+                raise refusal
         if algorithm is not None:
             return await _checksum(context, request, path, target, parsed, algorithm)
         if parsed.is_metadata:
             return await _metadata(context, request, path, parsed)
         return await super().handle_hosted(context, request, path)
+
+    async def handle_proxy(
+        self, context: RepositoryContext, request: Request, path: str
+    ) -> Response:
+        if request.method not in ("GET", "HEAD"):
+            return await super().handle_proxy(context, request, path)  # refuses it
+        path = normalise_path(path)
+        target, algorithm = paths.split_checksum(path)
+        parsed = paths.classify(target)
+        settings = context.repository.config["format_config"]
+        if _excluded(settings, parsed) is not None and await context.stat(target) is None:
+            # Not asked of the remote: this repository would not keep the answer.
+            raise _not_found()
+        if algorithm is None:
+            # Files, and metadata exactly as the remote wrote it: a proxy does not hold
+            # every version, so it cannot write the list itself.
+            return await super().handle_proxy(context, request, path)
+        # The remote's own checksum file is never requested. The file is, if it is not
+        # cached yet, and the checksum is of the bytes that will be served.
+        await proxy.ensure_cached(context, target)
+        stored = await context.stat(target)
+        if stored is None:
+            raise _not_found()
+        return _checksum_response(
+            context, request, path, getattr(stored, algorithm), stored.modified
+        )
 
 
 register(MavenFormat())
