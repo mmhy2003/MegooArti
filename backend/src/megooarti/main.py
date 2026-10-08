@@ -19,6 +19,7 @@ from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers 
 from megooarti.repositories.api import router as repositories_router
 from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
+from megooarti.repositories.pypi import format as _pypi_format  # noqa: F401  (registers it)
 from megooarti.repositories.routes import router as content_router
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
