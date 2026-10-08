@@ -1,5 +1,6 @@
 import pytest
 
+from megooarti.system.settings_store import set_setting
 from tests.accounts import PASSWORD, basic, error_code
 
 ROLES = "/api/v1/roles"
@@ -42,3 +43,27 @@ async def test_uploads_from_another_site_are_refused(client, root, files):
     )
 
     assert (response.status_code, error_code(response)) == (403, "cross_site_request")
+
+
+async def test_without_fetch_metadata_a_foreign_origin_is_refused(client, root):
+    # Browsers omit Sec-Fetch-Site on plain HTTP, but still send Origin.
+    foreign = {**root, "Origin": "http://evil.example", "Host": "arti.example"}
+
+    response = await client.post(ROLES, json=ROLE, headers=foreign)
+
+    assert (response.status_code, error_code(response)) == (403, "cross_site_request")
+
+
+@pytest.mark.parametrize("origin", ["http://arti.example", "http://ARTI.example"])
+async def test_without_fetch_metadata_the_sites_own_origin_is_accepted(client, root, origin):
+    own = {**root, "Origin": origin, "Host": "arti.example"}
+
+    assert (await client.post(ROLES, json=ROLE, headers=own)).status_code == 201
+
+
+async def test_the_configured_base_url_counts_as_the_sites_own_origin(client, root, db):
+    await set_setting(db, "base_url", "https://repo.example.org")
+    await db.commit()
+    proxied = {**root, "Origin": "https://repo.example.org", "Host": "backend:8000"}
+
+    assert (await client.post(ROLES, json=ROLE, headers=proxied)).status_code == 201

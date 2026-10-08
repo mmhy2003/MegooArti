@@ -41,7 +41,7 @@ All configuration is by environment variable.
 | `MEGOOARTI_LOGIN_FAILURE_WINDOW_SECONDS` | `900` | Length of that window |
 | `MEGOOARTI_COMPACTION_INTERVAL_SECONDS` | `3600` | How often unused blob content is removed; `0` disables it |
 | `MEGOOARTI_BLOB_GRACE_SECONDS` | `86400` | How long content is kept after nothing uses it |
-| `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords. If unset, a key is generated into `secret.key` in the data directory on first use |
+| `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords; use a long random value. If unset or empty, a key is generated into `secret.key` in the data directory on first use |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
@@ -87,6 +87,9 @@ anything must send it in an `X-CSRF-Token` header.
 - **Anonymous access** is off by default. When turned on under `/api/v1/settings`,
   requests without credentials act as the built-in `anonymous` user; change what they
   may do by editing that user's roles.
+- A request from a web page on another site that would change something is refused
+  with `403 cross_site_request`. If the server sits behind a reverse proxy on plain
+  HTTP, set the base URL under `/api/v1/settings` so its own pages are recognised.
 - Five failed sign-ins for one username, or from one address, within 15 minutes block
   further attempts until the window ends. A valid API token is never refused by this
   limit. Behind a reverse proxy, set `MEGOOARTI_FORWARDED_ALLOW_IPS` to the proxy's
@@ -155,15 +158,23 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   (default 1440; `-1` never). If the remote is down, the cached copy is served.
 - A path the remote does not have is remembered for `negative_cache.ttl_minutes`
   (default 1440), so the remote is not asked again for it.
-- After a connection failure, a `5xx` or a `429`, the remote is left alone for a minute,
-  doubling with each consecutive failure up to an hour. Set `"blocked": true` to stop
-  contacting it altogether, or `"auto_block": false` to turn automatic blocking off.
-  `GET /api/v1/repositories/<name>` shows the current state under `status`.
+- A cached file is kept even if the remote later stops having it.
+- After a connection failure, or a `502`, `503`, `504` or `429` from the remote, it is
+  left alone for a minute, doubling with each further failure up to an hour. Set
+  `"blocked": true` to stop contacting it altogether, or `"auto_block": false` to turn
+  automatic blocking off. Saving the repository's settings lifts a block.
+  `GET /api/v1/repositories/<name>` shows the current state and the last error under
+  `status`.
 - `POST /api/v1/repositories/<name>/invalidate-cache` makes the proxy check everything
-  with the remote again.
+  with the remote again. Changing `remote_url` or the credential does the same.
+- `remote_url` must not contain a user name or password; put them in `remote_auth`.
 - The remote secret is sealed before it is stored and is never returned; the API shows
-  only `has_secret`. Leave `secret` out when updating to keep the stored one. It is sent
-  only to the configured remote, and not to another host the remote redirects to.
+  only `has_secret`. Leave `secret` out when updating to keep the stored one, unless
+  the remote's scheme, host or port changes: then it must be given again. It is sent
+  only to the configured remote, never to another host the remote redirects to.
+- A remote on a public address is not followed when it redirects to a loopback,
+  link-local or private address. Host names are not resolved for this check, so if you
+  proxy remotes you do not trust, also restrict the server's outbound network access.
 - A proxy repository cannot be written to.
 
 **Back up the key.** Secrets are sealed with `MEGOOARTI_SECRET_KEY`, or with the

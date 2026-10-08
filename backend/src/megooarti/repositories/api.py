@@ -129,6 +129,17 @@ def _proxy(settings: Settings, proxy: ProxyIn | None) -> dict[str, Any] | None:
     values = proxy.model_dump()
     secret = values["remote_auth"]["secret"]
     if secret is not None:
+        if values["remote_auth"]["type"] == "bearer" and not (
+            secret.isascii() and secret.isprintable()
+        ):
+            # It becomes an HTTP header as it is, and a header cannot carry anything else.
+            details = [
+                {
+                    "field": "proxy.remote_auth.secret",
+                    "message": "A bearer token must be printable ASCII.",
+                }
+            ]
+            raise ApiError(422, "validation_error", "The request is not valid.", details)
         values["remote_auth"]["secret"] = seal(settings, secret)
     return values
 

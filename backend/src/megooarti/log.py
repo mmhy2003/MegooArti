@@ -34,3 +34,7 @@ def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
+    # The HTTP client logs the full URL of every outbound request at INFO. Proxy
+    # repositories make many, and a URL is not something to copy into the log.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)

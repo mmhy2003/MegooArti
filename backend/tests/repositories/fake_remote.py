@@ -39,6 +39,8 @@ class FakeRemote:
         self.redirect_to: str | None = None
         self.down = False
         self.delay = 0.0
+        self.set_cookie: str | None = None
+        self.content_encoding: str | None = None
         self.app = Starlette(routes=[Route("/{path:path}", self._serve, methods=["GET"])])
 
     def client(self) -> httpx.AsyncClient:
@@ -74,4 +76,8 @@ class FakeRemote:
             "Content-Type": "application/x-remote",
             "Content-Length": str(len(content) + self.declared_extra),
         }
+        if self.set_cookie:
+            headers["Set-Cookie"] = self.set_cookie
+        if self.content_encoding:
+            headers["Content-Encoding"] = self.content_encoding
         return Response(b"" if request.method == "HEAD" else content, headers=headers)

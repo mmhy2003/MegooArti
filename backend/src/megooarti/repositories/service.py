@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,8 +64,17 @@ def _whole_number(value: Any, field: str, minimum: int) -> int:
     return value
 
 
-def _remote_auth(sent: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any]:
-    """The credential to store. A secret that is not sent is kept if the kind is unchanged."""
+def _remote_auth(
+    sent: dict[str, Any] | None, current: dict[str, Any] | None, *, same_remote: bool
+) -> dict[str, Any]:
+    """The credential to store.
+
+    A secret that is not sent is kept only if the kind of credential and the remote it
+    is sent to are both unchanged. Otherwise someone allowed to edit the repository
+    could point it at their own server and be sent a secret they were never shown.
+    """
+    if not same_remote:
+        current = None
     sent = sent or {}
     kind = sent.get("type", "none")
     if kind not in REMOTE_AUTH_TYPES:
@@ -86,14 +96,36 @@ def _remote_auth(sent: dict[str, Any] | None, current: dict[str, Any] | None) ->
     return {"type": kind, "username": username if kind == "basic" else "", "secret": str(secret)}
 
 
+def _remote_origin(url: str) -> tuple[str, str, int] | None:
+    """Scheme, host and port of an acceptable remote URL, or None if it is not one."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port  # raises for a port that is not a number
+        httpx.URL(url)  # the client must be able to request it
+    except (ValueError, httpx.InvalidURL):
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    if parts.username is not None or parts.password is not None:
+        return None
+    if parts.query or parts.fragment:
+        return None
+    return parts.scheme, parts.hostname.lower(), port or (443 if parts.scheme == "https" else 80)
+
+
 def _proxy_settings(proxy: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any]:
     proxy = proxy or {}
     url = str(proxy.get("remote_url") or "").strip()
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.netloc or parts.query or parts.fragment:
+    origin = _remote_origin(url)
+    if origin is None:
+        # The message never repeats the URL: it may be the one with a password in it.
         raise _invalid(
-            "proxy.remote_url", "Must be an http or https URL without a query or fragment."
+            "proxy.remote_url",
+            "Must be an http or https URL with a host and without credentials, a query or "
+            "a fragment. Credentials belong in remote_auth.",
         )
+    previous = (current or {}).get("remote_url")
+    same_remote = previous is not None and _remote_origin(previous) == origin
     negative = proxy.get("negative_cache") or {}
     return {
         "remote_url": url.rstrip("/"),
@@ -109,7 +141,11 @@ def _proxy_settings(proxy: dict[str, Any] | None, current: dict[str, Any] | None
                 negative.get("ttl_minutes", 1440), "proxy.negative_cache.ttl_minutes", 1
             ),
         },
-        "remote_auth": _remote_auth(proxy.get("remote_auth"), (current or {}).get("remote_auth")),
+        "remote_auth": _remote_auth(
+            proxy.get("remote_auth"),
+            (current or {}).get("remote_auth"),
+            same_remote=same_remote,
+        ),
         "blocked": bool(proxy.get("blocked", False)),
         "auto_block": bool(proxy.get("auto_block", True)),
     }
@@ -306,6 +342,10 @@ async def update_repository(
 ) -> None:
     """Replace what can change. Name, format, type and blob store never do."""
     handler = get_format(repository.format)
+    if repository.type == "group" and group is None:
+        # Leaving the members out must not quietly empty the group.
+        raise _invalid("group", "A group's members must be given.")
+    before = repository.config.get("proxy")
     repository.config = {
         **_type_settings(repository.type, hosted, proxy, repository.config),
         "format_config": handler.validate_config(repository.type, format_config or {}),
@@ -313,7 +353,17 @@ async def update_repository(
     repository.online = online
     await db.flush()
     if repository.type == "group":
-        await _set_members(db, repository, list((group or {}).get("members", [])))
+        await _set_members(db, repository, list(group.get("members", [])))
+    if repository.type == "proxy":
+        # Saving a proxy is how an administrator says "try again": lift any block.
+        await db.execute(delete(ProxyState).where(ProxyState.repository_id == repository.id))
+        after = repository.config["proxy"]
+        if (before["remote_url"], before["remote_auth"]) != (
+            after["remote_url"],
+            after["remote_auth"],
+        ):
+            # A different remote, or different access to it: nothing learned still holds.
+            await invalidate_cache(db, repository)
 
 
 async def delete_repository(db: AsyncSession, repository: Repository, now: datetime) -> None:

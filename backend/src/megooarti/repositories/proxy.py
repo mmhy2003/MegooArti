@@ -55,15 +55,19 @@ def _fresh(context: RepositoryContext, asset: Asset | None, path: str) -> bool:
     return is_fresh(settings, context.format, asset, path, utcnow())
 
 
-def _target(context: RepositoryContext, path: str) -> tuple[str, str | None]:
+async def _target(context: RepositoryContext, path: str) -> tuple[str, str | None]:
     """The remote URL for a path and the Authorization header to send with it."""
     settings = context.repository.config["proxy"]
     try:
         credential = remote.authorization(context.settings, settings["remote_auth"])
     except SecretUnreadable:
-        raise _unavailable(
-            "its stored credential cannot be read with the current key; enter it again"
-        ) from None
+        # Recorded and logged, not only raised: behind a group this 502 becomes a 404,
+        # and the repository's status is then the only place the cause can be seen.
+        unreadable = remote.Failed(
+            "its stored credential cannot be read with the current key; enter it again",
+            blockable=False,
+        )
+        raise _unavailable(await _fail(context, path, unreadable)) from None
     return context.format.remote_url(settings["remote_url"], path), credential
 
 
@@ -97,7 +101,7 @@ async def _refresh(
         if asset is None:
             raise _unavailable("it is blocked")
         return
-    url, credential = _target(context, path)
+    url, credential = await _target(context, path)
     known = {} if asset is None else asset.attributes
     await db.commit()  # give the connection back for the length of the download
 
@@ -152,7 +156,7 @@ async def _head_remote(context: RepositoryContext, request: Request, path: str) 
         raise _not_found()
     if await proxy_state.blocked(db, repository, now):
         raise _unavailable("it is blocked")
-    url, credential = _target(context, path)
+    url, credential = await _target(context, path)
     await db.commit()
 
     outcome = await remote.head(remote.client_of(request.app), url, authorization=credential)

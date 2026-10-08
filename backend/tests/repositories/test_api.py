@@ -181,6 +181,10 @@ async def test_updating_a_proxy_without_a_secret_keeps_it(admin_client):
         {"remote_url": "https://remote.example", "negative_cache": {"ttl_minutes": 0}},
         {"remote_url": "https://remote.example", "remote_auth": {"type": "kerberos"}},
         {"remote_url": "https://remote.example", "remote_auth": {"type": "bearer"}},
+        {
+            "remote_url": "https://remote.example",
+            "remote_auth": {"type": "bearer", "secret": "tökën"},
+        },
     ],
 )
 async def test_invalid_proxies_are_rejected(admin_client, proxy):

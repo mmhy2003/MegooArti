@@ -92,7 +92,16 @@ async def test_a_file_the_remote_lacks_is_missing(fake, stage):
 
 @pytest.mark.parametrize(
     ("status", "blockable"),
-    [(500, True), (503, True), (429, True), (401, False), (403, False), (400, False)],
+    [
+        (502, True),
+        (503, True),
+        (504, True),
+        (429, True),
+        (500, False),
+        (401, False),
+        (403, False),
+        (400, False),
+    ],
 )
 async def test_other_answers_are_failures_and_only_some_count_towards_blocking(
     fake, stage, tmp_path, status, blockable
@@ -192,3 +201,69 @@ async def test_the_outbound_client_is_built_once_when_first_needed():
 
 def test_an_application_that_never_proxies_builds_no_outbound_client(app):
     assert app.state.http is None
+
+
+async def test_cookies_from_the_remote_are_never_kept(fake, stage):
+    fake.set_cookie = "JSESSIONID=signed-in-as-robot; Path=/"
+
+    async with fake.client() as client:
+        await remote.download(client, URL, authorization="Bearer t", stage=stage)
+        await remote.download(client, URL, authorization=None, stage=stage)
+
+    assert "cookie" not in fake.requests[1]["headers"]
+
+
+async def test_a_body_the_remote_compressed_anyway_is_not_stored(fake, stage, tmp_path):
+    fake.content_encoding = "gzip"
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Failed)
+    assert outcome.blockable is False
+    assert temporary_files(tmp_path) == []
+
+
+@pytest.mark.parametrize("url", ["http://remote.test:abc/files/a/b.bin", "http://[::1/x"])
+async def test_a_url_that_cannot_be_requested_is_a_failure_not_a_crash(fake, stage, url):
+    async with fake.client() as client:
+        downloaded = await remote.download(client, url, authorization=None, stage=stage)
+        asked = await remote.head(client, url, authorization=None)
+
+    assert isinstance(downloaded, remote.Failed)
+    assert isinstance(asked, remote.Failed)
+    assert (downloaded.blockable, asked.blockable) == (False, False)
+
+
+async def test_a_credential_that_cannot_be_a_header_is_a_failure_not_a_crash(fake, stage):
+    outcome = await fetch(fake, stage, authorization="Bearer tökën")
+
+    assert isinstance(outcome, remote.Failed)
+    assert outcome.blockable is False
+
+
+@pytest.mark.parametrize(
+    "target", ["http://169.254.169.254", "http://127.0.0.1:9000", "http://10.1.2.3"]
+)
+async def test_a_redirect_from_a_public_remote_to_an_internal_address_is_refused(
+    fake, stage, target
+):
+    fake.redirect_to = target
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Failed)
+    assert outcome.blockable is False
+    assert "internal" in outcome.reason
+    assert len(fake.requests) == 1  # the internal address was never contacted
+
+
+async def test_a_remote_that_is_itself_internal_may_redirect_internally(fake, stage):
+    fake.files["files/a/b.bin"] = CONTENT
+    fake.redirect_to = "http://10.1.2.3"
+
+    async with fake.client() as client:
+        outcome = await remote.download(
+            client, "http://127.0.0.1/files/a/b.bin", authorization=None, stage=stage
+        )
+
+    assert isinstance(outcome, remote.Fetched)

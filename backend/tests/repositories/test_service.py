@@ -6,7 +6,13 @@ from sqlalchemy import func, insert, select
 
 from megooarti.errors import ApiError
 from megooarti.repositories import service
-from megooarti.repositories.models import Asset, Repository, RepositoryMember
+from megooarti.repositories.models import (
+    Asset,
+    NegativeCacheEntry,
+    ProxyState,
+    Repository,
+    RepositoryMember,
+)
 from megooarti.secrets_box import Sealed
 from megooarti.storage.models import Blob, BlobStore
 
@@ -398,3 +404,125 @@ async def test_invalidating_a_proxy_cache_is_refused_for_other_types(db):
     error = await error_of(service.invalidate_cache(db, hosted))
 
     assert (error.status_code, error.code) == (409, "not_a_proxy")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://robot:hunter2@remote.example/files",
+        "https://robot@remote.example/files",
+        "http://remote.example:abc/files",
+        "http://[::1/files",
+        "http://:80/files",
+    ],
+)
+async def test_a_remote_url_must_be_well_formed_and_carry_no_credentials(db, url):
+    error = await error_of(proxy(db, remote_url=url))
+
+    assert (error.status_code, error.code) == (422, "validation_error")
+    assert error.details[0]["field"] == "proxy.remote_url"
+    assert "hunter2" not in str(error.details)
+
+
+async def test_the_stored_secret_does_not_follow_a_change_of_remote_host(db):
+    repository = await proxy(db, remote_auth={"type": "bearer", "secret": SECRET})
+    elsewhere = {"remote_url": "https://attacker.example/files", "remote_auth": {"type": "bearer"}}
+
+    error = await error_of(service.update_repository(db, repository, online=True, proxy=elsewhere))
+
+    assert error.details[0]["field"] == "proxy.remote_auth.secret"
+
+
+@pytest.mark.parametrize(
+    "url", ["http://remote.example/files", "https://remote.example:8443/files"]
+)
+async def test_a_change_of_scheme_or_port_also_needs_the_secret_again(db, url):
+    repository = await proxy(db, remote_auth={"type": "bearer", "secret": SECRET})
+
+    error = await error_of(
+        service.update_repository(
+            db,
+            repository,
+            online=True,
+            proxy={"remote_url": url, "remote_auth": {"type": "bearer"}},
+        )
+    )
+
+    assert error.details[0]["field"] == "proxy.remote_auth.secret"
+
+
+async def test_the_stored_secret_is_kept_when_only_the_path_changes(db):
+    repository = await proxy(db, remote_auth={"type": "bearer", "secret": SECRET})
+    moved = {"remote_url": "https://remote.example/other", "remote_auth": {"type": "bearer"}}
+
+    await service.update_repository(db, repository, online=True, proxy=moved)
+
+    assert repository.config["proxy"]["remote_auth"]["secret"] == SECRET
+
+
+async def learn_about_the_remote(db, repository) -> Asset:
+    """Give a proxy a block, a remembered miss and a cached, verified file."""
+    store = await db.scalar(select(BlobStore))
+    blob = Blob(
+        blob_store_id=store.id,
+        sha256="f" * 64,
+        md5="b" * 32,
+        sha1="c" * 40,
+        sha512="d" * 128,
+        size=1,
+    )
+    db.add(blob)
+    await db.flush()
+    asset = Asset(
+        repository_id=repository.id,
+        path="cached.bin",
+        blob_id=blob.id,
+        content_type="application/octet-stream",
+        created_by="proxy",
+        last_verified_at=NOW,
+    )
+    db.add_all(
+        [
+            asset,
+            ProxyState(repository_id=repository.id, failures=3, blocked_until=NOW, last_error="x"),
+            NegativeCacheEntry(repository_id=repository.id, path="missing.bin", expires_at=NOW),
+        ]
+    )
+    await db.flush()
+    return asset
+
+
+async def test_updating_a_proxy_lifts_an_automatic_block(db):
+    repository = await proxy(db)
+    asset = await learn_about_the_remote(db, repository)
+
+    await service.update_repository(db, repository, online=True, proxy=REMOTE)
+    await db.refresh(asset)
+
+    assert await db.scalar(select(func.count()).select_from(ProxyState)) == 0
+    assert asset.last_verified_at == NOW  # the same remote: its cache is still good
+    assert await db.scalar(select(func.count()).select_from(NegativeCacheEntry)) == 1
+
+
+async def test_pointing_a_proxy_somewhere_else_forgets_what_the_old_remote_said(db):
+    repository = await proxy(db)
+    asset = await learn_about_the_remote(db, repository)
+
+    await service.update_repository(
+        db, repository, online=True, proxy={"remote_url": "https://remote.example/other"}
+    )
+    await db.refresh(asset)
+
+    assert asset.last_verified_at is None
+    assert await db.scalar(select(func.count()).select_from(NegativeCacheEntry)) == 0
+    assert await db.scalar(select(func.count()).select_from(ProxyState)) == 0
+
+
+async def test_updating_a_group_needs_its_members_stated(db):
+    await create(db, "releases")
+    repository = await group(db, members=["releases"])
+
+    error = await error_of(service.update_repository(db, repository, online=False))
+
+    assert (error.status_code, error.details[0]["field"]) == (422, "group")
+    assert await service.member_names(db, repository) == ["releases"]

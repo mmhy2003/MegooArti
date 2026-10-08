@@ -7,7 +7,8 @@ directory on first use. Losing the key makes sealed secrets unreadable.
 import base64
 import hashlib
 import os
-import time
+import uuid
+from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 
@@ -28,20 +29,31 @@ class SecretUnreadable(Exception):
 
 
 def _generated_key(path: Path) -> bytes:
+    """The key in the data directory, created on first use.
+
+    It is written to a temporary file and then linked into place, which either creates
+    the complete file or fails because another container got there first. The key file
+    is therefore never seen half-written.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(Fernet.generate_key())
+            with suppress(FileExistsError):
+                os.link(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    key = path.read_bytes().strip()
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        # Another container may be writing it at this moment: wait for the content.
-        for _ in range(50):
-            key = path.read_bytes().strip()
-            if key:
-                return key
-            time.sleep(0.1)
-        raise
-    key = Fernet.generate_key()
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(key)
+        Fernet(key)
+    except ValueError:
+        raise SecretUnreadable(
+            f"{path} is empty or damaged. Restore it from a backup, or delete it and "
+            "enter the stored secrets again."
+        ) from None
     return key
 
 

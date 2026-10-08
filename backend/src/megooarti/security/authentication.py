@@ -6,6 +6,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlsplit
 
 import structlog
 from fastapi import Depends, Request
@@ -251,22 +252,44 @@ async def resolve_principal(request: Request, db: AsyncSession) -> Principal | N
     return None
 
 
+async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
+    """Refuse a request from a browser on another site that would change something.
+
+    Browsers remember HTTP Basic credentials after the challenge on /repository and
+    attach them to a form posted from any site. Browsers also say where a request came
+    from: `Sec-Fetch-Site` on HTTPS and localhost, and `Origin` everywhere. Package
+    clients send neither, so they are unaffected.
+    """
+    if request.method not in _UNSAFE_METHODS:
+        return
+    refusal = ApiError(
+        403,
+        "cross_site_request",
+        "Requests that change something are not accepted from other sites.",
+    )
+    site = request.headers.get("Sec-Fetch-Site")
+    if site is not None:
+        if site == "cross-site":
+            raise refusal
+        return
+    origin = request.headers.get("Origin")
+    if origin is None:
+        return
+    # Without fetch metadata (plain HTTP), compare the origin with where we are served:
+    # the Host header, and the public base URL when a reverse proxy rewrites Host.
+    ours = {request.headers.get("Host", "").lower()}
+    base_url = await get_setting(db, "base_url")
+    if base_url:
+        ours.add(urlsplit(base_url).netloc.lower())
+    if urlsplit(origin).netloc.lower() not in ours:
+        raise refusal
+
+
 def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal | None]]:
     async def dependency(
         request: Request, db: AsyncSession = Depends(get_session)
     ) -> Principal | None:
-        # Browsers remember HTTP Basic credentials after the challenge on /repository
-        # and would attach them to a form posted from any site. Browsers also say where
-        # a request came from; package clients never send this header.
-        if (
-            request.method in _UNSAFE_METHODS
-            and request.headers.get("Sec-Fetch-Site") == "cross-site"
-        ):
-            raise ApiError(
-                403,
-                "cross_site_request",
-                "Requests that change something are not accepted from other sites.",
-            )
+        await _refuse_cross_site(request, db)
         try:
             principal = await resolve_principal(request, db)
         except ApiError as error:

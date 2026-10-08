@@ -5,8 +5,10 @@ means: serve a cached copy, answer 404, or count it towards blocking the remote.
 """
 
 import base64
+import ipaddress
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from http.cookiejar import CookieJar
 from typing import Any
 
 import httpx
@@ -53,6 +55,51 @@ class Exists:
     headers: dict[str, str]
 
 
+class _NoCookies(CookieJar):
+    """A cookie jar that keeps nothing.
+
+    One client serves every proxy repository. A session cookie a remote sets on an
+    authenticated request must not be replayed on a request that has no credential,
+    or after the credential was removed.
+    """
+
+    def extract_cookies(self, response: Any, request: Any) -> None:
+        return None
+
+    def set_cookie(self, cookie: Any) -> None:
+        return None
+
+
+class InwardRedirect(httpx.RequestError):
+    """A remote on a public address redirected to an internal one."""
+
+
+def _is_internal(host: str) -> bool:
+    """Whether a host is a loopback, link-local or private address, written as one.
+
+    Names are not resolved, so a name that resolves to an internal address is not
+    caught here; network-level egress rules are the complete defence.
+    """
+    if host.lower() == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_link_local or address.is_private
+
+
+async def _refuse_inward_redirects(response: httpx.Response) -> None:
+    # Whoever runs a remote can answer with a redirect. Without this, that would let
+    # them aim the server at, say, a cloud metadata address and read the answer back.
+    if not response.has_redirect_location:
+        return
+    here = response.request.url
+    there = here.join(response.headers["Location"])
+    if _is_internal(there.host) and not _is_internal(here.host):
+        raise InwardRedirect("redirect to an internal address", request=response.request)
+
+
 def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=transport,
@@ -60,6 +107,8 @@ def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.Async
         max_redirects=5,
         timeout=httpx.Timeout(60.0, connect=10.0),
         headers={"User-Agent": f"MegooArti/{__version__}"},
+        cookies=_NoCookies(),
+        event_hooks={"response": [_refuse_inward_redirects]},
     )
 
 
@@ -100,13 +149,23 @@ def _request_headers(
     return headers
 
 
+# Answers that say the remote as a whole is struggling. A plain 500 is not among them:
+# it is usually one broken path, and must not block every other path.
+_REMOTE_IN_TROUBLE = frozenset({429, 502, 503, 504})
+
+
 def _unexpected(status: int) -> Failed:
-    return Failed(f"the remote answered {status}", blockable=status >= 500 or status == 429)
+    return Failed(f"the remote answered {status}", blockable=status in _REMOTE_IN_TROUBLE)
+
+
+def _unrequestable(error: Exception) -> Failed:
+    """A request that could not even be sent: a bad URL, or a header that cannot exist."""
+    if isinstance(error, InwardRedirect):
+        return Failed("the remote redirected to an internal address", blockable=False)
+    return Failed(f"the request could not be made ({type(error).__name__})", blockable=False)
 
 
 def _declared_size(response: httpx.Response) -> int | None:
-    if "Content-Encoding" in response.headers:
-        return None
     value = response.headers.get("Content-Length", "")
     plain = value.isascii() and value.isdigit() and len(value) <= 18
     return int(value) if plain else None
@@ -132,6 +191,11 @@ async def download(
                 return Missing()
             if status != 200:
                 return _unexpected(status)
+            encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+            if encoding != "identity":
+                # Asked for the bytes as stored, it compressed them anyway. Storing that
+                # would serve a compressed file under the original name and type.
+                return Failed("the remote sent an encoded body", blockable=False)
             try:
                 staged = await stage(response.aiter_raw(), _declared_size(response))
             except ApiError:  # not the number of bytes the remote declared
@@ -142,6 +206,8 @@ async def download(
                 etag=response.headers.get("ETag"),
                 last_modified=response.headers.get("Last-Modified"),
             )
+    except (InwardRedirect, httpx.InvalidURL, ValueError, UnicodeError) as error:
+        return _unrequestable(error)
     except httpx.HTTPError as error:
         return Failed(type(error).__name__, blockable=True)
 
@@ -152,6 +218,8 @@ async def head(
     """Ask whether the remote has a file, without fetching it."""
     try:
         response = await client.head(url, headers=_request_headers(authorization))
+    except (InwardRedirect, httpx.InvalidURL, ValueError, UnicodeError) as error:
+        return _unrequestable(error)
     except httpx.HTTPError as error:
         return Failed(type(error).__name__, blockable=True)
     if response.status_code in (404, 410):

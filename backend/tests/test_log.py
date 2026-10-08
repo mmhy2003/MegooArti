@@ -70,3 +70,11 @@ def test_level_filters_lower_severity(isolated_logging, capsys):
     structlog.get_logger("megooarti.test").warning("kept")
 
     assert [line["event"] for line in read_lines(capsys)] == ["kept"]
+
+
+def test_the_http_client_does_not_log_each_request(isolated_logging):
+    # Its INFO line is the full URL of every outbound request.
+    configure_logging("INFO")
+
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING

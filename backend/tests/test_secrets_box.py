@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 
@@ -79,3 +80,19 @@ def test_a_different_key_cannot_unseal(tmp_path):
 def test_text_that_was_never_sealed_is_unreadable(tmp_path, stored):
     with pytest.raises(SecretUnreadable):
         unseal(settings_in(tmp_path), stored)
+
+
+def test_a_damaged_key_file_is_reported_at_once(tmp_path):
+    (tmp_path / "secret.key").write_bytes(b"")
+    started = time.monotonic()
+
+    with pytest.raises(SecretUnreadable, match="secret.key"):
+        seal(settings_in(tmp_path), SECRET)
+
+    assert time.monotonic() - started < 2
+
+
+def test_no_temporary_key_file_is_left_behind(tmp_path):
+    seal(settings_in(tmp_path), SECRET)
+
+    assert [path.name for path in tmp_path.iterdir()] == ["secret.key"]

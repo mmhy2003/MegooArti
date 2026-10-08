@@ -1,9 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from megooarti.repositories import proxy_state, service
-from megooarti.repositories.models import ProxyState
+from megooarti.repositories.models import NegativeCacheEntry, ProxyState
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 REMOTE = {"remote_url": "http://remote.test/files"}
@@ -127,3 +128,47 @@ async def test_nothing_is_remembered_when_the_negative_cache_is_off(db, mirror):
     await proxy_state.remember_missing(db, mirror, "a.bin", NOW)
 
     assert await proxy_state.known_missing(db, mirror, "a.bin", NOW) is False
+
+
+async def test_failures_that_arrive_while_blocked_do_not_lengthen_the_block(db, mirror):
+    # Several requests in flight when the remote fails are one blip, not several.
+    await fail(db, mirror)
+    await fail(db, mirror, after(1))
+    await fail(db, mirror, after(2), reason="ReadTimeout")
+
+    state = await db.get(ProxyState, mirror.id)
+
+    assert (state.failures, state.blocked_until) == (1, after(60))
+    assert state.last_error == "ReadTimeout"
+
+
+async def test_turning_auto_block_off_lifts_a_block_already_in_place(db, mirror):
+    await fail(db, mirror)
+    settings = {**mirror.config["proxy"], "auto_block": False}
+    mirror.config = {**mirror.config, "proxy": settings}
+
+    assert await proxy_state.blocked(db, mirror, after(1)) is False
+
+
+async def test_remembering_a_miss_clears_out_this_repositorys_expired_entries(db, mirror):
+    await reconfigure(db, mirror, negative_cache={"ttl_minutes": 10})
+    other = await service.create_repository(
+        db,
+        name="other",
+        format="raw",
+        type="proxy",
+        online=True,
+        blob_store=None,
+        proxy={**REMOTE, "negative_cache": {"ttl_minutes": 10}},
+    )
+    await proxy_state.remember_missing(db, mirror, "old.bin", NOW)
+    await proxy_state.remember_missing(db, other, "theirs.bin", NOW)
+
+    await proxy_state.remember_missing(db, mirror, "new.bin", after(601))
+
+    remaining = await db.execute(
+        select(NegativeCacheEntry.repository_id, NegativeCacheEntry.path).order_by(
+            NegativeCacheEntry.path
+        )
+    )
+    assert [tuple(row) for row in remaining] == [(mirror.id, "new.bin"), (other.id, "theirs.bin")]

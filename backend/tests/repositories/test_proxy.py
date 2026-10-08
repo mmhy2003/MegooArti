@@ -380,3 +380,26 @@ async def test_the_repository_api_shows_the_blocking_state(admin_client, remote,
     )
     assert status["auto_blocked_until"] is not None
     assert await db.scalar(select(Repository.type).where(Repository.name == "mirror")) == "proxy"
+
+
+async def test_an_unreadable_credential_is_recorded_where_an_administrator_will_see_it(
+    client, root, remote, mirror, db
+):
+    broken = {"type": "bearer", "username": "", "secret": "enc:v1:not-sealed-with-this-key"}
+    await reconfigure(db, mirror, remote_auth=broken)
+
+    await client.get(URL, headers=root)
+
+    state = await db.scalar(select(ProxyState))
+    assert "credential" in state.last_error
+    assert (state.failures, state.blocked_until) == (0, None)
+
+
+async def test_one_broken_path_on_the_remote_does_not_block_the_proxy(client, root, remote):
+    remote.status = 500
+    await client.get(URL, headers=root)
+    remote.status = None
+
+    response = await client.get(URL, headers=root)
+
+    assert response.content == CONTENT

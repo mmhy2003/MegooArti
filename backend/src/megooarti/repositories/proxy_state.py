@@ -24,8 +24,11 @@ def block_seconds(failures: int) -> int:
 
 
 async def blocked(db: AsyncSession, repository: Repository, now: datetime) -> bool:
-    if repository.config["proxy"]["blocked"]:
+    settings = repository.config["proxy"]
+    if settings["blocked"]:
         return True
+    if not settings["auto_block"]:
+        return False  # turning automatic blocking off also lifts a block already in place
     until = await db.scalar(
         select(ProxyState.blocked_until).where(ProxyState.repository_id == repository.id)
     )
@@ -47,7 +50,10 @@ async def record_failure(
     )
     state.last_error = reason[:255]
     state.last_checked_at = now
-    if blockable and repository.config["proxy"]["auto_block"]:
+    # A failure counts only if the remote was not already blocked. Requests that were in
+    # flight when it went down all fail together, and that is one outage, not several.
+    already_blocked = state.blocked_until is not None and state.blocked_until > now
+    if blockable and repository.config["proxy"]["auto_block"] and not already_blocked:
         state.failures += 1
         state.blocked_until = now + timedelta(seconds=block_seconds(state.failures))
     await db.flush()
@@ -72,7 +78,14 @@ async def remember_missing(
     settings = _negative_cache(repository)
     if not settings["enabled"]:
         return
-    await db.execute(delete(NegativeCacheEntry).where(NegativeCacheEntry.expires_at <= now))
+    # Tidy this repository's expired entries. Scoped to one repository so that the
+    # delete uses the primary key and never scans the whole table on a miss.
+    await db.execute(
+        delete(NegativeCacheEntry).where(
+            NegativeCacheEntry.repository_id == repository.id,
+            NegativeCacheEntry.expires_at <= now,
+        )
+    )
     expires = now + timedelta(minutes=settings["ttl_minutes"])
     remember = insert(NegativeCacheEntry).values(
         repository_id=repository.id, path=path, expires_at=expires
