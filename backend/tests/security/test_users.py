@@ -171,3 +171,12 @@ async def test_make_user_fixture_creates_someone_who_can_sign_in(make_user, db):
 
     assert verify_password(user.password_hash, PASSWORD)
     assert (await users.describe(db, user)).roles == ["admin"]
+
+
+@pytest.mark.parametrize("username", ["__token__", " __TOKEN__ "])
+async def test_the_name_that_stands_for_a_token_cannot_be_a_users(db, username):
+    error = await error_of(create(db, username))
+
+    assert (error.status_code, error.code) == (422, "validation_error")
+    assert error.details[0]["field"] == "username"
+    assert await users.get_user_by_username(db, "__token__") is None

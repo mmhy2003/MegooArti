@@ -16,6 +16,10 @@ from megooarti.security.passwords import hash_password, password_problem
 from megooarti.security.roles import effective_patterns, roles_named
 from megooarti.security.sessions import delete_user_sessions
 
+# The name Python's packaging tools send with an API token (`__token__` and the token
+# as HTTP Basic credentials). It stands for whoever owns the token, so nobody has it.
+TOKEN_USERNAME = "__token__"
+
 
 @dataclass(frozen=True)
 class UserView:
@@ -102,6 +106,11 @@ async def create_user(
     must_change_password: bool,
 ) -> User:
     username = normalise_username(username)
+    if username == TOKEN_USERNAME:
+        details = [
+            {"field": "username", "message": "This name is reserved for signing in with a token."}
+        ]
+        raise ApiError(422, "validation_error", "The request is not valid.", details)
     if await get_user_by_username(db, username) is not None:
         raise ApiError(409, "conflict", f"A user named {username} already exists.")
     _check_password(password, username)

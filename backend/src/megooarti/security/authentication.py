@@ -203,7 +203,14 @@ async def authenticate_secret(
     Returns the token too when the secret was one. Raises 401 or 429. HTTP Basic
     credentials are checked here, and so is anything else that takes a name and a
     secret, so that the limits on failed attempts are the same everywhere.
+
+    The name `__token__` is nobody's: with it, the token alone says who is asking.
     """
+    if users.normalise_username(username) == users.TOKEN_USERNAME:
+        if secret.startswith(TOKEN_PREFIX):
+            return await _authenticate_token(db, request, secret)
+        # Not a token at all. A failed attempt, counted against the address.
+        return await _checked(db, request, None, _no_match)
     if secret.startswith(TOKEN_PREFIX):
         return await _authenticate_token(db, request, secret, username)
     return await authenticate_password(db, request, username, secret), None
