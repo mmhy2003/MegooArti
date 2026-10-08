@@ -8,6 +8,9 @@ A package document is generated on each request from the versions stored, so it 
 right after an unpublish and after two publishes at once. Reading a publish and
 building a document are CPU-bound work whose size a client decides, so they run on two
 worker threads of their own.
+
+A proxy does not hold every version of a package, so it cannot write the document
+itself. It serves the remote's, with the tarball links in it pointed here as it is sent.
 """
 
 import asyncio
@@ -15,15 +18,18 @@ import weakref
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
+from megooarti.repositories import proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
 from megooarti.repositories.formats import ComponentKey, Format, register
 from megooarti.repositories.npm import documents, paths, semver
+from megooarti.repositories.npm.rewrite import TarballLinks
 from megooarti.repositories.paths import normalise_path
 from megooarti.security.authentication import unauthorized
 
@@ -85,6 +91,16 @@ def _not_allowed(allowed: str) -> ApiError:
         "method_not_allowed",
         f"This address accepts {allowed}.",
         headers={"Allow": allowed},
+    )
+
+
+def _hosted_only() -> ApiError:
+    """For what is answered from the versions stored, which only a hosted repository has."""
+    return ApiError(
+        405,
+        "method_not_allowed",
+        "Only a hosted repository answers at this address. Ask for the package itself.",
+        headers={"Allow": ""},
     )
 
 
@@ -490,10 +506,31 @@ async def _dist_tags(
     raise _not_allowed("GET, HEAD" if not tag else "PUT, DELETE")
 
 
+# --- What a proxy serves -------------------------------------------------------------
+
+
+async def _streamed(
+    holder: RepositoryContext, request: Request, package: str, base: str
+) -> Response:
+    """A proxy's cached package document, its links pointed at `base` as it is sent.
+
+    `base` is the public address of the repository that was asked. The document is
+    never read into memory: such documents reach tens of megabytes.
+    """
+    return await holder.respond_transformed(
+        package,
+        request,
+        TarballLinks(base, package),
+        variant=f"tarball links to {base}",
+        content_type=_JSON,
+        filename=f"{paths.unscoped(package)}.json",
+    )
+
+
 class NpmFormat(Format):
     name = "npm"
-    # Proxy and group repositories need npm's own handling of package documents.
-    types = frozenset({"hosted"})
+    # A group needs npm's own handling of package documents.
+    types = frozenset({"hosted", "proxy"})
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""
@@ -503,7 +540,25 @@ class NpmFormat(Format):
         return ComponentKey(parsed.scope, parsed.name, parsed.version)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
-        return _TARBALL if paths.classify(path).kind == "tarball" else declared
+        kind = paths.classify(path).kind
+        if kind == "tarball":
+            return _TARBALL
+        return _JSON if kind == "document" else declared
+
+    def remote_url(self, base: str, path: str) -> str:
+        """Where a proxy finds a path on its remote.
+
+        A scoped package's document is asked for as registries spell it, with the
+        slash of its name encoded: `@scope%2Fname`.
+        """
+        parsed = paths.classify(path)
+        if parsed.kind == "document" and parsed.scope:
+            return f"{base.rstrip('/')}/@{parsed.scope}%2F{parsed.name}"
+        return f"{base.rstrip('/')}/{quote(path, safe='/@')}"
+
+    def is_metadata(self, path: str) -> bool:
+        """A package document changes with every publish. A tarball never changes."""
+        return paths.classify(path).kind == "document"
 
     def takes_body_credentials(self, method: str, path: str) -> bool:
         """`npm login` sends the user name and password in its body, with no header."""
@@ -536,6 +591,29 @@ class NpmFormat(Format):
             if not _is_read(request):
                 raise _not_allowed("GET, HEAD")
             return await _search(context, request)
+        raise _not_found("Nothing is served at this address.")
+
+    async def handle_proxy(
+        self, context: RepositoryContext, request: Request, path: str
+    ) -> Response:
+        parsed = paths.classify(normalise_path(path))
+        answered = await registry_endpoint(context, request, parsed)
+        if answered is not None:
+            return answered
+        if not _is_read(request):
+            raise _not_allowed("GET, HEAD")
+        if parsed.kind == "document":
+            await proxy.ensure_cached(context, parsed.package)
+            base = await context.public_url(request)
+            return await _streamed(context, request, parsed.package, base)
+        if parsed.kind == "tarball":
+            # Asked for under its one spelling, whatever revision the address carried.
+            canonical = paths.tarball_path(parsed.package, parsed.version)
+            return await proxy.handle_proxy(context, request, canonical)
+        if parsed.kind == "search":
+            return await _search(context, request)
+        if parsed.kind in ("version", "dist_tags"):
+            raise _hosted_only()
         raise _not_found("Nothing is served at this address.")
 
 

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 
 import pytest
 
@@ -8,18 +9,29 @@ from megooarti.repositories.models import Repository
 from tests.accounts import PASSWORD, basic
 
 URL = "/repository/npm"
+REMOTE = "http://remote.test/registry"
 
 
-async def create(db, name: str, *, hosted: dict | None = None) -> Repository:
-    """A hosted npm repository, committed."""
+async def create(
+    db,
+    name: str,
+    *,
+    type: str = "hosted",
+    hosted: dict | None = None,
+    proxy: dict | None = None,
+    group: dict | None = None,
+) -> Repository:
+    """An npm repository, committed."""
     repository = await service.create_repository(
         db,
         name=name,
         format="npm",
-        type="hosted",
+        type=type,
         online=True,
         blob_store="default",
         hosted=hosted,
+        proxy=proxy,
+        group=group,
         format_config={},
     )
     await db.commit()
@@ -66,9 +78,40 @@ async def publish(client, headers, package: str, version: str, **changes):
     return await client.put(address(package, repository), json=body, headers=headers)
 
 
+def remote_document(package: str, *versions: str, remote: str = REMOTE, **extra) -> bytes:
+    """A package document as a remote registry serves it, with its links at the remote."""
+    name = package.rpartition("/")[2]
+    listed = {
+        version: {
+            "name": package,
+            "version": version,
+            "dist": {
+                "shasum": hashlib.sha1(tarball_of(package, version)).hexdigest(),
+                "tarball": f"{remote}/{package}/-/{name}-{version}.tgz",
+            },
+        }
+        for version in versions
+    }
+    document = {
+        "_id": package,
+        "name": package,
+        "dist-tags": {"latest": versions[-1]},
+        "versions": listed,
+        "time": {version: "2020-01-01T00:00:00.000Z" for version in versions},
+        **extra,
+    }
+    return json.dumps(document).encode()
+
+
 @pytest.fixture
 async def registry(db) -> Repository:
     return await create(db, "npm")
+
+
+@pytest.fixture
+async def npmjs(db) -> Repository:
+    """A proxy of the fake remote."""
+    return await create(db, "npmjs", type="proxy", proxy={"remote_url": REMOTE})
 
 
 @pytest.fixture
