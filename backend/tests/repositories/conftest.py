@@ -63,7 +63,6 @@ def context_for(db, settings):
 @pytest.fixture
 async def fake_remote(app) -> FakeRemote:
     """A remote that exists only in this process, wired in place of the real client."""
-    await app.state.http.aclose()
     fake = FakeRemote()
     app.state.http = fake.client()
     return fake

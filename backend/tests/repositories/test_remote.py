@@ -1,7 +1,9 @@
 import base64
 import hashlib
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from megooarti import __version__
@@ -174,3 +176,19 @@ def test_a_credential_sealed_with_another_key_is_unreadable(tmp_path):
 
     with pytest.raises(SecretUnreadable):
         remote.authorization(here, {"type": "bearer", "secret": sealed})
+
+
+async def test_the_outbound_client_is_built_once_when_first_needed():
+    application = SimpleNamespace(state=SimpleNamespace(http=None))
+
+    first = remote.client_of(application)
+    try:
+        assert isinstance(first, httpx.AsyncClient)
+        assert remote.client_of(application) is first
+        assert application.state.http is first
+    finally:
+        await first.aclose()
+
+
+def test_an_application_that_never_proxies_builds_no_outbound_client(app):
+    assert app.state.http is None

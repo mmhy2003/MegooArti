@@ -105,7 +105,7 @@ async def _refresh(
         return await context.stage(chunks, expected_size=size)
 
     outcome = await remote.download(
-        request.app.state.http,
+        remote.client_of(request.app),
         url,
         authorization=credential,
         stage=stage,
@@ -155,7 +155,7 @@ async def _head_remote(context: RepositoryContext, request: Request, path: str) 
     url, credential = _target(context, path)
     await db.commit()
 
-    outcome = await remote.head(request.app.state.http, url, authorization=credential)
+    outcome = await remote.head(remote.client_of(request.app), url, authorization=credential)
     now = utcnow()
     if isinstance(outcome, remote.Exists):
         await proxy_state.record_success(db, repository, now)

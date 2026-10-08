@@ -63,6 +63,17 @@ def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.Async
     )
 
 
+def client_of(app: Any) -> httpx.AsyncClient:
+    """The application's one outbound client, built the first time it is needed.
+
+    Building it loads the system's TLS trust store, which takes a noticeable fraction
+    of a second: too slow to do for every application start that never proxies.
+    """
+    if app.state.http is None:
+        app.state.http = new_client()
+    return app.state.http
+
+
 def authorization(settings: Settings, remote_auth: dict[str, Any]) -> str | None:
     """The Authorization header for a stored credential. Raises SecretUnreadable."""
     kind = remote_auth.get("type", "none")

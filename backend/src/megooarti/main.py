@@ -16,7 +16,6 @@ from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
-from megooarti.repositories import remote
 from megooarti.repositories.api import router as repositories_router
 from megooarti.repositories.routes import router as content_router
 from megooarti.request_id import RequestIdMiddleware
@@ -97,7 +96,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     for task in background:
         with suppress(asyncio.CancelledError):
             await task
-    await app.state.http.aclose()
+    if app.state.http is not None:
+        await app.state.http.aclose()
     await app.state.engine.dispose()
 
 
@@ -121,7 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = create_sessionmaker(app.state.engine)
     app.state.head_revision = head_revision()
     # The one client for requests to proxy remotes. Tests replace it with a fake remote.
-    app.state.http = remote.new_client()
+    app.state.http = None  # built by remote.client_of on first use: it is slow to create
     register_error_handlers(app)
     app.include_router(status_router, prefix=API_PREFIX)
     app.include_router(auth_api.router, prefix=API_PREFIX)
