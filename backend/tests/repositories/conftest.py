@@ -22,22 +22,6 @@ async def body(data: bytes, size: int = 700) -> AsyncIterator[bytes]:
 
 
 @pytest.fixture
-async def files(db) -> Repository:
-    repository = await service.create_repository(
-        db,
-        name="files",
-        format="raw",
-        type="hosted",
-        online=True,
-        blob_store="default",
-        hosted=None,
-        format_config={},
-    )
-    await db.commit()
-    return repository
-
-
-@pytest.fixture
 async def mirror(db) -> Repository:
     repository = await service.create_repository(
         db,

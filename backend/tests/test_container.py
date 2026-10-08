@@ -179,3 +179,59 @@ def test_a_file_is_uploaded_and_downloaded_with_an_api_token(administrator):
     count = "find /var/lib/megooarti/blobs/default/content -type f | wc -l"
     stored = compose("exec", "-T", "backend", "sh", "-c", count)
     assert stored.stdout.strip() == "1"
+
+
+@pytest.mark.docker
+def test_a_group_serves_a_file_through_a_proxy_of_a_hosted_repository(administrator):
+    status, _, created = call("POST", "/me/tokens", {"name": "proxy-test"}, administrator)
+    assert status == 201
+    token = {"Authorization": f"Bearer {created['token']}"}
+    origin = {"name": "origin", "format": "raw", "type": "hosted"}
+    mirror = {
+        "name": "origin-mirror",
+        "format": "raw",
+        "type": "proxy",
+        "proxy": {
+            # The container talks to itself: the remote is its own hosted repository.
+            "remote_url": "http://127.0.0.1:8000/repository/origin",
+            "remote_auth": {"type": "bearer", "secret": created["token"]},
+        },
+    }
+    everything = {
+        "name": "everything",
+        "format": "raw",
+        "type": "group",
+        "group": {"members": ["origin-mirror"]},
+    }
+    for repository in (origin, mirror, everything):
+        status, _, body = call("POST", "/repositories", repository, administrator)
+        assert status == 201, body
+    assert body["group"] == {"members": ["origin-mirror"]}
+
+    content = os.urandom(64 * 1024 + 3)
+    base = f"http://127.0.0.1:{HTTP_PORT}/repository"
+    upload = urllib.request.Request(
+        f"{base}/origin/dist/app.bin", data=content, method="PUT", headers=token
+    )
+    with urllib.request.urlopen(upload, timeout=60) as response:
+        assert response.status == 201
+
+    through_group = urllib.request.Request(f"{base}/everything/dist/app.bin", headers=token)
+    with urllib.request.urlopen(through_group, timeout=60) as response:
+        assert response.read() == content
+
+    # Remove the original. The proxy keeps serving what it cached.
+    remove = urllib.request.Request(f"{base}/origin/dist/app.bin", method="DELETE", headers=token)
+    with urllib.request.urlopen(remove, timeout=60) as response:
+        assert response.status == 204
+    with urllib.request.urlopen(through_group, timeout=60) as response:
+        assert response.read() == content
+
+    status, _, shown = call("GET", "/repositories/origin-mirror", headers=administrator)
+    assert status == 200
+    assert shown["proxy"]["remote_auth"] == {"type": "bearer", "username": "", "has_secret": True}
+    assert shown["status"]["failures"] == 0
+    key = compose(
+        "exec", "-T", "backend", "test", "-s", "/var/lib/megooarti/secret.key", check=False
+    )
+    assert key.returncode == 0

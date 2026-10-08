@@ -202,6 +202,15 @@ Secrets are encrypted with authenticated symmetric encryption (Fernet). The key 
 
 `GET` and `HEAD` only. Members are tried in order; offline members are skipped; the first that has the path answers, using its own hosted, proxy or group behaviour but without a permission check on the member (D8). If none has it, `404`. Formats that publish index files override this to merge them (REP-12); Raw has none.
 
+### 9.1 Refinements settled while planning proxy and group repositories
+
+- **Caching for a reader.** The facade has a `cache` operation that records content with no permission or policy check and the creator `proxy`. It refuses to run on anything but a proxy repository. The check that matters, `read` on the proxy or on the group in front of it, has already happened.
+- **Sealed secrets by type.** The repository service accepts a remote secret only as a sealed value; the API seals it. A plain string is a programming error, not bad input.
+- **A cached file outlives its remote copy.** If the remote answers `404` for a file that is already cached, the cached copy is kept and marked verified.
+- **What counts toward blocking.** Transport failures, `5xx` and `429`. Other unexpected statuses, such as `401` and `403`, fail the request with `502` but do not block, so a wrong credential shows up on every request.
+- **A group with no answer.** If every member lacks the path, is offline, or cannot reach its remote, the group answers `404`. A member's other errors, such as `416`, are returned as they are.
+- **Cross-site writes.** A request that changes state and carries `Sec-Fetch-Site: cross-site` is refused with `403 cross_site_request`. Browsers remember HTTP Basic credentials after the `/repository` challenge; package clients never send that header.
+
 ## 10. Administration API
 
 Under `/api/v1`, JSON, standard error envelope, paged lists.

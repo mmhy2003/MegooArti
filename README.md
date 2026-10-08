@@ -41,6 +41,7 @@ All configuration is by environment variable.
 | `MEGOOARTI_LOGIN_FAILURE_WINDOW_SECONDS` | `900` | Length of that window |
 | `MEGOOARTI_COMPACTION_INTERVAL_SECONDS` | `3600` | How often unused blob content is removed; `0` disables it |
 | `MEGOOARTI_BLOB_GRACE_SECONDS` | `86400` | How long content is kept after nothing uses it |
+| `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords. If unset, a key is generated into `secret.key` in the data directory on first use |
 
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
@@ -99,7 +100,9 @@ The full API is described at `/api/docs`.
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. So far there is one
-format, `raw` (arbitrary files by path), and one type, `hosted` (files you publish).
+format, `raw` (arbitrary files by path). A repository has one of three types: `hosted`
+(files you publish), `proxy` (a cache of a remote repository) or `group` (several
+repositories behind one URL).
 
 Create a repository, then use it with any HTTP client:
 
@@ -133,6 +136,54 @@ In place of a password, use an API token as the password, or send it as
 - A repository's name, format, type and blob store cannot be changed after creation.
 - Each blob store needs a directory of its own: one that overlaps another store's
   directory is refused.
+
+### Proxy repositories
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "upstream-files", "format": "raw", "type": "proxy",
+  "proxy": {
+    "remote_url": "https://files.example.org/releases",
+    "remote_auth": {"type": "basic", "username": "robot", "secret": "the-password"}
+  }
+}' http://localhost:8000/api/v1/repositories
+```
+
+- A file that is not cached is downloaded from the remote completely, checked, stored
+  and then served. Later requests are served from the cache.
+- A cached file is checked against the remote again after `content_max_age_minutes`
+  (default 1440; `-1` never). If the remote is down, the cached copy is served.
+- A path the remote does not have is remembered for `negative_cache.ttl_minutes`
+  (default 1440), so the remote is not asked again for it.
+- After a connection failure, a `5xx` or a `429`, the remote is left alone for a minute,
+  doubling with each consecutive failure up to an hour. Set `"blocked": true` to stop
+  contacting it altogether, or `"auto_block": false` to turn automatic blocking off.
+  `GET /api/v1/repositories/<name>` shows the current state under `status`.
+- `POST /api/v1/repositories/<name>/invalidate-cache` makes the proxy check everything
+  with the remote again.
+- The remote secret is sealed before it is stored and is never returned; the API shows
+  only `has_secret`. Leave `secret` out when updating to keep the stored one. It is sent
+  only to the configured remote, and not to another host the remote redirects to.
+- A proxy repository cannot be written to.
+
+**Back up the key.** Secrets are sealed with `MEGOOARTI_SECRET_KEY`, or with the
+generated `secret.key` in the data directory. Without that key the stored secrets cannot
+be read and must be entered again.
+
+### Group repositories
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "all-files", "format": "raw", "type": "group",
+  "group": {"members": ["files", "upstream-files"]}
+}' http://localhost:8000/api/v1/repositories
+```
+
+- Members are tried in order and the first that has the path answers. Offline members,
+  and proxies whose remote is unavailable, are passed over.
+- Reading through a group needs `read` on the group only, not on its members.
+- A group may contain other groups. It cannot be written to, and a repository cannot be
+  deleted while a group presents it.
 
 ## Health endpoints
 

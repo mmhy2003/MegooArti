@@ -255,6 +255,18 @@ def _principal_dependency(scheme: Scheme) -> Callable[..., Awaitable[Principal |
     async def dependency(
         request: Request, db: AsyncSession = Depends(get_session)
     ) -> Principal | None:
+        # Browsers remember HTTP Basic credentials after the challenge on /repository
+        # and would attach them to a form posted from any site. Browsers also say where
+        # a request came from; package clients never send this header.
+        if (
+            request.method in _UNSAFE_METHODS
+            and request.headers.get("Sec-Fetch-Site") == "cross-site"
+        ):
+            raise ApiError(
+                403,
+                "cross_site_request",
+                "Requests that change something are not accepted from other sites.",
+            )
         try:
             principal = await resolve_principal(request, db)
         except ApiError as error:

@@ -20,6 +20,8 @@ from sqlalchemy.pool import NullPool
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
+from megooarti.repositories import service
+from megooarti.repositories.models import Repository
 from megooarti.security import passwords, tokens, users
 from megooarti.security.models import User
 from tests.accounts import PASSWORD, sign_in
@@ -184,3 +186,19 @@ async def other_client(app: FastAPI, client: AsyncClient) -> AsyncIterator[Async
     """A second client with no cookies, talking to the same running application."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as http:
         yield http
+
+
+@pytest.fixture
+async def files(db) -> Repository:
+    repository = await service.create_repository(
+        db,
+        name="files",
+        format="raw",
+        type="hosted",
+        online=True,
+        blob_store="default",
+        hosted=None,
+        format_config={},
+    )
+    await db.commit()
+    return repository
