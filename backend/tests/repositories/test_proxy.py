@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select, update
 
 from megooarti.clock import utcnow
-from megooarti.repositories import proxy
+from megooarti.repositories import formats, proxy
 from megooarti.repositories.formats import Format
 from megooarti.repositories.models import Asset, NegativeCacheEntry, ProxyState, Repository
 from megooarti.security import roles
@@ -403,3 +403,22 @@ async def test_one_broken_path_on_the_remote_does_not_block_the_proxy(client, ro
     response = await client.get(URL, headers=root)
 
     assert response.content == CONTENT
+
+
+class Typed(Format):
+    """A format that decides the content type of what it stores."""
+
+    name = "raw"
+
+    def content_type(self, path, declared):
+        return "application/x-chosen"
+
+
+async def test_the_format_chooses_the_type_recorded_for_a_fetched_file(
+    client, root, remote, monkeypatch
+):
+    monkeypatch.setitem(formats._registry, "raw", Typed())
+
+    response = await client.get(URL, headers=root)
+
+    assert response.headers["Content-Type"] == "application/x-chosen"

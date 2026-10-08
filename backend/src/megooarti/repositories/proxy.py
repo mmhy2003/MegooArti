@@ -123,7 +123,7 @@ async def _refresh(
         await context.cache(
             path,
             outcome.staged,
-            content_type=outcome.content_type,
+            content_type=context.format.content_type(path, outcome.content_type),
             attributes={name: value for name, value in origin.items() if value},
             now=now,
         )

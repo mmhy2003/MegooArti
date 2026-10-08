@@ -5,6 +5,7 @@ sets `name`, and overrides only what differs. Formats never touch tables or file
 they work through the repository context they are handed.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -16,6 +17,9 @@ from megooarti.errors import ApiError
 
 if TYPE_CHECKING:
     from megooarti.repositories.content import RepositoryContext
+
+# The dispatcher, as an engine sees it: answer this request from that repository.
+Serve = Callable[["RepositoryContext", Request, str], Awaitable[Response]]
 
 _CHECKSUM_HEADERS = {
     "md5": "X-Checksum-Md5",
@@ -74,7 +78,10 @@ class Format:
         return ComponentKey(namespace=directory, name=filename)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
-        """The content type to record for an upload. The generic format trusts the client."""
+        """The content type to record for a file: an upload, or one a proxy fetched.
+
+        The generic format trusts what the client or the remote declared.
+        """
         return declared
 
     def remote_url(self, base: str, path: str) -> str:
@@ -118,6 +125,30 @@ class Format:
             "This repository accepts GET, HEAD, PUT and DELETE.",
             headers={"Allow": "GET, HEAD, PUT, DELETE"},
         )
+
+    async def handle_proxy(
+        self, context: "RepositoryContext", request: Request, path: str
+    ) -> Response:
+        """Answer a request to a proxy repository. The route has checked `read`.
+
+        The generic engine: fetch from the remote on a miss, cache, and keep serving.
+        """
+        # Imported here: the engine is written against this module, so a top-level
+        # import would be circular.
+        from megooarti.repositories import proxy
+
+        return await proxy.handle_proxy(context, request, path)
+
+    async def handle_group(
+        self, context: "RepositoryContext", request: Request, path: str, serve: Serve
+    ) -> Response:
+        """Answer a request to a group. `serve` is the dispatcher, for asking a member.
+
+        The generic engine: the first member, in order, that has the path.
+        """
+        from megooarti.repositories import group
+
+        return await group.handle_group(context, request, path, serve)
 
 
 _registry: dict[str, Format] = {}
