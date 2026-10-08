@@ -1,6 +1,6 @@
 import hashlib
 from collections.abc import AsyncIterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -364,3 +364,72 @@ async def test_store_checks_permission_and_policy(files, context_for):
 
     assert error.code == "forbidden"
     assert temporary_files(context.settings) == []
+
+
+NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+LATER = NOW + timedelta(hours=3)
+
+
+async def cached(context, content: bytes, etag: str, now: datetime):
+    return await context.cache(
+        "lib/a.bin",
+        await context.stage(body(content)),
+        content_type="application/x-thing",
+        attributes={"remote_etag": etag},
+        now=now,
+    )
+
+
+async def test_cache_records_remote_content_without_asking_who_is_reading(mirror, context_for):
+    context = await context_for(mirror, None)
+
+    asset = await cached(context, HELLO, '"v1"', NOW)
+
+    assert (asset.created_by, asset.content_type) == ("proxy", "application/x-thing")
+    assert (asset.attributes, asset.last_verified_at) == ({"remote_etag": '"v1"'}, NOW)
+    assert await read(await context.respond("lib/a.bin", request())) == HELLO
+
+
+async def test_cache_replaces_a_cached_file_and_releases_the_old_content(db, mirror, context_for):
+    context = await context_for(mirror, None)
+    first = await cached(context, b"version one", '"v1"', NOW)
+    first_id, first_blob, first_updated = first.id, first.blob_id, first.updated_at
+
+    second = await cached(context, b"version two", '"v2"', LATER)
+
+    assert (second.id, second.attributes) == (first_id, {"remote_etag": '"v2"'})
+    assert second.blob_id != first_blob
+    assert second.last_verified_at == LATER
+    assert second.updated_at > first_updated
+    old = await db.get(Blob, first_blob, populate_existing=True)
+    assert old.unreferenced_since is not None
+
+
+async def test_caching_the_same_content_again_only_marks_it_verified(mirror, context_for):
+    context = await context_for(mirror, None)
+    first = await cached(context, HELLO, '"v1"', NOW)
+    blob, updated = first.blob_id, first.updated_at
+
+    again = await cached(context, HELLO, '"v1"', LATER)
+
+    assert (again.blob_id, again.updated_at) == (blob, updated)
+    assert again.last_verified_at == LATER
+
+
+async def test_cache_refuses_a_repository_that_is_not_a_proxy(db, files, context_for):
+    context = await context_for(files, EVERYTHING)
+    staged = await context.stage(body(HELLO))
+
+    with pytest.raises(RuntimeError):
+        await context.cache("a.bin", staged, content_type=None, attributes={}, now=NOW)
+
+    assert await count(db, Asset) == 0
+    assert temporary_files(context.settings) == []
+
+
+async def test_a_group_has_no_blob_store(db, context_for):
+    everything = await service.create_repository(
+        db, name="all", format="raw", type="group", online=True, blob_store=None
+    )
+
+    assert (await context_for(everything, None)).backend is None

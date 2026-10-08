@@ -1,7 +1,7 @@
 """Requests for repository content: /repository/{name}/{path}.
 
-Authentication and the `read` check happen here, before any format code runs. The
-storage facade checks `add`, `edit` and `delete` at the moment of each operation.
+Authentication and the `read` check happen here, before any format or engine code runs.
+The storage facade checks `add`, `edit` and `delete` at the moment of each operation.
 """
 
 import structlog
@@ -12,17 +12,14 @@ from starlette.responses import Response
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.repositories import service
-from megooarti.repositories.content import RepositoryContext
-from megooarti.repositories.formats import get_format
+from megooarti.repositories import dispatch, service
+from megooarti.repositories.content import build_context
 from megooarti.security.authentication import (
     Principal,
     authorize,
     client_principal,
     unauthorized,
 )
-from megooarti.storage.blob_stores import backend_for
-from megooarti.storage.models import BlobStore
 
 log = structlog.get_logger(__name__)
 
@@ -42,16 +39,7 @@ async def repository_content(
     repository = await service.get_repository(db, name)
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
-    settings = request.app.state.settings
-    store = await db.get(BlobStore, repository.blob_store_id)
-    context = RepositoryContext(
-        db=db,
-        settings=settings,
-        repository=repository,
-        principal=principal,
-        format=get_format(repository.format),
-        backend=backend_for(settings, store),
-    )
+    context = await build_context(db, request.app.state.settings, repository, principal)
 
     if request.method in ("GET", "HEAD"):
         authorize(principal, context.permission("read"), scheme="Basic")
@@ -61,9 +49,9 @@ async def repository_content(
         raise ApiError(503, "repository_offline", "This repository is offline.")
 
     try:
-        response = await context.format.handle_hosted(context, request, path)
-        # Committing here, not in each format, means a format cannot answer "stored"
-        # for a change that was never committed.
+        response = await dispatch.serve(context, request, path)
+        # Committing here, not in each format or engine, means none of them can answer
+        # "stored" for a change that was never committed.
         await db.commit()
         return response
     except ClientDisconnect:

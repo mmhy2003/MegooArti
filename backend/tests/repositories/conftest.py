@@ -3,13 +3,10 @@ from collections.abc import AsyncIterator
 import pytest
 
 from megooarti.repositories import service
-from megooarti.repositories.content import RepositoryContext
-from megooarti.repositories.formats import get_format
+from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.models import Repository
 from megooarti.security.authentication import Principal
 from megooarti.security.models import User
-from megooarti.storage.blob_stores import backend_for
-from megooarti.storage.models import BlobStore
 
 
 def someone(*patterns: str, method: str = "token", username: str = "dana") -> Principal:
@@ -40,16 +37,23 @@ async def files(db) -> Repository:
 
 
 @pytest.fixture
+async def mirror(db) -> Repository:
+    repository = await service.create_repository(
+        db,
+        name="mirror",
+        format="raw",
+        type="proxy",
+        online=True,
+        blob_store=None,
+        proxy={"remote_url": "http://remote.test/files"},
+    )
+    await db.commit()
+    return repository
+
+
+@pytest.fixture
 def context_for(db, settings):
     async def make(repository: Repository, principal: Principal | None) -> RepositoryContext:
-        store = await db.get(BlobStore, repository.blob_store_id)
-        return RepositoryContext(
-            db=db,
-            settings=settings,
-            repository=repository,
-            principal=principal,
-            format=get_format(repository.format),
-            backend=backend_for(settings, store),
-        )
+        return await build_context(db, settings, repository, principal)
 
     return make
