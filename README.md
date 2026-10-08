@@ -102,10 +102,10 @@ The full API is described at `/api/docs`.
 ## Repositories
 
 A **blob store** is where file content is kept; the `default` one is a directory under
-the data directory. A **repository** holds files in one format. So far there is one
-format, `raw` (arbitrary files by path). A repository has one of three types: `hosted`
-(files you publish), `proxy` (a cache of a remote repository) or `group` (several
-repositories behind one URL).
+the data directory. A **repository** holds files in one format. The formats so far are
+`raw` (arbitrary files by path) and `maven` (hosted repositories only, for now). A
+repository has one of three types: `hosted` (files you publish), `proxy` (a cache of a
+remote repository) or `group` (several repositories behind one URL).
 
 Create a repository, then use it with any HTTP client:
 
@@ -196,6 +196,67 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 - A group may contain other groups. It cannot be written to, and a repository cannot be
   deleted while a group presents it.
 
+### Maven repositories
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "releases", "format": "maven", "type": "hosted",
+  "hosted": {"deployment_policy": "disable_redeploy"},
+  "format_config": {"version_policy": "release"}
+}' http://localhost:8000/api/v1/repositories
+
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "snapshots", "format": "maven", "type": "hosted",
+  "format_config": {"version_policy": "snapshot"}
+}' http://localhost:8000/api/v1/repositories
+```
+
+Point a project at them in its `pom.xml`:
+
+```xml
+<distributionManagement>
+  <repository>
+    <id>megooarti</id>
+    <url>https://repo.example.com/repository/releases/</url>
+  </repository>
+  <snapshotRepository>
+    <id>megooarti</id>
+    <url>https://repo.example.com/repository/snapshots/</url>
+  </snapshotRepository>
+</distributionManagement>
+```
+
+and give Maven the credentials in `~/.m2/settings.xml`, under the same `id`:
+
+```xml
+<servers>
+  <server>
+    <id>megooarti</id>
+    <username>ci</username>
+    <password>an API token</password>
+  </server>
+</servers>
+```
+
+- **Version policy** (`version_policy`): `release` (default), `snapshot` or `mixed`. It
+  decides which versions a repository takes, and cannot be changed after creation.
+- **Layout policy** (`layout_policy`): `strict` (default) takes only paths in the Maven
+  layout; `permissive` also takes other paths, as plain files.
+- **Checksums are computed, never stored.** A request for `app-1.0.jar.sha1` (or `.md5`,
+  `.sha256`, `.sha512`) is answered from the hash recorded for the file. A checksum that
+  a client uploads is compared with the file, and a wrong one fails the upload with
+  `400`, so a corrupted deploy fails visibly.
+- **`maven-metadata.xml` is generated** on every request from the files stored, so it is
+  right after a delete and after two deploys at the same moment. What clients upload is
+  accepted and discarded, except plugin prefixes, which are kept for each group.
+- `latest` and `release` are the highest versions in Maven's version order, not the
+  most recently deployed ones.
+- **A deploying account needs only `add`**, for example `repository:maven:releases:add`.
+  It does not need `edit` to update metadata. Add `read` if it also resolves.
+- **Maven refuses plain HTTP** to any host but `localhost` (since Maven 3.8.1). Put
+  MegooArti behind HTTPS for clients on other machines.
+- Proxy and group Maven repositories are not available yet.
+
 ## Health endpoints
 
 | Endpoint | Meaning |
@@ -251,7 +312,7 @@ cd backend
 cp .env.example .env
 uv sync
 uv run pytest                 # unit and integration tests; needs the db service
-uv run pytest -m docker       # builds the image and tests the entrypoint
+uv run pytest -m docker       # builds the image; tests it with real clients (needs internet)
 uv run ruff check .
 uv run ruff format --check .
 uv run python -m megooarti    # serve on http://localhost:8000 using .env
