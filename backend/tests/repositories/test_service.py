@@ -6,7 +6,8 @@ from sqlalchemy import func, insert, select
 
 from megooarti.errors import ApiError
 from megooarti.repositories import service
-from megooarti.repositories.models import Asset, Repository
+from megooarti.repositories.models import Asset, Repository, RepositoryMember
+from megooarti.secrets_box import Sealed
 from megooarti.storage.models import Blob, BlobStore
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -57,8 +58,8 @@ async def test_names_are_unique_ignoring_case_but_looked_up_exactly(db):
     ("override", "field"),
     [
         ({"format": "cobol"}, "format"),
-        ({"type": "proxy"}, "type"),
-        ({"type": "group"}, "type"),
+        ({"type": "proxy"}, "proxy.remote_url"),
+        ({"type": "group", "group": {"members": ["ghost"]}}, "group.members"),
         ({"blob_store": "ghost"}, "blob_store"),
         ({"hosted": {"deployment_policy": "sometimes"}}, "hosted.deployment_policy"),
         ({"format_config": {"anything": 1}}, "format_config"),
@@ -188,3 +189,212 @@ async def test_a_repository_with_very_many_assets_can_be_deleted(db):
     assert await db.scalar(select(func.count()).select_from(Asset)) == 0
     unmarked = select(func.count()).select_from(Blob).where(Blob.unreferenced_since.is_(None))
     assert await db.scalar(unmarked) == 0
+
+
+REMOTE = {"remote_url": "https://remote.example/files/"}
+SECRET = Sealed("enc:v1:sealed-by-the-caller")
+
+
+async def proxy(db, name="mirror", **settings):
+    return await create(db, name, type="proxy", proxy={**REMOTE, **settings})
+
+
+async def group(db, name="all", members=()):
+    return await create(db, name, type="group", group={"members": list(members)})
+
+
+async def test_create_a_proxy_repository_with_defaults(db):
+    view = await service.describe(db, await proxy(db))
+
+    assert (view.type, view.blob_store, view.hosted, view.group) == (
+        "proxy",
+        "default",
+        None,
+        None,
+    )
+    assert view.proxy == {
+        "remote_url": "https://remote.example/files",
+        "content_max_age_minutes": 1440,
+        "metadata_max_age_minutes": 1440,
+        "negative_cache": {"enabled": True, "ttl_minutes": 1440},
+        "remote_auth": {"type": "none", "username": "", "has_secret": False},
+        "blocked": False,
+        "auto_block": True,
+    }
+    assert view.status == {
+        "blocked": False,
+        "auto_blocked_until": None,
+        "failures": 0,
+        "last_error": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("settings", "field"),
+    [
+        ({"remote_url": ""}, "proxy.remote_url"),
+        ({"remote_url": "ftp://remote.example"}, "proxy.remote_url"),
+        ({"remote_url": "https://"}, "proxy.remote_url"),
+        ({"remote_url": "https://remote.example/?token=1"}, "proxy.remote_url"),
+        ({"content_max_age_minutes": -2}, "proxy.content_max_age_minutes"),
+        ({"metadata_max_age_minutes": "soon"}, "proxy.metadata_max_age_minutes"),
+        ({"negative_cache": {"ttl_minutes": 0}}, "proxy.negative_cache.ttl_minutes"),
+        ({"remote_auth": {"type": "kerberos"}}, "proxy.remote_auth.type"),
+        ({"remote_auth": {"type": "basic", "secret": SECRET}}, "proxy.remote_auth.username"),
+        ({"remote_auth": {"type": "basic", "username": "u"}}, "proxy.remote_auth.secret"),
+        ({"remote_auth": {"type": "bearer"}}, "proxy.remote_auth.secret"),
+    ],
+)
+async def test_invalid_proxy_settings_are_rejected(db, settings, field):
+    error = await error_of(proxy(db, **settings))
+
+    assert (error.status_code, error.code) == (422, "validation_error")
+    assert error.details[0]["field"] == field
+
+
+async def test_a_remote_secret_is_stored_sealed_and_never_shown(db):
+    auth = {"type": "basic", "username": "robot", "secret": SECRET}
+    repository = await proxy(db, remote_auth=auth)
+
+    view = await service.describe(db, repository)
+
+    assert repository.config["proxy"]["remote_auth"]["secret"] == SECRET
+    assert view.proxy["remote_auth"] == {"type": "basic", "username": "robot", "has_secret": True}
+
+
+async def test_a_remote_secret_that_is_not_sealed_is_a_programming_error(db):
+    auth = {"type": "bearer", "secret": "a plain string"}
+
+    with pytest.raises(TypeError):
+        await proxy(db, remote_auth=auth)
+
+
+async def test_updating_without_a_secret_keeps_the_stored_one(db):
+    repository = await proxy(
+        db, remote_auth={"type": "basic", "username": "robot", "secret": SECRET}
+    )
+
+    await service.update_repository(
+        db,
+        repository,
+        online=True,
+        proxy={**REMOTE, "remote_auth": {"type": "basic", "username": "robot-2"}},
+    )
+
+    stored = repository.config["proxy"]["remote_auth"]
+    assert (stored["username"], stored["secret"]) == ("robot-2", SECRET)
+
+
+async def test_changing_the_kind_of_credential_needs_a_new_secret(db):
+    repository = await proxy(
+        db, remote_auth={"type": "basic", "username": "robot", "secret": SECRET}
+    )
+
+    error = await error_of(
+        service.update_repository(
+            db, repository, online=True, proxy={**REMOTE, "remote_auth": {"type": "bearer"}}
+        )
+    )
+
+    assert error.details[0]["field"] == "proxy.remote_auth.secret"
+
+
+async def test_removing_the_credential_forgets_the_secret(db):
+    repository = await proxy(db, remote_auth={"type": "bearer", "secret": SECRET})
+
+    await service.update_repository(db, repository, online=True, proxy=REMOTE)
+
+    assert repository.config["proxy"]["remote_auth"] == {"type": "none"}
+
+
+async def test_create_a_group_with_ordered_members(db):
+    await create(db, "releases")
+    await proxy(db, "mirror")
+
+    repository = await group(db, members=["mirror", "releases"])
+    view = await service.describe(db, repository)
+
+    assert (view.type, view.blob_store, view.hosted, view.proxy) == ("group", None, None, None)
+    assert view.group == {"members": ["mirror", "releases"]}
+    assert [member.name for member in await service.members(db, repository)] == [
+        "mirror",
+        "releases",
+    ]
+
+
+async def test_updating_a_group_replaces_its_members_and_order(db):
+    for name in ("one", "two", "three"):
+        await create(db, name)
+    repository = await group(db, members=["one", "two"])
+
+    await service.update_repository(
+        db, repository, online=True, group={"members": ["three", "one"]}
+    )
+
+    assert await service.member_names(db, repository) == ["three", "one"]
+
+
+async def test_a_group_may_be_empty(db):
+    assert (await service.describe(db, await group(db))).group == {"members": []}
+
+
+async def test_a_member_must_exist_once_and_share_the_format(db):
+    await create(db, "releases")
+    other = Repository(name="jars", name_key="jars", format="another-format", type="hosted")
+    db.add(other)
+    await db.flush()
+
+    unknown = await error_of(group(db, "a", members=["ghost"]))
+    twice = await error_of(group(db, "b", members=["releases", "releases"]))
+    foreign = await error_of(group(db, "c", members=["jars"]))
+
+    for error in (unknown, twice, foreign):
+        assert (error.status_code, error.code) == (422, "validation_error")
+        assert error.details[0]["field"] == "group.members"
+
+
+async def test_a_group_cannot_contain_itself_directly_or_indirectly(db):
+    inner = await group(db, "inner")
+    await group(db, "outer", members=["inner"])
+
+    direct = await error_of(
+        service.update_repository(db, inner, online=True, group={"members": ["inner"]})
+    )
+    indirect = await error_of(
+        service.update_repository(db, inner, online=True, group={"members": ["outer"]})
+    )
+
+    assert (direct.status_code, direct.code) == (409, "repository_cycle")
+    assert (indirect.status_code, indirect.code) == (409, "repository_cycle")
+    assert await service.member_names(db, inner) == []
+
+
+async def test_a_repository_a_group_presents_cannot_be_deleted(db):
+    member = await create(db, "releases")
+    presenting = await group(db, members=["releases"])
+
+    error = await error_of(service.delete_repository(db, member, NOW))
+    assert (error.status_code, error.code) == (409, "in_use")
+
+    await service.update_repository(db, presenting, online=True, group={"members": []})
+    await service.delete_repository(db, member, NOW)
+
+    assert await service.get_repository(db, "releases") is None
+
+
+async def test_deleting_a_group_leaves_its_members(db):
+    await create(db, "releases")
+    presenting = await group(db, members=["releases"])
+
+    await service.delete_repository(db, presenting, NOW)
+
+    assert await service.get_repository(db, "releases") is not None
+    assert await db.scalar(select(func.count()).select_from(RepositoryMember)) == 0
+
+
+async def test_invalidating_a_proxy_cache_is_refused_for_other_types(db):
+    hosted = await create(db, "releases")
+
+    error = await error_of(service.invalidate_cache(db, hosted))
+
+    assert (error.status_code, error.code) == (409, "not_a_proxy")

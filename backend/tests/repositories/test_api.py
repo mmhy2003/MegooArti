@@ -1,5 +1,7 @@
 import pytest
+from sqlalchemy import select
 
+from megooarti.repositories.models import Repository
 from tests.accounts import PASSWORD, basic, error_code
 
 REPOSITORIES = "/api/v1/repositories"
@@ -13,6 +15,9 @@ EXPECTED = {
     "url_path": "/repository/files/",
     "hosted": {"deployment_policy": "allow_redeploy"},
     "format_config": {},
+    "proxy": None,
+    "group": None,
+    "status": None,
 }
 
 
@@ -55,7 +60,7 @@ async def test_create_with_explicit_settings(admin_client):
         {"name": "a:b"},
         {"name": "star*"},
         {"format": "cobol"},
-        {"type": "proxy"},
+        {"type": "proxy", "proxy": {"remote_url": "ftp://remote.example"}},
         {"type": "nonsense"},
         {"blob_store": "ghost"},
         {"hosted": {"deployment_policy": "sometimes"}},
@@ -108,3 +113,115 @@ async def test_delete(admin_client):
     assert (await admin_client.delete(f"{REPOSITORIES}/files")).status_code == 204
     assert (await admin_client.get(f"{REPOSITORIES}/files")).status_code == 404
     assert (await admin_client.delete(f"{REPOSITORIES}/files")).status_code == 404
+
+
+MIRROR = {
+    "name": "mirror",
+    "format": "raw",
+    "type": "proxy",
+    "proxy": {
+        "remote_url": "https://remote.example/files",
+        "remote_auth": {"type": "basic", "username": "robot", "secret": "hunter2-the-remote"},
+    },
+}
+
+
+async def test_create_a_proxy_without_ever_returning_its_secret(admin_client, db):
+    created = await admin_client.post(REPOSITORIES, json=MIRROR)
+
+    assert created.status_code == 201
+    body = created.json()
+    assert (body["type"], body["blob_store"], body["hosted"], body["group"]) == (
+        "proxy",
+        "default",
+        None,
+        None,
+    )
+    assert body["proxy"]["remote_auth"] == {
+        "type": "basic",
+        "username": "robot",
+        "has_secret": True,
+    }
+    assert body["status"] == {
+        "blocked": False,
+        "auto_blocked_until": None,
+        "failures": 0,
+        "last_error": None,
+    }
+    fetched = await admin_client.get(f"{REPOSITORIES}/mirror")
+    assert "hunter2" not in created.text + fetched.text
+    stored = await db.scalar(select(Repository.config).where(Repository.name == "mirror"))
+    assert stored["proxy"]["remote_auth"]["secret"].startswith("enc:v1:")
+
+
+async def test_updating_a_proxy_without_a_secret_keeps_it(admin_client):
+    await admin_client.post(REPOSITORIES, json=MIRROR)
+    update = {
+        "proxy": {
+            "remote_url": "https://remote.example/other",
+            "content_max_age_minutes": -1,
+            "remote_auth": {"type": "basic", "username": "robot"},
+        }
+    }
+
+    body = (await admin_client.put(f"{REPOSITORIES}/mirror", json=update)).json()
+
+    assert body["proxy"]["remote_url"] == "https://remote.example/other"
+    assert body["proxy"]["content_max_age_minutes"] == -1
+    assert body["proxy"]["remote_auth"]["has_secret"] is True
+
+
+@pytest.mark.parametrize(
+    "proxy",
+    [
+        None,
+        {},
+        {"remote_url": "ftp://remote.example"},
+        {"remote_url": "https://remote.example", "content_max_age_minutes": -2},
+        {"remote_url": "https://remote.example", "negative_cache": {"ttl_minutes": 0}},
+        {"remote_url": "https://remote.example", "remote_auth": {"type": "kerberos"}},
+        {"remote_url": "https://remote.example", "remote_auth": {"type": "bearer"}},
+    ],
+)
+async def test_invalid_proxies_are_rejected(admin_client, proxy):
+    response = await admin_client.post(REPOSITORIES, json={**MIRROR, "proxy": proxy})
+    assert (response.status_code, error_code(response)) == (422, "validation_error")
+
+
+async def test_create_and_reorder_a_group(admin_client):
+    await admin_client.post(REPOSITORIES, json=FILES)
+    await admin_client.post(REPOSITORIES, json=MIRROR)
+    everything = {
+        "name": "all",
+        "format": "raw",
+        "type": "group",
+        "group": {"members": ["files", "mirror"]},
+    }
+
+    created = await admin_client.post(REPOSITORIES, json=everything)
+    reordered = await admin_client.put(
+        f"{REPOSITORIES}/all", json={"group": {"members": ["mirror", "files"]}}
+    )
+
+    assert created.status_code == 201
+    assert (created.json()["blob_store"], created.json()["group"]) == (
+        None,
+        {"members": ["files", "mirror"]},
+    )
+    assert reordered.json()["group"] == {"members": ["mirror", "files"]}
+
+
+async def test_group_mistakes_are_reported(admin_client):
+    await admin_client.post(REPOSITORIES, json=FILES)
+    everything = {"name": "all", "format": "raw", "type": "group"}
+    await admin_client.post(REPOSITORIES, json={**everything, "group": {"members": ["files"]}})
+
+    unknown = await admin_client.post(
+        REPOSITORIES, json={**everything, "name": "more", "group": {"members": ["ghost"]}}
+    )
+    cycle = await admin_client.put(f"{REPOSITORIES}/all", json={"group": {"members": ["all"]}})
+    in_use = await admin_client.delete(f"{REPOSITORIES}/files")
+
+    assert (unknown.status_code, error_code(unknown)) == (422, "validation_error")
+    assert (cycle.status_code, error_code(cycle)) == (409, "repository_cycle")
+    assert (in_use.status_code, error_code(in_use)) == (409, "in_use")

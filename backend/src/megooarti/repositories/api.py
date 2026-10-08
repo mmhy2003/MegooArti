@@ -1,19 +1,22 @@
 """Administration of repositories."""
 
+from datetime import datetime
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.clock import utcnow
+from megooarti.config import Settings
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import service
 from megooarti.repositories.models import Repository
 from megooarti.repositories.service import RepositoryView
+from megooarti.secrets_box import seal
 from megooarti.security.authentication import Principal, require
 
 log = structlog.get_logger(__name__)
@@ -28,6 +31,55 @@ class HostedSettings(BaseModel):
     deployment_policy: Literal["allow_redeploy", "disable_redeploy", "read_only"] = "allow_redeploy"
 
 
+class NegativeCache(BaseModel):
+    enabled: bool = True
+    ttl_minutes: int = Field(default=1440, ge=1)
+
+
+class RemoteAuthIn(BaseModel):
+    type: Literal["none", "basic", "bearer"] = "none"
+    username: str = Field(default="", max_length=255)
+    # Write-only. Leave it out on an update to keep the stored secret.
+    secret: str | None = Field(default=None, min_length=1, max_length=4096)
+
+
+class ProxyIn(BaseModel):
+    remote_url: str = Field(min_length=1, max_length=2048)
+    content_max_age_minutes: int = Field(default=1440, ge=-1)
+    metadata_max_age_minutes: int = Field(default=1440, ge=-1)
+    negative_cache: NegativeCache = NegativeCache()
+    remote_auth: RemoteAuthIn = RemoteAuthIn()
+    blocked: bool = False
+    auto_block: bool = True
+
+
+class RemoteAuthOut(BaseModel):
+    type: str
+    username: str
+    has_secret: bool
+
+
+class ProxyOut(BaseModel):
+    remote_url: str
+    content_max_age_minutes: int
+    metadata_max_age_minutes: int
+    negative_cache: NegativeCache
+    remote_auth: RemoteAuthOut
+    blocked: bool
+    auto_block: bool
+
+
+class GroupSettings(BaseModel):
+    members: list[str] = []
+
+
+class ProxyStatus(BaseModel):
+    blocked: bool
+    auto_blocked_until: datetime | None
+    failures: int
+    last_error: str | None
+
+
 class RepositoryOut(BaseModel):
     name: str
     format: str
@@ -37,6 +89,9 @@ class RepositoryOut(BaseModel):
     url_path: str
     hosted: HostedSettings | None
     format_config: dict[str, Any]
+    proxy: ProxyOut | None
+    group: GroupSettings | None
+    status: ProxyStatus | None
 
 
 class RepositoryCreate(BaseModel):
@@ -44,14 +99,18 @@ class RepositoryCreate(BaseModel):
     format: str
     type: Literal["hosted", "proxy", "group"]
     online: bool = True
-    blob_store: str = "default"
+    blob_store: str | None = None
     hosted: HostedSettings | None = None
+    proxy: ProxyIn | None = None
+    group: GroupSettings | None = None
     format_config: dict[str, Any] = {}
 
 
 class RepositoryUpdate(BaseModel):
     online: bool = True
     hosted: HostedSettings | None = None
+    proxy: ProxyIn | None = None
+    group: GroupSettings | None = None
     format_config: dict[str, Any] = {}
     # Accepted so a client can send back what it read, but they cannot change.
     format: str | None = None
@@ -59,8 +118,19 @@ class RepositoryUpdate(BaseModel):
     blob_store: str | None = None
 
 
-def _settings(hosted: HostedSettings | None) -> dict[str, Any] | None:
-    return None if hosted is None else hosted.model_dump()
+def _plain(model: BaseModel | None) -> dict[str, Any] | None:
+    return None if model is None else model.model_dump()
+
+
+def _proxy(settings: Settings, proxy: ProxyIn | None) -> dict[str, Any] | None:
+    """The proxy settings as the service takes them, with the secret sealed."""
+    if proxy is None:
+        return None
+    values = proxy.model_dump()
+    secret = values["remote_auth"]["secret"]
+    if secret is not None:
+        values["remote_auth"]["secret"] = seal(settings, secret)
+    return values
 
 
 async def _load(db: AsyncSession, name: str) -> Repository:
@@ -83,6 +153,7 @@ async def list_repositories(
 @router.post("", response_model=RepositoryOut, status_code=201)
 async def create_repository(
     body: RepositoryCreate,
+    request: Request,
     principal: Principal = Depends(require("admin:repositories:write")),
     db: AsyncSession = Depends(get_session),
 ) -> RepositoryView:
@@ -93,7 +164,9 @@ async def create_repository(
         type=body.type,
         online=body.online,
         blob_store=body.blob_store,
-        hosted=_settings(body.hosted),
+        hosted=_plain(body.hosted),
+        proxy=_proxy(request.app.state.settings, body.proxy),
+        group=_plain(body.group),
         format_config=body.format_config,
     )
     view = await service.describe(db, repository)
@@ -115,6 +188,7 @@ async def get_repository(
 async def update_repository(
     name: str,
     body: RepositoryUpdate,
+    request: Request,
     principal: Principal = Depends(require("admin:repositories:write")),
     db: AsyncSession = Depends(get_session),
 ) -> RepositoryView:
@@ -129,7 +203,9 @@ async def update_repository(
         db,
         repository,
         online=body.online,
-        hosted=_settings(body.hosted),
+        hosted=_plain(body.hosted),
+        proxy=_proxy(request.app.state.settings, body.proxy),
+        group=_plain(body.group),
         format_config=body.format_config,
     )
     view = await service.describe(db, repository)
