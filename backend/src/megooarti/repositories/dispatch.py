@@ -11,6 +11,7 @@ from starlette.responses import Response
 
 from megooarti.errors import ApiError
 from megooarti.repositories.content import RepositoryContext
+from megooarti.repositories.group import handle_group
 from megooarti.repositories.proxy import handle_proxy
 
 Engine = Callable[[RepositoryContext, Request, str], Awaitable[Response]]
@@ -20,7 +21,11 @@ async def _hosted(context: RepositoryContext, request: Request, path: str) -> Re
     return await context.format.handle_hosted(context, request, path)
 
 
-ENGINES: dict[str, Engine] = {"hosted": _hosted, "proxy": handle_proxy}
+async def _group(context: RepositoryContext, request: Request, path: str) -> Response:
+    return await handle_group(context, request, path, serve)
+
+
+ENGINES: dict[str, Engine] = {"hosted": _hosted, "proxy": handle_proxy, "group": _group}
 
 
 async def serve(context: RepositoryContext, request: Request, path: str) -> Response:
