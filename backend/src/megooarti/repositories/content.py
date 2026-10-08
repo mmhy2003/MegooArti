@@ -7,7 +7,7 @@ cannot bypass them, and it is the only code that ties assets to blobs.
 import hashlib
 import mimetypes
 import re
-from collections.abc import AsyncIterator, Collection
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -36,6 +36,9 @@ _DOWNLOAD_NOTE_INTERVAL = timedelta(hours=1)
 _MEDIA_TYPE = re.compile(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(;[\x20-\x7e]*)?")
 # Recorded as the creator of content a proxy repository fetched for a reader.
 PROXY_CREATOR = "proxy"
+# The kind of a document the server keeps on an uploader's behalf.
+_MAINTAINED = "metadata"
+_PIECE = 1024 * 1024
 
 
 def _media_type(declared: str | None, path: str) -> str:
@@ -61,6 +64,11 @@ def _verify(
             raise ApiError(
                 400, "checksum_mismatch", f"The {algorithm} checksum does not match the content."
             )
+
+
+async def _pieces(data: bytes) -> AsyncIterator[bytes]:
+    for start in range(0, len(data), _PIECE):
+        yield data[start : start + _PIECE]
 
 
 @dataclass(frozen=True)
@@ -275,6 +283,18 @@ class RepositoryContext:
         authorize(self.principal, self.permission(action), scheme="Basic")
         self._check_policy(replacing=existing is not None)
 
+    def require_write(self) -> None:
+        """Refuse a caller who may not change this repository's content at all.
+
+        For an upload a format accepts without storing it as sent: it needs `add` or
+        `edit`, and the repository must not be read-only.
+        """
+        try:
+            authorize(self.principal, self.permission("add"), scheme="Basic")
+        except ApiError:
+            authorize(self.principal, self.permission("edit"), scheme="Basic")
+        self._check_policy(replacing=False)
+
     async def _lock_component(self, key: ComponentKey) -> None:
         await self._lock("component", f"{key.namespace}\x00{key.name}\x00{key.version}")
 
@@ -354,6 +374,7 @@ class RepositoryContext:
         created_by: str | None = None,
         attributes: dict[str, Any] | None = None,
         verified_at: datetime | None = None,
+        packaged: bool = True,
     ) -> tuple[Asset, bool]:
         """Tie staged content to a path. `checked` applies permission and policy."""
         try:
@@ -370,7 +391,7 @@ class RepositoryContext:
         now = utcnow()
         media_type = _media_type(content_type, path)
         if existing is None:
-            key = self.format.describe_component(path)
+            key = self.format.describe_component(path) if packaged else None
             component_id = None if key is None else (await self._component(key)).id
             asset = Asset(
                 repository_id=self.repository.id,
@@ -447,6 +468,48 @@ class RepositoryContext:
             verified_at=now,
         )
         return asset
+
+    async def maintain(
+        self,
+        path: str,
+        update: Callable[[bytes | None], Awaitable[bytes | None]],
+        *,
+        content_type: str,
+        limit: int,
+    ) -> None:
+        """Change a document the server keeps on an uploader's behalf. The caller commits.
+
+        `update` is given the stored bytes, or None, and returns what to store, or None
+        to store nothing. It runs under the path lock, so two changes never overwrite
+        each other. This needs `add` or `edit` and is not subject to `disable_redeploy`,
+        because the uploader is not replacing anything they published. It refuses a
+        path that holds any other kind of file, so it cannot overwrite an artifact.
+        """
+        path = normalise_path(path)
+        self.require_write()
+        await self._lock("path", path)
+        existing = await self.get(path, fresh=True)
+        if existing is not None and existing.kind != _MAINTAINED:
+            raise ApiError(409, "conflict", "A file that is not metadata is stored at this path.")
+        current = None if existing is None else await self.read(path, limit=limit)
+        wanted = await update(current)
+        if wanted == current:
+            return
+        if wanted is None:
+            blob_id = existing.blob_id
+            await self.db.delete(existing)
+            await self.db.flush()
+            await blobs.dereference(self.db, [blob_id], utcnow())
+            return
+        staged = await self.backend.stage(_pieces(wanted))
+        await self._record(
+            path,
+            staged,
+            content_type=content_type,
+            kind=_MAINTAINED,
+            checked=False,
+            packaged=False,
+        )
 
     async def delete(self, path: str) -> bool:
         """Remove what is at a path. False if there was nothing. The caller commits."""
