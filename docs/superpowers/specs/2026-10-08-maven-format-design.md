@@ -196,7 +196,7 @@ When a document is generated, stored plugin entries whose artifact no longer has
 
 ### 6.4 XML
 
-Metadata is the only XML that is parsed. The parser refuses any document with a `DOCTYPE`, so entity expansion and external entities cannot occur, and input is bounded by the size limits above and in section 8. A document nested more than 16 levels deep, or holding more than 100,000 elements, is refused as well.
+Metadata is the only XML that is parsed. The parser refuses any document with a `DOCTYPE`, so entity expansion and external entities cannot occur, and input is bounded by the size limits above and in section 8. A document nested more than 16 levels deep, or holding more than 20,000 elements, is refused as well: sorting versions is the costly part, and this keeps one document to about a quarter of a second.
 
 ## 7. Proxy Maven (plan 4b)
 
@@ -206,7 +206,7 @@ Metadata is the only XML that is parsed. The parser refuses any document with a 
 | --- | --- |
 | Artifact, catalog, other | The generic proxy behaviour |
 | Metadata | The generic proxy behaviour: the remote's document, cached and served as received (D5) |
-| Checksum | `ensure_cached` for the path it belongs to, then the hash of the cached file. For both `GET` and `HEAD`. The remote's checksum file is never requested |
+| Checksum | `ensure_cached` for the path it belongs to, then the hash of the cached file. For both `GET` and `HEAD`. The remote's checksum file is never requested, so a checksum of a checksum (`x.jar.sha1.sha1`) is `404` |
 
 **What is revalidated when.** Metadata, the catalog and old-style snapshot files change at the remote, so they use `metadata_max_age_minutes`. Release files and timestamped snapshot files never change, and use `content_max_age_minutes`.
 
@@ -238,7 +238,7 @@ A request for the checksum of a file that is not yet cached downloads that file.
 - `snapshotVersions`: the union by classifier and extension, keeping the entry updated most recently; the earlier member wins a tie.
 - `lastUpdated`: the latest.
 
-The merged document is built on each request and is not cached; for a proxy member that is fresh, collecting is one database read. Its `Last-Modified` is the latest among the contributing members. Building and merging run in a worker thread, so a long list of versions does not hold up other requests.
+The merged document is built on each request and is not cached; for a proxy member that is fresh, collecting is one database read. Its `Last-Modified` is the latest among the contributing members. Building and merging run on two worker threads of their own, with the database connection given back first, so a long list of versions queues behind other metadata and not in front of everything else.
 
 ## 9. Error codes added
 

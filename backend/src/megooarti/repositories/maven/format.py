@@ -3,13 +3,16 @@
 This is the only Maven module that touches the repository context. What it decides
 about a path comes from the pure functions beside it.
 
-Building, merging, reading and writing metadata run in a worker thread: a long list of
-versions takes real time to sort, and must not hold up every other request.
+Building, merging, reading and writing metadata is CPU-bound work whose size a remote
+decides. It runs on two worker threads of its own, with the database connection given
+back first, so a long list of versions queues behind other metadata and not in front
+of everything else.
 """
 
 import asyncio
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
 from typing import Any
@@ -32,6 +35,13 @@ _SETTINGS = ("version_policy", "layout_policy")
 METADATA_LIMIT = 1024 * 1024
 STORED_LIMIT = 4 * 1024 * 1024
 _XML = "application/xml"
+# Not the default executor: that one also reads and writes blobs and checks passwords.
+_workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="maven-metadata")
+
+
+async def off_loop[T](function: Callable[..., T], *arguments: Any) -> T:
+    """Run metadata work in a worker thread, at most two at a time."""
+    return await asyncio.get_running_loop().run_in_executor(_workers, function, *arguments)
 
 
 def _invalid(field: str, message: str) -> ApiError:
@@ -104,7 +114,8 @@ async def _plugins(
         return (), None
     try:
         data = await context.read(path, limit=STORED_LIMIT)
-        record = await asyncio.to_thread(metadata.parse, data or b"")
+        await context.release()
+        record = await off_loop(metadata.parse, data or b"")
     except (metadata.InvalidMetadata, TooLarge) as error:
         log.warning(
             "plugin_record_unreadable",
@@ -131,7 +142,8 @@ async def built(
     if parsed.kind == "snapshot_metadata":
         entries = await context.files(parsed.group_id, parsed.artifact_id, parsed.version)
         files = [(paths.classify(entry.path), entry.modified) for entry in entries]
-        made = await asyncio.to_thread(
+        await context.release()
+        made = await off_loop(
             metadata.for_snapshot, parsed.group_id, parsed.artifact_id, parsed.version, files
         )
         changes = [entry.modified for entry in entries]
@@ -140,7 +152,8 @@ async def built(
         if parsed.artifact_id:
             versions = await context.versions(parsed.group_id, parsed.artifact_id)
         plugins, plugins_changed = await _plugins(context, path, parsed)
-        made = await asyncio.to_thread(
+        await context.release()
+        made = await off_loop(
             metadata.for_artifact, parsed.group_id, parsed.artifact_id, versions, plugins
         )
         changes = [*versions.values(), *([plugins_changed] if plugins_changed else [])]
@@ -157,7 +170,7 @@ async def document(
     if found is None:
         return None
     made, modified = found
-    return await asyncio.to_thread(metadata.serialise, made), modified
+    return await off_loop(metadata.serialise, made), modified
 
 
 async def _digest(
@@ -190,7 +203,7 @@ async def keep_plugins(
         stored: tuple[metadata.Plugin, ...] = ()
         if current is not None:
             with suppress(metadata.InvalidMetadata):
-                stored = (await asyncio.to_thread(metadata.parse, current)).plugins
+                stored = (await off_loop(metadata.parse, current)).plugins
         plugins = metadata.merge_plugins(stored, uploaded)
         present = await context.names(group_id, [plugin.artifact_id for plugin in plugins])
         kept = tuple(plugin for plugin in plugins if plugin.artifact_id in present)
@@ -225,7 +238,7 @@ async def _metadata(
         raise ApiError(400, "invalid_metadata", "The metadata is larger than 1 MiB.")
     if parsed.kind == "metadata":
         try:
-            uploaded = await asyncio.to_thread(metadata.parse, body)
+            uploaded = await off_loop(metadata.parse, body)
         except metadata.InvalidMetadata as error:
             raise ApiError(
                 400, "invalid_metadata", f"The metadata cannot be read: {error}."
@@ -303,7 +316,8 @@ async def _cached_by(
         return None
     try:
         data = await member.read(path, limit=STORED_LIMIT)
-        held = await asyncio.to_thread(metadata.parse, data or b"")
+        await member.release()
+        held = await off_loop(metadata.parse, data or b"")
     except TooLarge:
         reason = "it is larger than 4 MiB"
     except metadata.InvalidMetadata as error:
@@ -346,7 +360,8 @@ async def _merged(
             found.append(held)
     if not found:
         return None
-    merged = await asyncio.to_thread(metadata.merge, [held for held, _ in found])
+    await context.release()
+    merged = await off_loop(metadata.merge, [held for held, _ in found])
     return merged, max(modified for _, modified in found)
 
 
@@ -422,6 +437,10 @@ class MavenFormat(Format):
         path = normalise_path(path)
         target, algorithm = paths.split_checksum(path)
         parsed = paths.classify(target)
+        if paths.split_checksum(target)[1] is not None:
+            # A checksum of a checksum: answering it would mean fetching and keeping
+            # the remote's own checksum file, which a proxy never does.
+            raise _not_found()
         settings = context.repository.config["format_config"]
         if _excluded(settings, parsed) is not None and await context.stat(target) is None:
             # Not asked of the remote: this repository would not keep the answer.
@@ -452,7 +471,7 @@ class MavenFormat(Format):
                 if found is None:
                     raise _not_found()
                 merged, modified = found
-                data = await asyncio.to_thread(metadata.serialise, merged)
+                data = await off_loop(metadata.serialise, merged)
                 if algorithm is None:
                     return _metadata_response(context, request, data, modified)
                 digest = hashlib.new(algorithm, data).hexdigest()

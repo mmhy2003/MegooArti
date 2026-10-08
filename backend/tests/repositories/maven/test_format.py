@@ -1,9 +1,16 @@
+import asyncio
+import threading
+import time
+
 import pytest
 
 from megooarti.errors import ApiError
 from megooarti.repositories.formats import ComponentKey, get_format
+from megooarti.repositories.maven import format as maven_format
+from megooarti.repositories.maven import metadata, paths
 from megooarti.repositories.maven.format import MavenFormat
 from tests.accounts import error_code
+from tests.repositories.conftest import body, someone
 
 MAVEN = MavenFormat()
 STRICT_RELEASES = {"version_policy": "release", "layout_policy": "strict"}
@@ -176,3 +183,47 @@ async def test_maven_proxy_and_group_repositories_are_created_through_the_api(ad
     assert everything.status_code == 201, everything.text
     assert everything.json()["format_config"] == {}
     assert (with_settings.status_code, error_code(with_settings)) == (422, "validation_error")
+
+
+async def test_metadata_work_runs_two_at_a_time_on_threads_of_its_own():
+    guard = threading.Lock()
+    running, most, names = 0, 0, set()
+
+    def slow() -> str:
+        nonlocal running, most
+        with guard:
+            running += 1
+            most = max(most, running)
+            names.add(threading.current_thread().name)
+        time.sleep(0.05)
+        with guard:
+            running -= 1
+        return "done"
+
+    results = await asyncio.gather(*(maven_format.off_loop(slow) for _ in range(8)))
+
+    assert results == ["done"] * 8
+    assert most == 2
+    assert all(name.startswith("maven-metadata") for name in names)
+
+
+async def test_no_database_connection_is_held_while_metadata_is_built(
+    db, releases, context_for, monkeypatch
+):
+    context = await context_for(releases, someone("repository:maven:releases"))
+    await context.put("com/acme/app/1.0/app-1.0.jar", body(b"x"))
+    await db.commit()
+    in_transaction = []
+    real = metadata.for_artifact
+
+    def watched(*arguments):
+        in_transaction.append(db.in_transaction())
+        return real(*arguments)
+
+    monkeypatch.setattr(metadata, "for_artifact", watched)
+    listing = "com/acme/app/maven-metadata.xml"
+
+    found = await maven_format.built(context, listing, paths.classify(listing))
+
+    assert found is not None and found[0].versions == ("1.0",)
+    assert in_transaction == [False]

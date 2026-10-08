@@ -18,8 +18,8 @@
 | P2 | The context carries `outbound`, a function that returns the application's HTTP client, and `http()` calls it. | The client is still built on first use, and a member's context can be given the group's. |
 | P3 | `ensure_cached(context, path)` returns nothing; the caller then reads through the context. | One function has one job, and the context already knows how to read. |
 | P4 | `require_write` and `maintain` raise `RuntimeError` on a repository that is not hosted. | Like `cache` on a non-proxy, this is a programming error, not bad input. Deferred from the 4a review. |
-| P5 | Building, merging, reading and writing metadata run in a worker thread. | A long version list must not hold up every other request. Deferred from the 4a review. |
-| P6 | Parsed XML is limited to 16 levels of nesting and 100,000 elements. | Remote documents are read without any permission being needed. Deferred from the 4a review. |
+| P5 | Building, merging, reading and writing metadata run in a worker thread (after review: on two threads of their own, with the connection released first). | A long version list must not hold up every other request. Deferred from the 4a review. |
+| P6 | Parsed XML is limited to 16 levels of nesting and 100,000 elements (after review: 20,000, sized to the cost of sorting). | Remote documents are read without any permission being needed. Deferred from the 4a review. |
 | P7 | A proxy still serves a path its policy now excludes, if it is already cached. It does not ask the remote for one that is not. | Spec 5.1: the policy governs what is added, not what is served. |
 | P8 | The format's `content_type` hook also applies to files a proxy fetches. | A proxied `.pom` should have the same type as a deployed one. |
 | P9 | In a group, `latest`, `release` and the order of versions are always recomputed from the merged list. | A member's own `latest` describes only that member. |

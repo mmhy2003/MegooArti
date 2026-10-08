@@ -17,9 +17,10 @@ from megooarti.repositories.maven.versions import sorted_versions
 _MAX_FIELD = 255
 _DECLARATION = b'<?xml version="1.0" encoding="UTF-8"?>\n'
 # Real metadata nests five levels and lists a few thousand versions at most. These
-# bound what a document can cost to read, whoever sent it.
+# bound what a document can cost, whoever sent it: sorting versions takes about 12
+# microseconds each, so a document at the limit costs a quarter of a second.
 _MAX_DEPTH = 16
-_MAX_ELEMENTS = 100_000
+_MAX_ELEMENTS = 20_000
 
 
 class InvalidMetadata(Exception):

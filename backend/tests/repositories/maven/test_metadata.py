@@ -315,9 +315,9 @@ def test_a_document_with_too_many_elements_is_refused():
         document = f"<metadata><versioning><versions>{versions}</versions></versioning></metadata>"
         return document.encode()
 
-    assert len(metadata.parse(listing(20_000)).versions) == 20_000
+    assert len(metadata.parse(listing(10_000)).versions) == 10_000
     with pytest.raises(InvalidMetadata, match="too many"):
-        metadata.parse(listing(100_000))
+        metadata.parse(listing(20_000))
 
 
 def test_merging_nothing_is_nothing():

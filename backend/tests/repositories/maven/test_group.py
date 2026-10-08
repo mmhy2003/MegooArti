@@ -265,3 +265,19 @@ async def test_group_metadata_cannot_be_written(client, root, public, method, su
 
     assert (response.status_code, error_code(response)) == (405, "method_not_allowed")
     assert response.headers["Allow"] == "GET, HEAD"
+
+
+async def test_a_checksum_asked_for_first_by_head_through_a_group(
+    client, root, public, fake_remote
+):
+    theirs = b"PK held by the remote"
+    fake_remote.files["maven2/com/acme/lib/3.0/lib-3.0.jar"] = theirs
+    url = "/repository/public/com/acme/lib/3.0/lib-3.0.jar"
+
+    headed = await client.head(f"{url}.sha1", headers=root)
+    file = await client.get(url, headers=root)
+
+    assert (headed.status_code, headed.headers["Content-Length"]) == (200, "40")
+    assert file.content == theirs
+    assert fake_remote.paths() == ["/maven2/com/acme/lib/3.0/lib-3.0.jar"]
+    assert fake_remote.paths("HEAD") == []

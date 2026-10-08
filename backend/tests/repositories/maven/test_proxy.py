@@ -11,6 +11,7 @@ from tests.repositories.maven.conftest import REMOTE, create
 JAR_PATH = "com/acme/app/1.0/app-1.0.jar"
 JAR = f"/repository/central/{JAR_PATH}"
 BYTES = b"PK\x03\x04 a jar the remote holds"
+SHA1 = hashlib.sha1(BYTES).hexdigest()
 LISTING_PATH = "com/acme/app/maven-metadata.xml"
 LISTING = f"/repository/central/{LISTING_PATH}"
 # Not how MegooArti would write it: a proxy passes metadata on untouched.
@@ -64,6 +65,8 @@ async def test_a_checksum_asked_for_first_fetches_its_file_once(client, root, re
 
     assert checksum.status_code == 200
     assert checksum.headers["Content-Length"] == "40"
+    assert checksum.headers["X-Checksum-Sha1"] == hashlib.sha1(SHA1.encode()).hexdigest()
+    assert checksum.content in (b"", SHA1.encode())
     assert file.content == BYTES
     assert asked(remote) == [JAR_PATH]
     assert asked(remote, "HEAD") == []
@@ -188,3 +191,17 @@ async def test_a_maven_proxy_cannot_be_written_to(client, root, remote, method, 
     assert (response.status_code, error_code(response)) == (405, "method_not_allowed")
     assert response.headers["Allow"] == "GET, HEAD"
     assert asked(remote) == []
+
+
+@pytest.mark.parametrize("suffix", [".sha1.sha1", ".sha1.md5", ".md5.sha512"])
+async def test_a_checksum_of_a_checksum_is_never_fetched(client, root, remote, db, suffix):
+    remote.files[f"maven2/{JAR_PATH}.sha1"] = b"the remote's own checksum file"
+    remote.files[f"maven2/{JAR_PATH}.md5"] = b"the remote's own checksum file"
+
+    fetched = await client.get(f"{JAR}{suffix}", headers=root)
+    headed = await client.head(f"{JAR}{suffix}", headers=root)
+
+    assert (fetched.status_code, error_code(fetched)) == (404, "not_found")
+    assert headed.status_code == 404
+    assert asked(remote) == asked(remote, "HEAD") == []
+    assert list(await db.scalars(select(Asset.path))) == []

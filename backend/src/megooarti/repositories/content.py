@@ -236,6 +236,14 @@ class RepositoryContext:
             raise TooLarge(path)
         return b"".join([chunk async for chunk in self.backend.open(row.sha256)])
 
+    async def release(self) -> None:
+        """Give the database connection back before slow work that needs none.
+
+        Only for a request that has read and not written: this commits, so nothing may
+        be pending and no lock may be held.
+        """
+        await self.db.commit()
+
     async def receive(self, chunks: AsyncIterator[bytes], *, limit: int) -> bytes | None:
         """A small upload, read into memory. None if it is longer than `limit`."""
         await self.db.commit()  # give the connection back while the body arrives
