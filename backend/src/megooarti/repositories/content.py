@@ -104,6 +104,19 @@ class ComponentInfo:
     modified: datetime
 
 
+@dataclass(frozen=True)
+class PackageFile:
+    """One file of a package, with what its version's component says."""
+
+    path: str
+    version: str
+    size: int
+    sha256: str
+    modified: datetime
+    attributes: dict[str, Any]  # the file's own
+    component_attributes: dict[str, Any]
+
+
 class TooLarge(Exception):
     """A file that was to be read into memory is larger than the caller allows."""
 
@@ -280,6 +293,29 @@ class RepositoryContext:
             ComponentInfo(version, attributes, created, changed)
             for version, attributes, created, changed in rows
         ]
+
+    async def package_files(self, namespace: str, name: str) -> list[PackageFile]:
+        """Every file of every version of a package, ordered by path."""
+        rows = await self.db.execute(
+            select(
+                Asset.path,
+                Component.version,
+                Blob.size,
+                Blob.sha256,
+                Asset.updated_at,
+                Asset.attributes,
+                Component.attributes,
+            )
+            .join(Component, Component.id == Asset.component_id)
+            .join(Blob, Blob.id == Asset.blob_id)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name == name,
+            )
+            .order_by(Asset.path)
+        )
+        return [PackageFile(*row) for row in rows]
 
     async def component(self, namespace: str, name: str, version: str) -> ComponentInfo | None:
         """One version of a package, or None if it has no file."""
@@ -599,13 +635,15 @@ class RepositoryContext:
         *,
         content_type: str | None = None,
         kind: str = "asset",
+        attributes: dict[str, Any] | None = None,
         component_attributes: dict[str, Any] | None = None,
     ) -> tuple[Asset, bool]:
         """Record staged content at a path, in the caller's transaction.
 
         Checks permission and policy under the path lock. Never commits: the caller
-        does, and a rollback undoes everything recorded here. `component_attributes`,
-        when given, become the attributes of the component the file belongs to.
+        does, and a rollback undoes everything recorded here. `attributes`, when given,
+        become what is recorded about the file itself, and `component_attributes` the
+        attributes of the component it belongs to.
         """
         return await self._record(
             path,
@@ -613,6 +651,7 @@ class RepositoryContext:
             content_type=content_type,
             kind=kind,
             checked=True,
+            attributes=attributes,
             component_attributes=component_attributes,
         )
 

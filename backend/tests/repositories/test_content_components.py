@@ -1,10 +1,12 @@
+import hashlib
+
 import pytest
 from sqlalchemy import select
 from starlette.requests import Request
 
 from megooarti.errors import ApiError
 from megooarti.repositories import service
-from megooarti.repositories.content import ComponentInfo
+from megooarti.repositories.content import ComponentInfo, PackageFile
 from megooarti.repositories.formats import ComponentKey, Format
 from megooarti.repositories.models import Asset, Component
 from megooarti.system.settings_store import set_setting
@@ -208,3 +210,64 @@ async def test_package_names_can_cover_several_repositories(context, context_for
     assert (page, page_total) == ([("zeta", "pad-there")], 2)
     assert alone == ([("acme", "left-pad"), ("zeta", "pad-there")], 2)
     assert nowhere == ([], 0)
+
+
+async def test_package_files_lists_every_file_of_every_version(context):
+    first, _ = await store(
+        context,
+        "acme/app/1.0/app.tgz",
+        b"one",
+        attributes={"kind": "source"},
+        component_attributes={"n": 1},
+    )
+    second, _ = await store(context, "acme/app/1.0/app.whl", b"three")
+    third, _ = await store(
+        context, "acme/app/2.0/app.tgz", b"second", component_attributes={"n": 2}
+    )
+    await store(context, "acme/other/1.0/other.tgz")
+    await store(context, "other/app/1.0/app.tgz")
+    await store(context, "loose.txt")
+
+    files = await context.package_files("acme", "app")
+
+    assert files == [
+        PackageFile(
+            path="acme/app/1.0/app.tgz",
+            version="1.0",
+            size=3,
+            sha256=hashlib.sha256(b"one").hexdigest(),
+            modified=first.updated_at,
+            attributes={"kind": "source"},
+            component_attributes={"n": 1},
+        ),
+        PackageFile(
+            path="acme/app/1.0/app.whl",
+            version="1.0",
+            size=5,
+            sha256=hashlib.sha256(b"three").hexdigest(),
+            modified=second.updated_at,
+            attributes={},
+            component_attributes={"n": 1},
+        ),
+        PackageFile(
+            path="acme/app/2.0/app.tgz",
+            version="2.0",
+            size=6,
+            sha256=hashlib.sha256(b"second").hexdigest(),
+            modified=third.updated_at,
+            attributes={},
+            component_attributes={"n": 2},
+        ),
+    ]
+    assert await context.package_files("acme", "nothing") == []
+
+
+async def test_what_is_recorded_about_a_file_stays_until_it_is_given_again(context):
+    await store(context, "acme/app/1.0/app.tgz", b"one", attributes={"kind": "source"})
+
+    await store(context, "acme/app/1.0/app.tgz", b"two")
+    kept = (await context.package_files("acme", "app"))[0].attributes
+    await store(context, "acme/app/1.0/app.tgz", b"three", attributes={"kind": "rebuilt"})
+    replaced = (await context.package_files("acme", "app"))[0].attributes
+
+    assert (kept, replaced) == ({"kind": "source"}, {"kind": "rebuilt"})
