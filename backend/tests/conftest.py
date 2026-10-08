@@ -26,6 +26,7 @@ from megooarti.security import passwords, tokens, users
 from megooarti.security.models import User
 from tests.accounts import PASSWORD, sign_in
 from tests.clients import client_for
+from tests.containers import DATA_FILE, call, compose
 from tests.databases import ensure_database, reset_schema
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://megooarti:megooarti@localhost:5432/megooarti_test"
@@ -202,3 +203,42 @@ async def files(db) -> Repository:
     )
     await db.commit()
     return repository
+
+
+@pytest.fixture(scope="module")
+def stack():
+    """The built image and its database, started afresh for each module of container tests."""
+    compose("down", "--volumes", check=False)
+    compose("build", "backend")
+    compose("up", "--detach", "--wait", "--wait-timeout", "180")
+    yield
+    compose("down", "--volumes", check=False)
+
+
+@pytest.fixture(scope="module")
+def administrator(stack) -> dict[str, str]:
+    """Sign in as the first-start administrator and change the password, once per module.
+
+    Returns the headers that authenticate later requests as that session.
+    """
+    password = compose("exec", "-T", "backend", "cat", DATA_FILE).stdout.strip()
+    assert password
+
+    status, headers, session = call(
+        "POST", "/auth/login", {"username": "admin", "password": password}
+    )
+    assert status == 200
+    assert session["must_change_password"] is True
+    credentials = {
+        "Cookie": headers["Set-Cookie"].split(";")[0],
+        "X-CSRF-Token": session["csrf_token"],
+    }
+
+    status, _, _ = call(
+        "PUT",
+        "/me/password",
+        {"current_password": password, "new_password": "a brand new password"},
+        credentials,
+    )
+    assert status == 204
+    return credentials

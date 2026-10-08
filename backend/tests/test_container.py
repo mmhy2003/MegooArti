@@ -3,46 +3,13 @@
 import hashlib
 import json
 import os
-import subprocess
-import urllib.error
 import urllib.request
-from pathlib import Path
 
 import pytest
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = BACKEND_DIR.parent
-PROJECT = "megooarti-test"
-HTTP_PORT = "18000"
-ENVIRONMENT = {**os.environ, "MEGOOARTI_HTTP_PORT": HTTP_PORT, "MEGOOARTI_DB_PORT": "15432"}
+from tests.containers import BACKEND_DIR, DATA_FILE, HTTP_PORT, call, compose, run_in_backend
+
 UNREACHABLE = "MEGOOARTI_DATABASE_URL=postgresql://megooarti:megooarti@nowhere.invalid:5432/m"
-
-
-def compose(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", "compose", "--project-name", PROJECT, *arguments],
-        cwd=REPOSITORY_ROOT,
-        env=ENVIRONMENT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=check,
-    )
-
-
-def run_in_backend(*arguments: str) -> subprocess.CompletedProcess[str]:
-    """Start a throwaway backend container; `arguments` are `docker compose run` arguments."""
-    return compose("run", "--rm", "--no-deps", "-T", *arguments, check=False)
-
-
-@pytest.fixture(scope="module")
-def stack():
-    compose("down", "--volumes", check=False)
-    compose("build", "backend")
-    compose("up", "--detach", "--wait", "--wait-timeout", "180")
-    yield
-    compose("down", "--volumes", check=False)
 
 
 def test_entrypoint_has_unix_line_endings():
@@ -90,54 +57,6 @@ def test_container_does_not_run_as_root(stack):
     result = run_in_backend("--entrypoint", "id", "backend", "-u")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "10001"
-
-
-DATA_FILE = "/var/lib/megooarti/admin.password"
-
-
-def call(method: str, path: str, payload: dict | None = None, headers: dict | None = None):
-    """A JSON request to the published backend port: (status, headers, body)."""
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{HTTP_PORT}/api/v1{path}",
-        method=method,
-        data=None if payload is None else json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            raw = response.read()
-            return response.status, response.headers, json.loads(raw) if raw else None
-    except urllib.error.HTTPError as error:
-        return error.code, error.headers, json.loads(error.read() or b"null")
-
-
-@pytest.fixture(scope="module")
-def administrator(stack) -> dict[str, str]:
-    """Sign in as the first-start administrator and change the password, once per module.
-
-    Returns the headers that authenticate later requests as that session.
-    """
-    password = compose("exec", "-T", "backend", "cat", DATA_FILE).stdout.strip()
-    assert password
-
-    status, headers, session = call(
-        "POST", "/auth/login", {"username": "admin", "password": password}
-    )
-    assert status == 200
-    assert session["must_change_password"] is True
-    credentials = {
-        "Cookie": headers["Set-Cookie"].split(";")[0],
-        "X-CSRF-Token": session["csrf_token"],
-    }
-
-    status, _, _ = call(
-        "PUT",
-        "/me/password",
-        {"current_password": password, "new_password": "a brand new password"},
-        credentials,
-    )
-    assert status == 204
-    return credentials
 
 
 @pytest.mark.docker
