@@ -18,6 +18,7 @@ from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories import upkeep
 from megooarti.repositories.api import router as repositories_router
+from megooarti.repositories.docker.routes import router as registry_router  # registers the format
 from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
 from megooarti.repositories.pypi import format as _pypi_format  # noqa: F401  (registers it)
@@ -138,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
     app.include_router(content_router)  # /repository/..., outside the JSON API
+    app.include_router(registry_router)  # /v2/..., the container registry API
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep
