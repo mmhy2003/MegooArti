@@ -121,6 +121,10 @@ class PackageFile:
     component_attributes: dict[str, Any]
 
 
+# What a component is found by is cut to this: a description can be a book.
+_SEARCH_MOST = 4000
+
+
 class TooLarge(Exception):
     """A file that was to be read into memory is larger than the caller allows."""
 
@@ -581,10 +585,20 @@ class RepositoryContext:
                 namespace=key.namespace,
                 name=key.name,
                 version=key.version,
+                attributes={},
             )
+            self._describe(component)
             self.db.add(component)
             await self.db.flush()
         return component
+
+    def _describe(self, component: Component, attributes: dict[str, Any] | None = None) -> None:
+        """Write what a component is found by, and its attributes if they are given."""
+        if attributes is not None:
+            component.attributes = attributes
+        key = ComponentKey(component.namespace, component.name, component.version)
+        words = self.format.search_text(key, component.attributes)
+        component.search = words.lower()[:_SEARCH_MOST]
 
     async def put(
         self,
@@ -670,7 +684,7 @@ class RepositoryContext:
             key = self.format.describe_component(path) if packaged else None
             component = None if key is None else await self._component(key)
             if component is not None and component_attributes is not None:
-                component.attributes = component_attributes
+                self._describe(component, component_attributes)
             asset = Asset(
                 repository_id=self.repository.id,
                 component_id=None if component is None else component.id,
@@ -702,7 +716,7 @@ class RepositoryContext:
             await self._lock_component(
                 ComponentKey(component.namespace, component.name, component.version)
             )
-            component.attributes = component_attributes
+            self._describe(component, component_attributes)
         await self.db.flush()
         if changed:
             await blobs.dereference(self.db, [previous], now)
@@ -864,7 +878,7 @@ class RepositoryContext:
         )
         if component is None:
             return False
-        component.attributes = attributes
+        self._describe(component, attributes)
         await self.db.flush()
         return True
 

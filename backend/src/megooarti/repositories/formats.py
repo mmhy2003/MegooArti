@@ -98,6 +98,14 @@ class Format:
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
 
+    def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
+        """The words a component is found by. They are stored in lower case.
+
+        `attributes` are the component's own. The generic format gives its namespace,
+        name and version; a format adds what its users would type.
+        """
+        return " ".join(part for part in (key.namespace, key.name, key.version) if part)
+
     async def delete_asset(self, context: "RepositoryContext", path: str) -> bool:
         """Delete a stored file of a hosted repository as this format's own client would.
 

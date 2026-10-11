@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from megooarti.db.schema import MIGRATION_LOCK_KEY, alembic_config, head_revision
-from tests.databases import fetch_all
+from tests.databases import fetch_all, run_sql
 
 USER_TABLES = (
     "SELECT tablename FROM pg_tables "
@@ -98,3 +98,54 @@ def test_paths_are_ordered_by_their_bytes_whatever_the_database_orders_by(empty_
 
     assert upgraded == [("asset_references", "C"), ("assets", "C")]
     assert before == [("asset_references", None), ("assets", None)]
+
+
+SEARCH_INDEXES = (
+    "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' "
+    "AND (indexname LIKE 'ix_components_%_trgm' OR indexname LIKE 'ix_blobs_%') ORDER BY indexname"
+)
+
+
+def test_components_that_exist_are_given_what_they_are_found_by(empty_database):
+    config = alembic_config(empty_database)
+    command.upgrade(config, "0006")
+    repository = "00000000-0000-0000-0000-000000000001"
+    run_sql(
+        empty_database,
+        "INSERT INTO repositories (id, name, name_key, format, type, online, config, "
+        f"created_at, updated_at) VALUES ('{repository}', 'old', 'old', 'maven', 'group', true, "
+        "'{}', now(), now())",
+        "INSERT INTO components (id, repository_id, namespace, name, version, attributes, "
+        "created_at, updated_at) VALUES "
+        f"(gen_random_uuid(), '{repository}', 'Com.Acme', 'App', '1.0', '{{}}', now(), now()), "
+        f"(gen_random_uuid(), '{repository}', '', 'readme.TXT', '', '{{}}', now(), now())",
+    )
+
+    command.upgrade(config, "head")
+
+    found = fetch_all(empty_database, "SELECT search FROM components ORDER BY search")
+    assert found == [("com.acme app 1.0",), ("readme.txt",)]
+    assert fetch_all(empty_database, SEARCH_INDEXES) == [
+        ("ix_blobs_md5",),
+        ("ix_blobs_sha1",),
+        ("ix_blobs_sha256",),
+        ("ix_blobs_sha512",),
+        ("ix_components_name_trgm",),
+        ("ix_components_namespace_trgm",),
+        ("ix_components_search_trgm",),
+    ]
+
+
+def test_the_search_column_and_its_indexes_go_on_the_way_back(empty_database):
+    config = alembic_config(empty_database)
+    command.upgrade(config, "head")
+
+    command.downgrade(config, "0006")
+
+    columns = fetch_all(
+        empty_database,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'components' AND column_name = 'search'",
+    )
+    assert columns == []
+    assert fetch_all(empty_database, SEARCH_INDEXES) == []

@@ -32,6 +32,7 @@ a component too, in a namespace apart from the tags.
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
 from starlette.requests import Request
@@ -787,6 +788,11 @@ class DockerFormat(Format):
             )
             details = [{"field": "name", "message": message}]
             raise ApiError(422, "validation_error", "The request is not valid.", details)
+
+    def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
+        """A tag is found by its image and tag, also as `image:tag`."""
+        words = super().search_text(key, attributes)
+        return words if key.namespace else f"{words} {key.name}:{key.version}"
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tag is a component: the image, and the tag as its version.

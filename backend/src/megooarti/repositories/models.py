@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,7 +34,19 @@ class Repository(Base):
 
 class Component(Base):
     __tablename__ = "components"
-    __table_args__ = (UniqueConstraint("repository_id", "namespace", "name", "version"),)
+    __table_args__ = (
+        UniqueConstraint("repository_id", "namespace", "name", "version"),
+        # Trigrams, so that "contains" and patterns with `*` do not read every row.
+        *(
+            Index(
+                f"ix_components_{column}_trgm",
+                column,
+                postgresql_using="gin",
+                postgresql_ops={column: "gin_trgm_ops"},
+            )
+            for column in ("search", "name", "namespace")
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     repository_id: Mapped[uuid.UUID] = mapped_column(
@@ -44,6 +56,8 @@ class Component(Base):
     name: Mapped[str] = mapped_column(String(1024))
     version: Mapped[str] = mapped_column(String(255), default="")
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # The words it is found by, in lower case. Its format says what they are.
+    search: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

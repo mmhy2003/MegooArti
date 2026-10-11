@@ -724,6 +724,20 @@ class NpmFormat(Format):
         await _change_tags(context, parsed.package, documents.effective_tags, removing=True)
         return True
 
+    def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
+        """Its name as npm writes it, and the description and keywords of its manifest."""
+        manifest = attributes.get(_MANIFEST)
+        manifest = manifest if isinstance(manifest, dict) else {}
+        words = [f"@{key.namespace}/{key.name}" if key.namespace else key.name]
+        description, keywords = manifest.get("description"), manifest.get("keywords")
+        if isinstance(description, str):
+            words.append(description)
+        if isinstance(keywords, str):
+            words.append(keywords)
+        elif isinstance(keywords, list):
+            words += [word for word in keywords if isinstance(word, str)]
+        return " ".join([super().search_text(key, attributes), *words])
+
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""
         parsed = paths.classify(path)

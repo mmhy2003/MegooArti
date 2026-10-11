@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,7 +26,14 @@ class Blob(Base):
     """One piece of content in one blob store, named by its SHA-256."""
 
     __tablename__ = "blobs"
-    __table_args__ = (UniqueConstraint("blob_store_id", "sha256"),)
+    __table_args__ = (
+        UniqueConstraint("blob_store_id", "sha256"),
+        # For finding a file by any of its checksums. Hash: a checksum is looked up whole.
+        *(
+            Index(f"ix_blobs_{column}", column, postgresql_using="hash")
+            for column in ("md5", "sha1", "sha256", "sha512")
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     blob_store_id: Mapped[uuid.UUID] = mapped_column(

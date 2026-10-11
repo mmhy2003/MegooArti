@@ -383,6 +383,13 @@ async def _group_file(
 class PypiFormat(Format):
     name = "pypi"
 
+    def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
+        """Its name and version, and the summary its upload declared."""
+        declared = attributes.get(_DECLARED)
+        summary = declared.get("summary") if isinstance(declared, dict) else None
+        words = super().search_text(key, attributes)
+        return f"{words} {summary}" if isinstance(summary, str) else words
+
     def describe_component(self, path: str) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""
         parsed = names.classify(path)

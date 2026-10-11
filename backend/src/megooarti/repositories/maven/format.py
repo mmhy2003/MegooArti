@@ -398,6 +398,11 @@ class MavenFormat(Format):
             return None
         return ComponentKey(parsed.group_id, parsed.artifact_id, parsed.version)
 
+    def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
+        """Its coordinates, and the three of them as they are written in a build file."""
+        together = f"{key.namespace}:{key.name}:{key.version}"
+        return f"{super().search_text(key, attributes)} {together}"
+
     def content_type(self, path: str, declared: str | None) -> str | None:
         # Maven clients rarely declare a type, and never a useful one.
         return paths.content_type(path) or declared
