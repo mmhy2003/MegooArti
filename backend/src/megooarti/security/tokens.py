@@ -52,6 +52,14 @@ async def find_token(db: AsyncSession, value: str, now: datetime) -> ApiToken | 
     return token
 
 
+async def get_token(db: AsyncSession, token_id: uuid.UUID, now: datetime) -> ApiToken | None:
+    """A token by its ID, if it still exists and has not expired."""
+    token = await db.get(ApiToken, token_id)
+    if token is None or (token.expires_at is not None and token.expires_at <= now):
+        return None
+    return token
+
+
 def touch(token: ApiToken, now: datetime) -> None:
     """Note use, writing at most once a minute per token."""
     if token.last_used_at is None or now - token.last_used_at >= _TOUCH_INTERVAL:

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import secrets
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.security import sessions, throttle, tokens, users
+from megooarti.security import registry_tokens, sessions, throttle, tokens, users
 from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
@@ -45,6 +46,8 @@ class Principal:
     # What anyone may do without credentials: the anonymous user's patterns while
     # anonymous access is on. Only ever applied to repository permissions.
     public: frozenset[str] = frozenset()
+    # The API token the caller presented, if any: what a registry token is issued for.
+    token_id: uuid.UUID | None = None
 
     @property
     def is_anonymous(self) -> bool:
@@ -100,7 +103,15 @@ async def build_principal(
     anonymous = await _anonymous_access(db)
     public = frozenset() if anonymous is None else anonymous[1]
     scopes = None if token is None or token.scopes is None else frozenset(token.scopes)
-    return Principal(user, method, await users.user_patterns(db, user), scopes, session, public)
+    return Principal(
+        user,
+        method,
+        await users.user_patterns(db, user),
+        scopes,
+        session,
+        public,
+        None if token is None else token.id,
+    )
 
 
 async def _checked[T](
@@ -234,6 +245,8 @@ def _decode_basic(credentials: str) -> tuple[str, str]:
 async def _from_header(db: AsyncSession, request: Request, header: str) -> Principal:
     scheme, _, credentials = header.partition(" ")
     scheme = scheme.lower()
+    if scheme == "bearer" and credentials.strip().startswith(registry_tokens.PREFIX):
+        return await _from_registry_token(db, request, credentials.strip())
     if scheme == "bearer":
         user, token = await _authenticate_token(db, request, credentials.strip())
         return await build_principal(db, user, "token", token=token)
@@ -243,6 +256,61 @@ async def _from_header(db: AsyncSession, request: Request, header: str) -> Princ
         method = "password" if token is None else "token"
         return await build_principal(db, user, method, token=token)
     raise unauthorized("The Authorization scheme is not supported.")
+
+
+async def _from_registry_token(db: AsyncSession, request: Request, value: str) -> Principal:
+    """Who a registry token stands for, as things are now.
+
+    The token only says who signed in. The user, the roles and the API token are read
+    again here, so one that was disabled or revoked since is refused. A token that
+    has expired is not a failed attempt: clients fetch a new one as a matter of course.
+    """
+    now = utcnow()
+    refused = unauthorized("The registry token is not valid or has expired.")
+    claims = registry_tokens.read(request.app.state.settings, value, now)
+    if claims is None:
+        raise refused
+    if claims.user_id is None:
+        anonymous = await _anonymous_access(db)
+        if anonymous is None:
+            raise refused
+        user, patterns = anonymous
+        return Principal(user, "anonymous", patterns, public=patterns)
+    user = await users.get_user(db, claims.user_id)
+    if user is None or user.status != "active" or claims.method == "anonymous":
+        raise refused
+    if (claims.method == "token") != (claims.token_id is not None):
+        raise refused
+    token = None
+    if claims.token_id is not None:
+        token = await tokens.get_token(db, claims.token_id, now)
+        if token is None or token.user_id != user.id:
+            raise refused
+        tokens.touch(token, now)
+    return await build_principal(db, user, claims.method, token=token)
+
+
+async def issue_registry_token(
+    request: Request, db: AsyncSession, principal: Principal | None
+) -> str:
+    """A registry token for whoever is calling: a container client's sign-in.
+
+    `principal` is who the request's credentials identify, or None if it carries
+    none. Then the token is the anonymous user's, and is given only while anonymous
+    access is on. A registry token is not a credential here: a client that could trade
+    one for the next would never have to present its password or API token again.
+    """
+    scheme, _, presented = request.headers.get("Authorization", "").partition(" ")
+    if scheme.lower() == "bearer" and presented.strip().startswith(registry_tokens.PREFIX):
+        raise unauthorized("Sign in with a password or an API token.", scheme="Basic")
+    if principal is None or principal.is_anonymous:
+        if await _anonymous_access(db) is None:
+            raise unauthorized(scheme="Basic")
+        claims = registry_tokens.Claims(None, "anonymous")
+    else:
+        method = "token" if principal.token_id is not None else "password"
+        claims = registry_tokens.Claims(principal.user.id, method, principal.token_id)
+    return registry_tokens.issue(request.app.state.settings, claims, utcnow())
 
 
 async def resolve_principal(request: Request, db: AsyncSession) -> Principal | None:

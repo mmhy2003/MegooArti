@@ -9,6 +9,7 @@ import hashlib
 import os
 import uuid
 from contextlib import suppress
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -80,6 +81,20 @@ def unseal(settings: Settings, stored: str) -> str:
         return _box(settings).decrypt(stored.removeprefix(_MARK).encode()).decode()
     except InvalidToken:
         raise SecretUnreadable from None
+
+
+def seal_at(settings: Settings, plaintext: str, now: datetime) -> str:
+    """Seal text together with the time, for `unseal_within`. Not for stored secrets."""
+    return _box(settings).encrypt_at_time(plaintext.encode(), int(now.timestamp())).decode()
+
+
+def unseal_within(settings: Settings, sealed: str, seconds: int, now: datetime) -> str | None:
+    """What `seal_at` sealed, if that was no more than `seconds` ago. Otherwise None."""
+    try:
+        opened = _box(settings).decrypt_at_time(sealed.encode(), seconds, int(now.timestamp()))
+    except (InvalidToken, ValueError):  # altered, sealed with another key, or not text
+        return None
+    return opened.decode()
 
 
 def forget_keys() -> None:

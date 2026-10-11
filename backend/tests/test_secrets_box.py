@@ -1,5 +1,6 @@
 import os
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -96,3 +97,26 @@ def test_no_temporary_key_file_is_left_behind(tmp_path):
     seal(settings_in(tmp_path), SECRET)
 
     assert [path.name for path in tmp_path.iterdir()] == ["secret.key"]
+
+
+def test_text_sealed_with_the_time_is_read_only_for_so_long(tmp_path):
+    settings = settings_in(tmp_path)
+    now = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+
+    sealed = secrets_box.seal_at(settings, SECRET, now)
+
+    assert SECRET not in sealed
+    assert secrets_box.unseal_within(settings, sealed, 300, now) == SECRET
+    assert secrets_box.unseal_within(settings, sealed, 300, now + timedelta(seconds=300)) == SECRET
+    assert secrets_box.unseal_within(settings, sealed, 300, now + timedelta(seconds=301)) is None
+    assert secrets_box.unseal_within(settings, sealed, 300, now - timedelta(hours=1)) is None
+
+
+def test_what_was_not_sealed_here_is_not_read(tmp_path):
+    settings = settings_in(tmp_path)
+    now = datetime(2026, 10, 11, 12, 0, tzinfo=UTC)
+    sealed = secrets_box.seal_at(settings, SECRET, now)
+    elsewhere = secrets_box.seal_at(settings_in(tmp_path, secret_key="another key"), SECRET, now)
+
+    for candidate in (sealed[:-3] + "abc", elsewhere, "", "not sealed", "ünïcode"):
+        assert secrets_box.unseal_within(settings, candidate, 300, now) is None
