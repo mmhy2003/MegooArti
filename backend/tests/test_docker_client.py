@@ -323,6 +323,60 @@ def test_images_are_pulled_through_proxies_of_public_registries(signed_in, admin
     assert pushed.returncode != 0, "pushed to a proxy"
 
 
+def test_a_group_serves_what_was_pushed_and_what_is_public_and_what_was_pushed_wins(
+    signed_in, administrator, tmp_path
+):
+    config = signed_in
+    hub = {"remote_url": "https://registry-1.docker.io"}
+    repositories = [
+        {"name": "team-images", "format": "docker", "type": "hosted"},
+        {"name": "hub-mirror", "format": "docker", "type": "proxy", "proxy": hub},
+        # The proxy first: the order must not decide whose image a name is.
+        {
+            "name": "everything",
+            "format": "docker",
+            "type": "group",
+            "group": {"members": ["hub-mirror", "team-images"]},
+        },
+    ]
+    for body in repositories:
+        status, _, answer = call("POST", "/repositories", body, administrator)
+        assert status == 201, answer
+    group = f"{REGISTRY}/everything"
+
+    # A public image comes through the group from Docker Hub.
+    pulled = docker(config, "pull", f"{group}/hello-world:latest")
+    assert pulled.returncode == 0, said(pulled)
+    ran = docker(config, "run", "--rm", f"{group}/hello-world:latest")
+    assert ran.returncode == 0 and "Hello from Docker!" in ran.stdout, said(ran)
+
+    # Our own image, under a name Docker Hub has too, is the one the group serves.
+    mine = f"{REGISTRY}/team-images/busybox:latest"
+    build(config, tmp_path / "ours", mine, "this is ours, not the public busybox")
+    pushed = docker(config, "push", mine)
+    assert pushed.returncode == 0, said(pushed)
+    assert docker(config, "rmi", mine).returncode == 0
+    through = docker(config, "pull", f"{group}/busybox:latest")
+    assert through.returncode == 0, said(through)
+    text = file_in(config, f"{group}/busybox:latest", tmp_path / "out")
+    assert text == "this is ours, not the public busybox"
+
+    # Nothing of the public image of that name is offered: not its tags, not a pull.
+    status, _, tags = registry("GET", "everything/busybox/tags/list")
+    assert (status, json.loads(tags)["tags"]) == (200, ["latest"])
+    theirs = docker(config, "pull", f"{group}/busybox:stable")
+    assert theirs.returncode != 0, "pulled a public tag of a name that is ours"
+    status, _, catalog = registry("GET", "_catalog")
+    assert {"everything/busybox", "everything/hello-world"} <= set(
+        json.loads(catalog)["repositories"]
+    )
+
+    # Nothing is pushed to a group.
+    assert docker(config, "tag", f"{group}/busybox:latest", f"{group}/mine:1.0").returncode == 0
+    refused = docker(config, "push", f"{group}/mine:1.0")
+    assert refused.returncode != 0, "pushed to a group"
+
+
 def layer_holding(text: str) -> tuple[bytes, str]:
     """A layer with one file, as a compressed archive, and the digest of it uncompressed."""
     plain = io.BytesIO()

@@ -585,8 +585,7 @@ docker pull repo.example.com/docker-hosted/team/my-app:1.0
 - Errors under `/v2/` have the registry API's own shape, which container clients
   show: `{"errors": [{"code": "...", "message": "..."}]}`.
 - Not available: the referrers API (clients fall back to tags), mounting a layer from
-  another repository (it is uploaded instead), and deleting a single layer. Group
-  Docker repositories are not available yet.
+  another repository (it is uploaded instead), and deleting a single layer.
 - **Clients.** Tested with the Docker client and daemon, whose pushes and pulls go
   through containerd's registry client, and with skopeo, which is built on the image
   library Podman uses.
@@ -629,6 +628,38 @@ docker pull repo.example.com/docker-hub/grafana/grafana:latest
 - An image the remote does not have, or will not show to the proxy's credential, is
   answered `404`. A registry says the same of both.
 - Nothing can be pushed to a proxy or deleted from it through the registry API (`405`).
+
+A group puts your own images and the public ones behind one address:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "docker-all", "format": "docker", "type": "group",
+  "group": {"members": ["docker-hosted", "docker-hub"]}
+}' http://localhost:8000/api/v1/repositories
+
+docker pull repo.example.com/docker-all/team/my-app:1.0
+docker pull repo.example.com/docker-all/alpine:3
+```
+
+- **A group protects the images you push.** If a hosted repository behind the group
+  has a tag of an image, only hosted repositories answer for that image: its tags,
+  its manifests and its layers. An image on a public registry with the same name
+  cannot stand in for yours or add a tag to it (the dependency-confusion attack),
+  whatever the order of the members. While that hosted repository is offline the
+  group answers `503` for the image.
+- **An image that lost its last tag** is still pulled through the group by its digest,
+  from the hosted repository that holds it.
+- **Everything else** comes from the proxies behind the group, the first that has it.
+  If none has it and one of them could not ask its remote, the answer is `502`, not
+  `404`.
+- **Tags** (`tags/list`) are those of every repository that answers for the image,
+  each once. The catalog lists every image the repositories behind the group hold as
+  `<group>/<image>`.
+- Push to the hosted repository, not to the group: a group takes no pushes (`405`).
+  Groups can contain groups.
+
+Reading through a group needs `read` on the group only, for example
+`repository:docker:docker-all:read`.
 
 ## Health endpoints
 

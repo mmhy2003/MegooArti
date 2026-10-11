@@ -205,11 +205,15 @@ The remote's tag list is read page by page, up to 100 pages and 100,000 tags, an
 
 **Who answers for an image** follows D12, by the rule in the group engine: the repositories behind the group in the order they are tried, nested groups replaced by their members. If a hosted repository has a tag of the image, hosted repositories alone answer for it; if every one that has it is offline, the answer is `503`. Otherwise the online proxies answer.
 
+A hosted repository also answers for what it holds under the digest that is asked for, a manifest of that image or a blob, even if it has no tag of the image: an image that lost its last tag is still pulled by its digest, and content named by its digest cannot be another image standing in.
+
+If nobody that answers has what is asked for and one of them could not ask its remote, the answer is that repository's `502`, not `404`: an outage must not look like an image that does not exist.
+
 | Path | Result |
 | --- | --- |
 | Manifest, blob | The first repository that has it, among those that answer for the image |
 | Tags list | The tags of every repository that answers for the image, each once, in order |
-| Catalog | Every image the repositories behind the group hold, each once |
+| Catalog | Every image the online repositories behind the group hold, each once, as `<group>/<image>` |
 
 ## 10. Configuration and errors added
 
@@ -242,7 +246,7 @@ Under `backend/src/megooarti/`:
 - **Real clients**, in the Docker-marked suite:
   - *Plan 7a:* the Docker client and daemon sign in, build a small image from nothing, push it, remove it locally, pull it and read its file back out of it; push it again under another tag; pull without signing in what the anonymous user may read; and are refused when they should be. A second client that uses Podman's image library copies an image with several platforms to the repository and back, and compares it. A deleted image's layers are gone from the repository.
   - *Plan 7b:* an image is pulled through a proxy of Docker Hub and run, and one through a proxy of registry.k8s.io; both are listed; with the remote blocked the image is pulled again from what was kept; a push to the proxy is refused.
-  - *Plan 7c:* images are pulled through a group, and an image pushed under a name the public registry also has is the one served.
+  - *Plan 7c:* a public image is pulled through a group and run; an image pushed under a name the public registry also has is the one the group serves, with the proxy listed first; the public image's tags are not offered under that name; a push to the group is refused.
 
 ## 13. Risks
 
