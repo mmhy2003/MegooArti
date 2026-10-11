@@ -61,6 +61,9 @@ class Format:
     # Whether this format's remotes hand out tokens: answer a request with `401` and
     # the address of a token service, as container registries do. A proxy then signs in.
     remote_signs_in: bool = False
+    # Namespaces whose components are the format's own bookkeeping. They are not
+    # listed as components and not found by search.
+    unlisted_namespaces: frozenset[str] = frozenset()
 
     def validate_name(self, name: str) -> None:
         """Refuse a repository name this format cannot be used under. The generic format: none.
@@ -89,6 +92,13 @@ class Format:
         """
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    def download_path(self, repository: str, path: str) -> str | None:
+        """Where a stored file is fetched, from the root of the site.
+
+        None for a file that has no address of its own.
+        """
+        return f"/repository/{repository}/{quote(path, safe='/')}"
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         """The content type to record for a file: an upload, or one a proxy fetched.

@@ -155,6 +155,11 @@ async def get_repository(db: AsyncSession, name: str) -> Repository | None:
     return await db.scalar(select(Repository).where(Repository.name == name))
 
 
+async def all_repositories(db: AsyncSession) -> list[Repository]:
+    """Every repository, in name order."""
+    return list(await db.scalars(select(Repository).order_by(Repository.name_key)))
+
+
 async def repositories_of(db: AsyncSession, format: str) -> list[Repository]:
     """Every repository of a format, in name order."""
     rows = await db.scalars(

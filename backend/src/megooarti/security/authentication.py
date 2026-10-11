@@ -495,6 +495,20 @@ def require(permission: str) -> Callable[..., Awaitable[Principal]]:
     return dependency
 
 
+async def require_caller(
+    principal: Principal | None = Depends(current_principal),
+) -> Principal:
+    """Dependency: somebody is calling, signed in or anonymous.
+
+    For a route whose answer depends on what the caller may do, such as a list that
+    leaves out what they may not see. What they may do is for the route to check.
+    """
+    if principal is None:
+        raise unauthorized()
+    _refuse_pending_password_change(principal)
+    return principal
+
+
 def require_interactive(
     *, allow_pending_password_change: bool = False
 ) -> Callable[..., Awaitable[Principal]]:

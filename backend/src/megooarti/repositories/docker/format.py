@@ -739,6 +739,14 @@ class DockerFormat(Format):
     name = FORMAT
     served_at = "registry"
     remote_signs_in = True
+    unlisted_namespaces = frozenset({names.MANIFESTS})
+
+    def download_path(self, repository: str, path: str) -> str | None:
+        """A tag and a manifest are fetched through the registry. A blob is an image's part."""
+        named = names.tag_of(path) or names.manifest_of(path)
+        if named is None:
+            return None
+        return f"/v2/{repository}/{named[0]}/manifests/{named[1]}"
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         """What a proxy records for a file its engine fetched, which is only ever a blob."""
