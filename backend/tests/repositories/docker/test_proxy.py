@@ -478,3 +478,71 @@ async def test_maintenance_removes_layers_no_kept_manifest_refers_to(
     held = set(await db.scalars(select(Asset.path)))
     assert f"blobs/{digest_of(LAYER)}" in held
     assert f"blobs/{stray}" not in held
+
+
+@pytest.mark.parametrize("answer", [429, 500, 404, 401, "not a manifest"])
+async def test_a_tag_that_moved_to_something_the_remote_will_not_give_keeps_what_is_held(
+    client, hub, root, registry, manifest, db, answer
+):
+    await client.get(TAG, headers=root)
+    moved = registry.add_image("team/app", "1.0", b"a new layer")
+    by_digest = f"/v2/team/app/manifests/{digest_of(moved)}"
+    if isinstance(answer, int):
+        # Asking about the tag still works, as it does where pulls are counted.
+        registry.status_of[f"GET {by_digest}"] = answer
+    else:
+        registry.manifests[("team/app", digest_of(moved))] = (b"<html>", OCI_MANIFEST)
+    await make_stale(db)
+
+    first = await client.get(TAG, headers=root)
+    again = await client.get(TAG, headers=root)
+    registry.status_of.clear()
+    registry.add_manifest("team/app", None, moved, OCI_MANIFEST)
+    await make_stale(db)
+    await db.execute(update(ProxyState).values(blocked_until=None))
+    await db.commit()
+    later = await client.get(TAG, headers=root)
+
+    assert (first.status_code, first.content) == (200, manifest)
+    assert (again.status_code, again.content) == (200, manifest)
+    assert later.content == moved  # and nothing was remembered that would hide it now
+
+
+async def test_a_new_tag_whose_manifest_was_missing_for_a_moment_is_found_the_next_time(
+    client, hub, root, registry, manifest
+):
+    registry.status_of[f"GET /v2/team/app/manifests/{digest_of(manifest)}"] = 404
+
+    first = await client.get(TAG, headers=root)
+    registry.status_of.clear()
+    second = await client.get(TAG, headers=root)
+
+    assert (first.status_code, second.status_code) == (404, 200)
+
+
+async def test_a_credential_the_remote_no_longer_takes_is_an_outage_not_a_missing_image(
+    client, db, root, registry, manifest, settings
+):
+    registry.accounts["ci"] = "a new password"
+    auth = {"type": "basic", "username": "ci", "secret": secrets_box.seal(settings, "secret")}
+    await create(db, "private", proxy={"remote_url": REGISTRY, "remote_auth": auth})
+
+    pulled = await client.get("/v2/private/team/app/manifests/1.0", headers=root)
+    tags = await client.get("/v2/private/team/app/tags/list", headers=root)
+
+    for response in (pulled, tags):
+        assert (response.status_code, error_code(response)) == (502, "UNKNOWN")
+        assert "refused the credential" in response.json()["errors"][0]["message"]
+    assert "secret" not in pulled.text + tags.text
+
+
+async def test_what_a_remote_wrote_in_a_manifest_is_not_repeated(client, hub, root, registry, db):
+    theirs = "x-remote-wrote-this/" + "y" * 200_000
+    sent = json.dumps({"schemaVersion": 2, "mediaType": theirs, "layers": []}).encode()
+    registry.add_manifest("team/app", "1.0", sent, "application/json")
+
+    response = await client.get(TAG, headers=root)
+
+    assert response.status_code == 502
+    assert "x-remote-wrote-this" not in response.text and len(response.text) < 500
+    assert "x-remote-wrote-this" not in await db.scalar(select(ProxyState.last_error))

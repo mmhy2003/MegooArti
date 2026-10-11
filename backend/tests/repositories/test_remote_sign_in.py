@@ -138,7 +138,9 @@ async def test_a_wrong_credential_is_a_failure_that_does_not_block(registry, cli
 
     answer = await get(client, authorization=basic("ci", "wrong"))
 
-    assert answer == Failed("its sign-in address refused the credential", False, 401)
+    # No status: it is not the remote's answer about what was asked for, and must not
+    # be taken for "you may not see this image".
+    assert answer == Failed("its sign-in address refused the credential", blockable=False)
 
 
 async def test_an_image_the_token_does_not_open_is_refused_by_the_remote(registry, client):
@@ -291,3 +293,30 @@ async def test_a_whole_file_is_staged_through_a_sign_in(registry, client, tmp_pa
 
     assert isinstance(fetched, Fetched)
     assert "sha256:" + fetched.staged.sha256 == digest_of(LAYER)
+
+
+async def test_the_sign_in_address_is_asked_for_an_answer_that_is_not_compressed(registry, client):
+    await get(client)
+    registry.token_answer = b"\x1f\x8b\x08 a compressed answer"
+    registry.token_headers = {"Content-Encoding": "gzip"}
+
+    other = await get(
+        client, f"{REGISTRY}/v2/team/other/manifests/1.0", SignIn(REGISTRY, "team/other")
+    )
+
+    assert tokens_asked(registry)[0]["headers"]["accept-encoding"] == "identity"
+    assert other == Failed("its sign-in address sent an encoded answer", blockable=False)
+
+
+async def test_a_token_is_for_the_remote_it_was_fetched_for(registry, client):
+    # Two remotes may name the same sign-in address, service and scope. The second must
+    # sign in for itself: the rules about that address are applied when it does.
+    registry.realm = "http://10.0.0.5:5001/token"
+    inside = "http://10.0.0.5:5000"
+    await get(client, f"{inside}/v2/team/app/manifests/1.0", SignIn(inside, "team/app"))
+
+    outside = await get(client)
+
+    assert isinstance(outside, Failed)
+    assert outside.reason.endswith("it points at an internal address")
+    assert len(tokens_asked(registry)) == 1

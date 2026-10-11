@@ -56,7 +56,8 @@ def _kind(document: dict[str, Any], declared: str | None) -> str:
         # OCI lets the type be left out. What the document holds says which it is.
         kind = OCI_INDEX if "manifests" in document else OCI_MANIFEST
     if kind not in _IMAGES + _LISTS:
-        raise InvalidManifest(f"{kind} is not a manifest type this registry takes")
+        # Not named: on a proxy it is the remote's text, of any length.
+        raise InvalidManifest("its mediaType is not a manifest type this registry takes")
     return kind
 
 

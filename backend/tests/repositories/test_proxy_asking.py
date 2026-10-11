@@ -141,12 +141,22 @@ async def test_a_remote_that_fails_is_recorded_and_says_what_it_answered(
 
 
 async def test_a_refusal_is_told_apart_from_a_failure(context, registry):
-    registry.private.add("team/app")
-    registry.accounts.clear()  # the credential is no longer good: sign-in itself is refused
+    registry.status_of["GET /v2/team/app/manifests/1.0"] = 403
 
     refused = await proxy.ask(context, "manifests/app/1.0", source(), limit=1000)
 
-    assert isinstance(refused, Unavailable) and refused.status == 401
+    assert isinstance(refused, Unavailable) and refused.status == 403
+
+
+async def test_a_credential_that_is_refused_is_not_a_refusal_of_what_was_asked_for(
+    context, registry
+):
+    registry.accounts.clear()  # the repository's credential is no longer good
+
+    answer = await proxy.ask(context, "manifests/app/1.0", source(), limit=1000)
+
+    assert isinstance(answer, Unavailable) and answer.status is None
+    assert "its sign-in address refused the credential" in answer.error.message
 
 
 async def test_a_blocked_remote_is_not_asked(context, registry, db, upstream):

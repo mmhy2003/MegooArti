@@ -63,6 +63,8 @@ class FakeRegistry:
         self.page_size: int | None = None
         self.down = False
         self.status: int | None = None
+        self.status_of: dict[str, int] = {}  # "GET /v2/..." -> what that one request gets
+        self.token_headers: dict[str, str] = {}  # sent with the token service's answer
         routes = [
             Route("/token", self._token, methods=["GET"]),
             Route("/cdn/{digest}", self._cdn, methods=["GET", "HEAD"]),
@@ -138,7 +140,9 @@ class FakeRegistry:
     async def _token(self, request: Request) -> Response:
         self._note(request)
         if self.token_answer is not None:
-            return Response(self.token_answer, media_type="application/json")
+            return Response(
+                self.token_answer, media_type="application/json", headers=self.token_headers
+            )
         account = None
         presented = request.headers.get("authorization")
         if presented is not None:
@@ -172,6 +176,8 @@ class FakeRegistry:
         self._note(request)
         if self.status is not None:
             return Response(status_code=self.status)
+        if (only := self.status_of.get(f"{request.method} {request.url.path}")) is not None:
+            return Response(status_code=only)
         rest = request.path_params["rest"]
         if rest.endswith("/tags/list"):
             image, kind, reference = rest.removesuffix("/tags/list"), "tags", ""

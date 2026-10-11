@@ -299,8 +299,13 @@ def _now() -> float:
     return time.monotonic()
 
 
-def _mark(authorization: str | None) -> str:
-    return hashlib.sha256((authorization or "").encode()).hexdigest()
+def _mark(remote_url: str, authorization: str | None) -> str:
+    """What a token is kept under besides its challenge: whose it is.
+
+    The remote is part of it. Two remotes may name one sign-in address, and each has
+    to sign in for itself, because the rules about that address depend on the remote.
+    """
+    return hashlib.sha256(f"{remote_url}\n{authorization or ''}".encode()).hexdigest()
 
 
 def _challenge_of(response: httpx.Response) -> _Challenge | None:
@@ -330,7 +335,8 @@ async def _token(
         # configured not to.
         raise _SignInFailed(Failed("it asks for sign-in over plain HTTP", blockable=False))
     wanted = {"service": challenge.service, "scope": challenge.scope}
-    headers = {"Accept": "application/json"}
+    # identity: the answer is read as it arrives, like everything else fetched here.
+    headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
     if authorization and authorization.startswith("Basic "):
         # The remote named this address as the place its users sign in.
         headers["Authorization"] = authorization
@@ -343,12 +349,18 @@ async def _token(
     response = await client.send(request, stream=True)
     try:
         if response.status_code in (401, 403):
+            # No status: this is not the remote's answer about what was asked for, and
+            # must not be taken for "you may not see this".
             reason = "its sign-in address refused the credential"
-            raise _SignInFailed(Failed(reason, blockable=False, status=response.status_code))
+            raise _SignInFailed(Failed(reason, blockable=False))
         if response.status_code != 200:
             failed = _unexpected(response.status_code)
             reason = f"its sign-in address answered {response.status_code}"
             raise _SignInFailed(Failed(reason, failed.blockable, failed.status))
+        encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+        if encoding != "identity":
+            reason = "its sign-in address sent an encoded answer"
+            raise _SignInFailed(Failed(reason, blockable=False))
         body = await _read(response, _TOKEN_ANSWER_LIMIT)
     finally:
         await response.aclose()
@@ -400,7 +412,7 @@ async def _open(
     if sign_in is None:
         return await send(authorization)
     memory = _memories.setdefault(client, _Memory())
-    mark = _mark(authorization)
+    mark = _mark(sign_in.remote_url, authorization)
     key = (sign_in.remote_url, sign_in.subject, mark)
     expected = memory.challenges.get(key)
     token = memory.token(expected, mark) if expected is not None else None

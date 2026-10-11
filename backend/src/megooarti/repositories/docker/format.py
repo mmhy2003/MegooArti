@@ -435,12 +435,15 @@ async def _keep_manifest(
 
 
 async def _fetch_manifest(
-    context: RepositoryContext, image: str, digest: str
+    context: RepositoryContext, image: str, digest: str, *, remember_missing: bool = True
 ) -> tuple[bytes, manifests.Manifest]:
     """Fetch the manifest with this digest from the remote, and keep it."""
     path = names.manifest_path(image, digest)
     source = proxy.Source(
-        _remote_address(context, image, f"manifests/{digest}"), accept=_ACCEPT, subject=image
+        _remote_address(context, image, f"manifests/{digest}"),
+        accept=_ACCEPT,
+        subject=image,
+        remember_missing=remember_missing,
     )
     found = await proxy.ask(context, path, source, limit=manifests.MAX_BYTES)
     if isinstance(found, proxy.Absent):
@@ -483,16 +486,28 @@ async def _refresh_tag(context: RepositoryContext, image: str, tag: str) -> None
     if held is not None and names.is_digest(digest) and held.sha256 == names.hex_of(digest):
         await proxy.still_current(context, path)
         return
-    if names.is_digest(digest):
-        by_digest = names.manifest_path(image, digest)
-        raw = await context.read(by_digest, limit=manifests.MAX_BYTES)
-        if raw is None:
-            raw, manifest = await _fetch_manifest(context, image, digest)
+    try:
+        if names.is_digest(digest):
+            by_digest = names.manifest_path(image, digest)
+            raw = await context.read(by_digest, limit=manifests.MAX_BYTES)
+            if raw is None:
+                # The remote has just said that it has this manifest. If it then says
+                # otherwise, that is not worth remembering: it would hide the tag.
+                raw, manifest = await _fetch_manifest(
+                    context, image, digest, remember_missing=False
+                )
+            else:
+                manifest = manifests.read(raw, None)  # it was read when it was kept
         else:
-            manifest = manifests.read(raw, None)  # it was read when it was kept
-    else:
-        raw = found.body
-        manifest = await _keep_manifest(context, image, raw, asked=path, expected=None)
+            raw = found.body
+            manifest = await _keep_manifest(context, image, raw, asked=path, expected=None)
+    except ApiError:
+        if held is None:
+            raise
+        # The tag names something else now, and the remote will not give it: where
+        # pulls are counted, asking still works when fetching no longer does. What is
+        # held is served, and the tag is asked about again the next time.
+        return
     await context.cache(
         path,
         await context.stage_bytes(raw),

@@ -28,6 +28,16 @@
 | P12 | The format offers `hosted` and `proxy`. `group` comes with plan 7c. | The generic group engine does not know which member answers for an image. |
 | P13 | The real-client test pulls `hello-world` through a proxy of Docker Hub and runs it, and `pause` through a proxy of registry.k8s.io. | Docker Hub exercises the sign-in at another host and `library/`; registry.k8s.io redirects every request to another host. Both images are a few kilobytes. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P14 | When a tag that is held is said to name another manifest and that manifest cannot be had (the remote fails, refuses, has lost it, or sends something that is not a manifest), what is held is served. A manifest fetched for a tag is not remembered as missing. | The review showed the held tag answered `502` or `404`, for a day in one case. This is the case of a registry that counts pulls: asking about a tag still works after fetching has stopped. |
+| P15 | A sign-in address that refuses the credential is a failure without a status, so it is answered `502` with its reason, not `404`. | P4 is about one image a remote will not show. A credential that is no longer good is a fault of the whole proxy, and every image was reported as unknown. |
+| P16 | The token request asks for an answer that is not compressed, and an encoded answer is refused. | The answer is read as it arrives. The request invited compression it could not read. |
+| P17 | A token is kept for the remote it was fetched for, besides the challenge and the credential. | Two remotes that named the same sign-in address shared a token, so the second never had the rules about that address applied to it. |
+| P18 | A manifest type that is not taken is not named in the error. | On a proxy it is text the remote wrote, of any length, and it reached the client, the log and the repository's status. |
+
 ## Global Constraints
 
 - Everything in the earlier plans' Global Constraints still applies. In particular: Alembic only; services never commit; no ORM relationships; `megooarti.clock.utcnow()`; asset paths never become file paths; no database connection held while a body moves or a remote is asked; only the security package reads `Principal.patterns`; formats do not commit, the route does, and the proxy engine commits what it must; errors under `/v2/` have the registry's shape; only `docker/format.py` touches the repository context; remote secrets are never returned or logged; LF line endings; 100-character lines; ruff clean; spaced markdown table separators.
