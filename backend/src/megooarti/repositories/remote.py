@@ -5,10 +5,15 @@ means: serve a cached copy, answer 404, or count it towards blocking the remote.
 """
 
 import base64
+import hashlib
 import ipaddress
+import json
+import re
 import socket
-from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+import time
+import weakref
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from http.cookiejar import CookieJar
 from typing import Any
 
@@ -49,11 +54,37 @@ class Missing:
 class Failed:
     reason: str
     blockable: bool  # counts towards blocking the remote
+    status: int | None = None  # what the remote answered, if it did answer
 
 
 @dataclass(frozen=True)
 class Exists:
-    headers: dict[str, str]
+    headers: dict[str, str]  # what a HEAD answer passes on to the client
+    # Every header of the answer, for a caller that knows which one it needs.
+    every: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Document:
+    """A small answer, read into memory."""
+
+    body: bytes
+    headers: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class SignIn:
+    """How to answer a remote that wants a token before it serves anything.
+
+    A container registry answers a request with `401` and the address of a token
+    service. That address is one the remote names, so it is held to the rules of
+    `refusal`, and `remote_url` is the remote as configured, to hold it against.
+    `subject` is what a token would be for, as the caller knows it (an image), so that
+    the next request for the same thing can send its token at once.
+    """
+
+    remote_url: str
+    subject: str = ""
 
 
 class _NoCookies(CookieJar):
@@ -175,12 +206,12 @@ def authorization(settings: Settings, remote_auth: dict[str, Any]) -> str | None
 
 
 def _request_headers(
-    authorization: str | None, etag: str | None = None, last_modified: str | None = None
+    accept: str | None = None, etag: str | None = None, last_modified: str | None = None
 ) -> dict[str, str]:
     # identity: store the bytes the remote holds, not a transfer encoding of them.
     headers = {"Accept-Encoding": "identity"}
-    if authorization:
-        headers["Authorization"] = authorization
+    if accept:
+        headers["Accept"] = accept
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:
@@ -194,7 +225,9 @@ _REMOTE_IN_TROUBLE = frozenset({429, 502, 503, 504})
 
 
 def _unexpected(status: int) -> Failed:
-    return Failed(f"the remote answered {status}", blockable=status in _REMOTE_IN_TROUBLE)
+    return Failed(
+        f"the remote answered {status}", blockable=status in _REMOTE_IN_TROUBLE, status=status
+    )
 
 
 def _unrequestable(error: Exception) -> Failed:
@@ -202,6 +235,193 @@ def _unrequestable(error: Exception) -> Failed:
     if isinstance(error, InwardRedirect):
         return Failed("the remote redirected to an internal address", blockable=False)
     return Failed(f"the request could not be made ({type(error).__name__})", blockable=False)
+
+
+# --- Signing in to a remote that issues tokens ----------------------------------------
+
+# A token is used for as long as its issuer says, within these bounds, less a margin.
+_TOKEN_DEFAULT_SECONDS = 60
+_TOKEN_MOST_SECONDS = 3600
+_TOKEN_MARGIN_SECONDS = 10
+_TOKEN_ANSWER_LIMIT = 64 * 1024
+_REMEMBERED_MOST = 1000
+_PARAMETER = re.compile(r'([A-Za-z_]+)="([^"]*)"')
+
+
+@dataclass(frozen=True)
+class _Challenge:
+    realm: str
+    service: str
+    scope: str
+
+
+class _SignInFailed(Exception):
+    def __init__(self, failed: Failed) -> None:
+        super().__init__(failed.reason)
+        self.failed = failed
+
+
+class _Memory:
+    """What one client has learned about signing in.
+
+    Kept in memory and never stored: a token is a secret, and lasts minutes. What a
+    token is kept under includes a mark of the credential it was obtained with, so a
+    repository whose credential changes, or two with different ones, never share one.
+    """
+
+    def __init__(self) -> None:
+        self.challenges: dict[tuple[str, str, str], _Challenge] = {}
+        self.tokens: dict[tuple[_Challenge, str], tuple[str, float]] = {}
+
+    def token(self, challenge: _Challenge, mark: str) -> str | None:
+        held = self.tokens.get((challenge, mark))
+        if held is None or held[1] <= _now():
+            self.tokens.pop((challenge, mark), None)
+            return None
+        return held[0]
+
+    def keep(self, challenge: _Challenge, mark: str, token: str, seconds: float) -> None:
+        if len(self.tokens) >= _REMEMBERED_MOST:
+            self.tokens.clear()
+        if seconds > 0:
+            self.tokens[(challenge, mark)] = (token, _now() + seconds)
+
+    def expect(self, key: tuple[str, str, str], challenge: _Challenge) -> None:
+        if len(self.challenges) >= _REMEMBERED_MOST:
+            self.challenges.clear()
+        self.challenges[key] = challenge
+
+
+_memories: "weakref.WeakKeyDictionary[httpx.AsyncClient, _Memory]" = weakref.WeakKeyDictionary()
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def _mark(authorization: str | None) -> str:
+    return hashlib.sha256((authorization or "").encode()).hexdigest()
+
+
+def _challenge_of(response: httpx.Response) -> _Challenge | None:
+    """The token service a `401` names, if it names one."""
+    scheme, _, rest = response.headers.get("WWW-Authenticate", "").partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    given = {name.lower(): value for name, value in _PARAMETER.findall(rest)}
+    realm = given.get("realm", "")
+    if not realm.lower().startswith(("http://", "https://")):
+        return None  # elsewhere a realm is a label, not an address
+    return _Challenge(realm, given.get("service", ""), given.get("scope", ""))
+
+
+async def _token(
+    client: httpx.AsyncClient, sign_in: SignIn, challenge: _Challenge, authorization: str | None
+) -> tuple[str, float]:
+    """Fetch a token from the service a remote named. Raises _SignInFailed."""
+    refused = refusal(sign_in.remote_url, challenge.realm)
+    if refused is not None:
+        reason = f"it names an address to sign in at, and {refused}"
+        raise _SignInFailed(Failed(reason, blockable=False))
+    if sign_in.remote_url.lower().startswith("https:") and not challenge.realm.lower().startswith(
+        "https:"
+    ):
+        # The credential would cross the network in the clear, for a remote that was
+        # configured not to.
+        raise _SignInFailed(Failed("it asks for sign-in over plain HTTP", blockable=False))
+    wanted = {"service": challenge.service, "scope": challenge.scope}
+    headers = {"Accept": "application/json"}
+    if authorization and authorization.startswith("Basic "):
+        # The remote named this address as the place its users sign in.
+        headers["Authorization"] = authorization
+    request = client.build_request(
+        "GET",
+        challenge.realm,
+        params={name: value for name, value in wanted.items() if value},
+        headers=headers,
+    )
+    response = await client.send(request, stream=True)
+    try:
+        if response.status_code in (401, 403):
+            reason = "its sign-in address refused the credential"
+            raise _SignInFailed(Failed(reason, blockable=False, status=response.status_code))
+        if response.status_code != 200:
+            failed = _unexpected(response.status_code)
+            reason = f"its sign-in address answered {response.status_code}"
+            raise _SignInFailed(Failed(reason, failed.blockable, failed.status))
+        body = await _read(response, _TOKEN_ANSWER_LIMIT)
+    finally:
+        await response.aclose()
+    unusable = _SignInFailed(Failed("its sign-in address gave no usable token", blockable=False))
+    try:
+        answer = json.loads(body) if body is not None else None
+    except ValueError:
+        raise unusable from None
+    if not isinstance(answer, dict):
+        raise unusable
+    token = answer.get("token") or answer.get("access_token")
+    if not isinstance(token, str) or not token.isascii() or not token.isprintable():
+        raise unusable
+    stated = answer.get("expires_in")
+    seconds = stated if isinstance(stated, int | float) and stated > 0 else _TOKEN_DEFAULT_SECONDS
+    return token, min(seconds, _TOKEN_MOST_SECONDS) - _TOKEN_MARGIN_SECONDS
+
+
+async def _read(response: httpx.Response, limit: int) -> bytes | None:
+    """The body, or None if it is longer than `limit`."""
+    received = bytearray()
+    async for chunk in response.aiter_raw():
+        received += chunk
+        if len(received) > limit:
+            return None
+    return bytes(received)
+
+
+async def _open(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    authorization: str | None,
+    headers: dict[str, str],
+    sign_in: SignIn | None,
+) -> httpx.Response:
+    """Send a request and return the answer with its body unread. The caller closes it.
+
+    With `sign_in`, a `401` that names a token service is answered: a token is fetched,
+    or one that is remembered is used, and the request is sent once more with it.
+    Raises _SignInFailed if no token could be had.
+    """
+
+    async def send(credential: str | None) -> httpx.Response:
+        sent = {**headers, "Authorization": credential} if credential else headers
+        return await client.send(client.build_request(method, url, headers=sent), stream=True)
+
+    if sign_in is None:
+        return await send(authorization)
+    memory = _memories.setdefault(client, _Memory())
+    mark = _mark(authorization)
+    key = (sign_in.remote_url, sign_in.subject, mark)
+    expected = memory.challenges.get(key)
+    token = memory.token(expected, mark) if expected is not None else None
+    response = await send(f"Bearer {token}" if token else authorization)
+    if response.status_code != 401:
+        return response
+    challenge = _challenge_of(response)
+    if challenge is None:
+        return response
+    await response.aclose()
+    if expected is not None and token is not None:
+        memory.tokens.pop((expected, mark), None)  # refused: revoked, or expired early
+    memory.expect(key, challenge)
+    token = memory.token(challenge, mark)
+    if token is None:
+        token, seconds = await _token(client, sign_in, challenge, authorization)
+        memory.keep(challenge, mark, token, seconds)
+    response = await send(f"Bearer {token}")
+    if response.status_code == 401:
+        memory.tokens.pop((challenge, mark), None)
+    return response
 
 
 def _declared_size(response: httpx.Response) -> int | None:
@@ -218,11 +438,16 @@ async def download(
     stage: Stage,
     etag: str | None = None,
     last_modified: str | None = None,
+    accept: str | None = None,
+    sign_in: SignIn | None = None,
 ) -> Fetched | NotModified | Missing | Failed:
     """Fetch a file completely, or learn that it is unchanged, absent or unavailable."""
-    headers = _request_headers(authorization, etag, last_modified)
+    headers = _request_headers(accept, etag, last_modified)
     try:
-        async with client.stream("GET", url, headers=headers) as response:
+        response = await _open(
+            client, "GET", url, authorization=authorization, headers=headers, sign_in=sign_in
+        )
+        try:
             status = response.status_code
             if status == 304:
                 return NotModified()
@@ -245,6 +470,51 @@ async def download(
                 etag=response.headers.get("ETag"),
                 last_modified=response.headers.get("Last-Modified"),
             )
+        finally:
+            await response.aclose()
+    except _SignInFailed as error:
+        return error.failed
+    except (InwardRedirect, httpx.InvalidURL, ValueError, UnicodeError) as error:
+        return _unrequestable(error)
+    except httpx.HTTPError as error:
+        return Failed(type(error).__name__, blockable=True)
+
+
+async def fetch(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    authorization: str | None,
+    limit: int,
+    accept: str | None = None,
+    sign_in: SignIn | None = None,
+) -> Document | Missing | Failed:
+    """Fetch a small document into memory. One longer than `limit` is a failure."""
+    try:
+        response = await _open(
+            client,
+            "GET",
+            url,
+            authorization=authorization,
+            headers=_request_headers(accept),
+            sign_in=sign_in,
+        )
+        try:
+            if response.status_code in (404, 410):
+                return Missing()
+            if response.status_code != 200:
+                return _unexpected(response.status_code)
+            encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+            if encoding != "identity":
+                return Failed("the remote sent an encoded body", blockable=False)
+            body = await _read(response, limit)
+            if body is None:
+                return Failed("the remote sent more than a document may hold", blockable=False)
+            return Document(body=body, headers=response.headers)
+        finally:
+            await response.aclose()
+    except _SignInFailed as error:
+        return error.failed
     except (InwardRedirect, httpx.InvalidURL, ValueError, UnicodeError) as error:
         return _unrequestable(error)
     except httpx.HTTPError as error:
@@ -252,11 +522,26 @@ async def download(
 
 
 async def head(
-    client: httpx.AsyncClient, url: str, *, authorization: str | None
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    authorization: str | None,
+    accept: str | None = None,
+    sign_in: SignIn | None = None,
 ) -> Exists | Missing | Failed:
     """Ask whether the remote has a file, without fetching it."""
     try:
-        response = await client.head(url, headers=_request_headers(authorization))
+        response = await _open(
+            client,
+            "HEAD",
+            url,
+            authorization=authorization,
+            headers=_request_headers(accept),
+            sign_in=sign_in,
+        )
+        await response.aclose()
+    except _SignInFailed as error:
+        return error.failed
     except (InwardRedirect, httpx.InvalidURL, ValueError, UnicodeError) as error:
         return _unrequestable(error)
     except httpx.HTTPError as error:
@@ -266,4 +551,4 @@ async def head(
     if response.status_code != 200:
         return _unexpected(response.status_code)
     passed_on = {name: response.headers[name] for name in _HEAD_HEADERS if name in response.headers}
-    return Exists(headers=passed_on)
+    return Exists(headers=passed_on, every=response.headers)
