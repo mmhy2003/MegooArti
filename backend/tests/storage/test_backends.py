@@ -183,3 +183,82 @@ async def test_commit_makes_the_rename_durable(backend, tmp_path, monkeypatch):
 
     sha = staged.sha256
     assert tmp_path / "store" / "content" / sha[:2] / sha[2:4] in synced
+
+
+UPLOAD = "0123456789abcdef0123456789abcdef"
+
+
+async def test_an_upload_grows_by_whole_appends(backend):
+    before = await backend.upload_size(UPLOAD)
+    await backend.create_upload(UPLOAD)
+
+    empty = await backend.upload_size(UPLOAD)
+    first = await backend.append(UPLOAD, pieces(BODY[:5000]))
+    second = await backend.append(UPLOAD, pieces(BODY[5000:]))
+    nothing = await backend.append(UPLOAD, pieces(b""))
+
+    assert (before, empty, first, second, nothing) == (None, 0, 5000, len(BODY), len(BODY))
+    assert await backend.upload_size(UPLOAD) == len(BODY)
+
+
+async def test_an_append_that_stops_arriving_is_taken_back(backend):
+    async def interrupted() -> AsyncIterator[bytes]:
+        yield BODY[5000:8000]
+        raise ConnectionError("the client went away")
+
+    await backend.create_upload(UPLOAD)
+    await backend.append(UPLOAD, pieces(BODY[:5000]))
+
+    with pytest.raises(ConnectionError):
+        await backend.append(UPLOAD, interrupted())
+    resumed = await backend.append(UPLOAD, pieces(BODY[5000:]))
+
+    assert resumed == len(BODY)
+    assert (await backend.adopt(UPLOAD)).sha256 == hashlib.sha256(BODY).hexdigest()
+
+
+async def test_a_finished_upload_becomes_staged_content_without_a_copy(backend, tmp_path):
+    await backend.create_upload(UPLOAD)
+    await backend.append(UPLOAD, pieces(BODY))
+    (only,) = temporary_files(tmp_path / "store")
+
+    staged = await backend.adopt(UPLOAD)
+
+    assert staged.size == len(BODY)
+    assert staged.sha256 == hashlib.sha256(BODY).hexdigest()
+    assert staged.md5 == hashlib.md5(BODY).hexdigest()
+    assert staged.sha1 == hashlib.sha1(BODY).hexdigest()
+    assert staged.sha512 == hashlib.sha512(BODY).hexdigest()
+    assert staged.token == str(only)  # the same file, not another one
+    await backend.commit(staged)
+    assert await read(backend, staged.sha256) == BODY
+    assert temporary_files(tmp_path / "store") == []
+    assert await backend.upload_size(UPLOAD) is None
+
+
+async def test_an_abandoned_upload_is_gone_and_abandoning_twice_is_harmless(backend, tmp_path):
+    await backend.create_upload(UPLOAD)
+    await backend.append(UPLOAD, pieces(BODY))
+
+    await backend.abandon(UPLOAD)
+    await backend.abandon(UPLOAD)
+
+    assert await backend.upload_size(UPLOAD) is None
+    assert temporary_files(tmp_path / "store") == []
+    with pytest.raises(FileNotFoundError):
+        await backend.append(UPLOAD, pieces(BODY))
+
+
+async def test_an_upload_nobody_adds_to_is_swept_like_anything_temporary(backend, tmp_path):
+    await backend.create_upload(UPLOAD)
+    await backend.create_upload("f" * 32)
+    await backend.append("f" * 32, pieces(BODY))
+    (old,) = [path for path in temporary_files(tmp_path / "store") if path.name.endswith(UPLOAD)]
+    long_ago = time.time() - 3 * 86400
+    os.utime(old, (long_ago, long_ago))
+
+    removed = await backend.sweep_temporary(86400)
+
+    assert removed == 1
+    assert await backend.upload_size(UPLOAD) is None
+    assert await backend.upload_size("f" * 32) == len(BODY)

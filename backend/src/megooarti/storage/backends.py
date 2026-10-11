@@ -49,6 +49,16 @@ class BlobBackend(Protocol):
 
     async def sweep_temporary(self, older_than_seconds: float) -> int: ...
 
+    async def create_upload(self, upload: str) -> None: ...
+
+    async def upload_size(self, upload: str) -> int | None: ...
+
+    async def append(self, upload: str, chunks: AsyncIterator[bytes]) -> int: ...
+
+    async def adopt(self, upload: str) -> StagedBlob: ...
+
+    async def abandon(self, upload: str) -> None: ...
+
 
 def _write(handle: BinaryIO, hashers: dict, data: bytes) -> None:
     handle.write(data)
@@ -60,6 +70,14 @@ def _finish(handle: BinaryIO) -> None:
     handle.flush()
     os.fsync(handle.fileno())
     handle.close()
+
+
+def _hash_more(handle: BinaryIO, hashers: dict) -> int:
+    """Read the next piece of a file into the hashers. Returns its length, 0 at the end."""
+    data = handle.read(CHUNK_SIZE)
+    for hasher in hashers.values():
+        hasher.update(data)
+    return len(data)
 
 
 def _sync_directory(directory: Path) -> None:
@@ -160,6 +178,77 @@ class FileBlobBackend:
             return shutil.disk_usage(existing).free
 
         return await asyncio.to_thread(free)
+
+    def _upload_path(self, upload: str) -> Path:
+        # Under the prefix of everything temporary here, so the sweep covers it too.
+        return self._root / "tmp" / f"{_TEMPORARY_PREFIX}chunked-{upload}"
+
+    async def create_upload(self, upload: str) -> None:
+        """Make room for an upload that arrives in several pieces. `upload` names it."""
+
+        def create() -> None:
+            path = self._upload_path(upload)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
+        await asyncio.to_thread(create)
+
+    async def upload_size(self, upload: str) -> int | None:
+        """How much of an upload has arrived, or None if there is no such upload."""
+
+        def size() -> int | None:
+            try:
+                return self._upload_path(upload).stat().st_size
+            except FileNotFoundError:
+                return None
+
+        return await asyncio.to_thread(size)
+
+    async def append(self, upload: str, chunks: AsyncIterator[bytes]) -> int:
+        """Append to an upload and return its size.
+
+        If the chunks stop arriving, what came of them is taken back: an upload only
+        ever holds whole appends, so its sender can tell where to go on.
+        """
+        handle = await asyncio.to_thread(open, self._upload_path(upload), "r+b")
+        try:
+            start = await asyncio.to_thread(handle.seek, 0, os.SEEK_END)
+            pending = bytearray()
+            try:
+                async for chunk in chunks:
+                    pending += chunk
+                    while len(pending) >= CHUNK_SIZE:
+                        piece = bytes(pending[:CHUNK_SIZE])
+                        del pending[:CHUNK_SIZE]
+                        await asyncio.to_thread(handle.write, piece)
+                if pending:
+                    await asyncio.to_thread(handle.write, bytes(pending))
+                await asyncio.to_thread(handle.flush)
+            except BaseException:
+                handle.truncate(start)
+                raise
+            return await asyncio.to_thread(handle.tell)
+        finally:
+            handle.close()
+
+    async def adopt(self, upload: str) -> StagedBlob:
+        """Turn a finished upload into staged content, hashing it where it lies."""
+        path = self._upload_path(upload)
+        hashers = {name: hashlib.new(name, usedforsecurity=False) for name in _ALGORITHMS}
+        size = 0
+        handle = await asyncio.to_thread(open, path, "r+b")
+        try:
+            # What `commit` will rename into place must be on disk first.
+            await asyncio.to_thread(os.fsync, handle.fileno())
+            while read := await asyncio.to_thread(_hash_more, handle, hashers):
+                size += read
+        finally:
+            handle.close()
+        digests = {name: hasher.hexdigest() for name, hasher in hashers.items()}
+        return StagedBlob(token=str(path), size=size, **digests)
+
+    async def abandon(self, upload: str) -> None:
+        await asyncio.to_thread(self._upload_path(upload).unlink, True)
 
     async def sweep_temporary(self, older_than_seconds: float) -> int:
         def sweep() -> int:
