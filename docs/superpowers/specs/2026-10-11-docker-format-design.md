@@ -108,6 +108,7 @@ One design, delivered as three plans.
 | Any request under `/v2/` without credentials | `401`, with `WWW-Authenticate: Bearer realm="<public address>/v2/token",service="<host>"`, and the `scope` the request needs |
 | `GET /v2/token` with HTTP Basic credentials | They are checked exactly as on any other route, with the same limits on failed attempts. `200` with a registry token and its lifetime, or `401` |
 | `GET /v2/token` without credentials | A registry token for the anonymous user if anonymous access is on. Otherwise `401` |
+| `GET /v2/token` with a registry token | `401`. A registry token cannot be traded for another, so none outlives its five minutes |
 | A request with a registry token | The user, roles and API token are loaded again (D4). An expired or unreadable token is `401` with the challenge, and is not counted as a failed attempt: clients fetch a new one as a matter of course |
 | A request with Basic credentials or an API token | As on any other route |
 | `GET /v2/` with any valid credential | `200` |
@@ -147,7 +148,7 @@ An upload needs `add`. Completing an upload of a blob the repository already has
 2. Its digest is the SHA-256 of the bytes as sent. If the address names a digest, it must be that one.
 3. Everything it refers to must be in the repository: for an image, its configuration and layers as blobs; for a list or index, each platform's manifest under the same image. A layer that lists external addresses (`urls`) need not be there. Otherwise `400 MANIFEST_BLOB_UNKNOWN`, naming what is missing.
 4. The manifest is stored under its digest, with what it refers to (D8), unless it is there already.
-5. If the address names a tag, the tag is stored, or moved. The facade applies the deployment policy and the `add` and `edit` permissions to the tag's path.
+5. If the address names a tag, the tag is stored, or moved. The facade applies the deployment policy and the `add` and `edit` permissions to the tag's path. A tag that already names this manifest is left as it is: clients push an image again as a matter of course, and that must not fail where tags cannot be moved.
 
 The answer is `201` with `Location` and `Docker-Content-Digest`.
 
@@ -209,13 +210,14 @@ Under `backend/src/megooarti/`:
 
 | File | Responsibility |
 | --- | --- |
-| `security/registry_tokens.py` | Seal and read a registry token; grant one for a request's credentials |
+| `security/registry_tokens.py` | Seal and read a registry token |
+| `security/authentication.py` | Grant a registry token for a request's credentials; accept one as a `Bearer` credential |
 | `repositories/docker/names.py` | Image names, tags, digests; classify a path. Pure functions |
 | `repositories/docker/manifests.py` | Read a manifest; what it refers to. Pure functions |
 | `repositories/docker/errors.py` | The registry's error shape and codes |
 | `repositories/docker/routes.py` | The routes under `/v2/`: the base, sign-in, the catalog, and requests to a repository |
 | `repositories/docker/format.py` | The `DockerFormat` class and its handlers. The only Docker file that touches the context |
-| `repositories/uploads.py`, `content.py`, `models.py`, `formats.py`, `routes.py`, `storage/backends.py`, `maintenance.py`, `main.py` | The core changes of section 4 |
+| `repositories/uploads.py`, `upkeep.py`, `content.py`, `models.py`, `formats.py`, `routes.py`, `storage/backends.py`, `secrets_box.py`, `main.py` | The core changes of section 4 |
 
 ## 12. Testing
 
@@ -225,7 +227,7 @@ Under `backend/src/megooarti/`:
 - **Deleting and maintenance** are tested for what goes and what stays: a layer two images share, an image with several platforms, a blob never referred to, an upload abandoned.
 - **Races** use real transactions: two chunks to one upload, a push and a delete that share a layer.
 - **Real clients**, in the Docker-marked suite:
-  - *Plan 7a:* the Docker client and daemon sign in, build a small image from nothing, push it, remove it locally, pull it and run it; push it again under another tag; and are refused when they should be. A second client that uses Podman's image library copies an image with several platforms to the repository and back, and compares it. A deleted image's layers are gone from the blob store.
+  - *Plan 7a:* the Docker client and daemon sign in, build a small image from nothing, push it, remove it locally, pull it and read its file back out of it; push it again under another tag; pull without signing in what the anonymous user may read; and are refused when they should be. A second client that uses Podman's image library copies an image with several platforms to the repository and back, and compares it. A deleted image's layers are gone from the repository.
   - *Plan 7b:* an image is pulled through a proxy of a public registry.
   - *Plan 7c:* images are pulled through a group, and an image pushed under a name the public registry also has is the one served.
 

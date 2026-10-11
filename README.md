@@ -105,7 +105,7 @@ The full API is described at `/api/docs`.
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. The formats so far are
-`raw` (arbitrary files by path), `maven`, `npm` and `pypi`.
+`raw` (arbitrary files by path), `maven`, `npm`, `pypi` and `docker`.
 A repository has one of three types: `hosted` (files you publish), `proxy` (a cache of
 a remote repository) or `group` (several repositories behind one URL).
 
@@ -511,6 +511,73 @@ poetry config http-basic.megooarti __token__ "$MEGOOARTI_TOKEN"
 
 Reading through a group needs `read` on the group only, for example
 `repository:pypi:pypi-public:read`.
+
+### Docker repositories
+
+MegooArti is a container registry for Docker, Podman and containerd. A Docker
+repository is not used under `/repository/`: container clients speak to `/v2/` at the
+root of a host, and the first part of an image's name says which repository it is in.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "docker-hosted", "format": "docker", "type": "hosted"
+}' http://localhost:8000/api/v1/repositories
+
+docker login repo.example.com
+docker tag my-app:1.0 repo.example.com/docker-hosted/team/my-app:1.0
+docker push repo.example.com/docker-hosted/team/my-app:1.0
+docker pull repo.example.com/docker-hosted/team/my-app:1.0
+```
+
+- **HTTPS.** Container clients refuse plain HTTP to every host but `localhost`, so
+  put MegooArti behind HTTPS for clients on other machines. The registry has to be at
+  the root of its host: a deployment under a path prefix cannot serve Docker. Behind a
+  reverse proxy, set the base URL under `/api/v1/settings`: it is where clients are
+  sent to sign in.
+- **Signing in.** `docker login` takes a user name with a password or with an API
+  token. The client is then given a registry token that lasts five minutes, and
+  fetches a new one by itself. Disabling a user or revoking an API token takes effect
+  at once; a changed password within five minutes. Tools that send HTTP Basic
+  credentials or an API token with every request are accepted too.
+- **Permissions.** Pulling needs `read`, pushing `add`, moving a tag `edit`, and
+  deleting `delete`, for example `repository:docker:docker-hosted:read`.
+- **Public images.** Turn on anonymous access and give the `anonymous` user a role
+  with `read` on the repositories that are to be public. `docker pull` then works
+  without `docker login`, for those repositories only.
+- **Tags that cannot be moved.** With the deployment policy `disable_redeploy`, a tag
+  that exists cannot be given to another image (`409`). Pushing the image it already
+  names again changes nothing and is accepted.
+- **Images for several platforms** are pushed and pulled as one. Docker's and the OCI's
+  manifests and manifest lists are taken; the retired schema 1 is not.
+- **A layer is stored once** in a repository, however many of its images use it, and
+  is not uploaded again. Whoever may read a repository may fetch any layer in it by
+  its digest.
+- **Uploads are streamed to disk** in the chunks the client sends, whatever the size
+  of the layer, and can be resumed. A layer must match its digest or it is not kept.
+- **Deleting an image** is done by its digest, and removes the tags that name it and
+  the layers nothing else in the repository uses. Deleting a tag removes the tag
+  alone: the image can still be pulled by its digest. Docker has no command for
+  either, so use the API:
+
+  ```bash
+  curl -u admin -I https://repo.example.com/v2/docker-hosted/team/my-app/manifests/1.0
+  # Docker-Content-Digest: sha256:...
+  curl -u admin -X DELETE https://repo.example.com/v2/docker-hosted/team/my-app/manifests/sha256:...
+  ```
+
+- **Cleaning up.** A layer that no image refers to, and an upload that was never
+  finished, are removed after a day. A push that stops half-way leaves nothing behind
+  for longer than that.
+- **Listing.** `GET /v2/_catalog` lists the images you may read as
+  `<repository>/<image>`, and `GET /v2/<repository>/<image>/tags/list` an image's tags.
+- Errors under `/v2/` have the registry API's own shape, which container clients
+  show: `{"errors": [{"code": "...", "message": "..."}]}`.
+- Not available: the referrers API (clients fall back to tags), mounting a layer from
+  another repository (it is uploaded instead), and deleting a single layer. Proxy and
+  group Docker repositories are not available yet.
+- **Clients.** Tested with the Docker client and daemon, whose pushes and pulls go
+  through containerd's registry client, and with skopeo, which is built on the image
+  library Podman uses.
 
 ## Health endpoints
 
