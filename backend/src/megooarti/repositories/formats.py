@@ -58,6 +58,9 @@ class Format:
     # Where clients reach repositories of this format: under /repository/<name>/, or
     # through a protocol with an address of its own, which then has its own routes.
     served_at: str = "repository"
+    # Whether this format's remotes hand out tokens: answer a request with `401` and
+    # the address of a token service, as container registries do. A proxy then signs in.
+    remote_signs_in: bool = False
 
     def validate_name(self, name: str) -> None:
         """Refuse a repository name this format cannot be used under. The generic format: none.

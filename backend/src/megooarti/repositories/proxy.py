@@ -42,6 +42,35 @@ class Source:
 
     url: str
     digests: Mapping[str, str] = field(default_factory=dict)
+    # The media types to ask for, where a remote serves one address in several forms.
+    accept: str | None = None
+    # What the address is part of, for a remote that issues a token for each thing it
+    # serves: a container image. See `remote.SignIn`.
+    subject: str = ""
+    # Whether a miss is remembered under the path. Not if the same path can be found
+    # at another address, as a blob that several images share can.
+    remember_missing: bool = True
+
+
+@dataclass(frozen=True)
+class Answer:
+    """What a remote said when asked for a small document, or about one."""
+
+    headers: Mapping[str, str]
+    body: bytes = b""
+
+
+@dataclass(frozen=True)
+class Absent:
+    """The remote has no such thing."""
+
+
+@dataclass(frozen=True)
+class Unavailable:
+    """The remote could not be asked, or did not help. `error` is what to answer with."""
+
+    error: ApiError
+    status: int | None = None  # what the remote answered, if it answered
 
 
 def _not_found() -> ApiError:
@@ -112,6 +141,96 @@ async def _fail(context: RepositoryContext, path: str, outcome: object) -> str:
     return reason
 
 
+def _sign_in(context: RepositoryContext, source: Source | None) -> remote.SignIn | None:
+    """How to sign in to this repository's remote, if its format's remotes want that."""
+    if not context.format.remote_signs_in:
+        return None
+    remote_url = context.repository.config["proxy"]["remote_url"]
+    return remote.SignIn(remote_url, "" if source is None else source.subject)
+
+
+async def refuse(context: RepositoryContext, path: str, reason: str) -> ApiError:
+    """Record that what the remote sent for a path cannot be used. Returns the 502 to raise.
+
+    For a format that reads what it fetched and finds it is not what it should be.
+    """
+    return _unavailable(await _fail(context, path, remote.Failed(reason, blockable=False)))
+
+
+async def _consult(
+    context: RepositoryContext, path: str, source: Source, limit: int | None
+) -> Answer | Absent | Unavailable:
+    db, repository = context.db, context.repository
+    now = utcnow()
+    if source.remember_missing and await proxy_state.known_missing(db, repository, path, now):
+        return Absent()
+    if await proxy_state.blocked(db, repository, now):
+        return Unavailable(_unavailable("it is blocked"))
+    try:
+        url, credential = await _target(context, path, source)
+    except ApiError as error:  # recorded already
+        return Unavailable(error)
+    await db.commit()  # give the connection back while the remote is asked
+
+    sign_in = _sign_in(context, source)
+    http = context.http()
+    if limit is None:
+        outcome = await remote.head(
+            http, url, authorization=credential, accept=source.accept, sign_in=sign_in
+        )
+    else:
+        outcome = await remote.fetch(
+            http, url, authorization=credential, limit=limit, accept=source.accept, sign_in=sign_in
+        )
+    now = utcnow()
+    if isinstance(outcome, remote.Exists | remote.Document):
+        await proxy_state.record_success(db, repository, now)
+        await db.commit()
+        if isinstance(outcome, remote.Exists):
+            return Answer(outcome.every)
+        return Answer(outcome.headers, outcome.body)
+    if isinstance(outcome, remote.Missing):
+        await proxy_state.record_success(db, repository, now)  # the remote did answer
+        if source.remember_missing:
+            await proxy_state.remember_missing(db, repository, path, now)
+        await db.commit()
+        return Absent()
+    reason = await _fail(context, path, outcome)
+    return Unavailable(_unavailable(reason), getattr(outcome, "status", None))
+
+
+async def ask(
+    context: RepositoryContext, path: str, source: Source, *, limit: int
+) -> Answer | Absent | Unavailable:
+    """Fetch a small document from the remote into memory, for a format that reads it.
+
+    `path` is what the document would be cached under: a miss is remembered under it,
+    and a failure is recorded against it. Nothing is cached here; the caller knows
+    what the document is and how to store it. The remote is not asked while it is
+    blocked, and what comes of asking is recorded as for any fetch.
+
+    This commits, before asking and after. A caller must have no uncommitted work.
+    """
+    return await _consult(context, normalise_path(path), source, limit)
+
+
+async def probe(
+    context: RepositoryContext, path: str, source: Source
+) -> Answer | Absent | Unavailable:
+    """Ask the remote about a path without fetching it. The answer has headers and no body.
+
+    As `ask` in every other way.
+    """
+    return await _consult(context, normalise_path(path), source, None)
+
+
+async def still_current(context: RepositoryContext, path: str) -> None:
+    """Record that the remote was asked just now, and what is held is still what it has."""
+    asset = await context.get(normalise_path(path))
+    if asset is not None:
+        asset.last_verified_at = utcnow()
+
+
 async def _refresh(
     context: RepositoryContext, path: str, asset: Asset | None, source: Source | None = None
 ) -> None:
@@ -122,7 +241,8 @@ async def _refresh(
     """
     db, repository = context.db, context.repository
     now = utcnow()
-    if asset is None and await proxy_state.known_missing(db, repository, path, now):
+    remember = source is None or source.remember_missing
+    if asset is None and remember and await proxy_state.known_missing(db, repository, path, now):
         raise _not_found()
     if await proxy_state.blocked(db, repository, now):
         if asset is None:
@@ -150,6 +270,8 @@ async def _refresh(
         stage=stage,
         etag=known.get("remote_etag"),
         last_modified=known.get("remote_last_modified"),
+        accept=None if source is None else source.accept,
+        sign_in=_sign_in(context, source),
     )
     now = utcnow()
 
@@ -178,7 +300,8 @@ async def _refresh(
     elif isinstance(outcome, remote.Missing):
         await proxy_state.record_success(db, repository, now)  # the remote did answer
         if asset is None:
-            await proxy_state.remember_missing(db, repository, path, now)
+            if remember:
+                await proxy_state.remember_missing(db, repository, path, now)
             await db.commit()
             raise _not_found()
         # The remote dropped a file we hold. An artifact manager keeps it.
@@ -201,7 +324,9 @@ async def _head_remote(context: RepositoryContext, path: str) -> Response:
     url, credential = await _target(context, path)
     await db.commit()
 
-    outcome = await remote.head(context.http(), url, authorization=credential)
+    outcome = await remote.head(
+        context.http(), url, authorization=credential, sign_in=_sign_in(context, None)
+    )
     now = utcnow()
     if isinstance(outcome, remote.Exists):
         await proxy_state.record_success(db, repository, now)

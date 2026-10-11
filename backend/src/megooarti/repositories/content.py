@@ -737,15 +737,20 @@ class RepositoryContext:
             attributes=attributes,
             component_attributes=component_attributes,
         )
-        if references is not None:
-            await self.db.execute(delete(AssetReference).where(AssetReference.asset_id == asset.id))
-            targets = sorted(set(references))
-            if targets:
-                await self.db.execute(
-                    insert(AssetReference),
-                    [{"asset_id": asset.id, "target": target} for target in targets],
-                )
+        await self._refer(asset, references)
         return asset, created
+
+    async def _refer(self, asset: Asset, references: Collection[str] | None) -> None:
+        """Record what a file refers to, in place of what was recorded. None changes nothing."""
+        if references is None:
+            return
+        await self.db.execute(delete(AssetReference).where(AssetReference.asset_id == asset.id))
+        targets = sorted(set(references))
+        if targets:
+            await self.db.execute(
+                insert(AssetReference),
+                [{"asset_id": asset.id, "target": target} for target in targets],
+            )
 
     async def cache(
         self,
@@ -755,12 +760,14 @@ class RepositoryContext:
         content_type: str | None,
         attributes: dict[str, Any],
         now: datetime,
+        references: Collection[str] | None = None,
     ) -> Asset:
         """Record content a proxy repository fetched from its remote.
 
         No permission or policy check: a reader triggered this, and their `read` on the
         proxy (or on the group in front of it) has already been checked. For that reason
-        it works only on a proxy repository.
+        it works only on a proxy repository. `references` are as for `store`; what they
+        name need not have been fetched yet.
         """
         if self.repository.type != "proxy":
             await self.backend.discard(staged)
@@ -775,6 +782,7 @@ class RepositoryContext:
             attributes=attributes,
             verified_at=now,
         )
+        await self._refer(asset, references)
         return asset
 
     async def maintain(
