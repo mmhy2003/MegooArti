@@ -585,11 +585,50 @@ docker pull repo.example.com/docker-hosted/team/my-app:1.0
 - Errors under `/v2/` have the registry API's own shape, which container clients
   show: `{"errors": [{"code": "...", "message": "..."}]}`.
 - Not available: the referrers API (clients fall back to tags), mounting a layer from
-  another repository (it is uploaded instead), and deleting a single layer. Proxy and
-  group Docker repositories are not available yet.
+  another repository (it is uploaded instead), and deleting a single layer. Group
+  Docker repositories are not available yet.
 - **Clients.** Tested with the Docker client and daemon, whose pushes and pulls go
   through containerd's registry client, and with skopeo, which is built on the image
   library Podman uses.
+
+A proxy is a pull-through cache of another registry:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "docker-hub", "format": "docker", "type": "proxy",
+  "proxy": {"remote_url": "https://registry-1.docker.io"}
+}' http://localhost:8000/api/v1/repositories
+
+docker pull repo.example.com/docker-hub/alpine:3
+docker pull repo.example.com/docker-hub/grafana/grafana:latest
+```
+
+- **The remote address** is the registry's own, without `/v2/`: for Docker Hub
+  `https://registry-1.docker.io` (not `docker.io` or `hub.docker.com`), or for example
+  `https://ghcr.io`, `https://quay.io`, `https://registry.k8s.io`. On Docker Hub an
+  image with a one-part name is an official image, so `alpine` is fetched as
+  `library/alpine`, as Docker does.
+- **Signing in to the remote.** Public registries hand out a token before they serve
+  anything, usually from another host. The proxy fetches one, with the user name and
+  password (or access token) in `remote_auth` if there is one, and uses it until it
+  runs out. The credential is sent to the remote and to the sign-in address the remote
+  names, never to the host its layers are downloaded from. A sign-in address must use
+  HTTPS if the remote does, and must not be an internal address unless the remote is
+  at that host.
+- **A tag** is asked about again after `metadata_max_age_minutes`. Only its digest is
+  asked for, which registries that count pulls do not count; the image is fetched
+  again only if the tag names another one. While the remote cannot be reached, or if
+  it has dropped the tag, what is held is served.
+- **An image by its digest, and a layer,** are fetched once and checked against the
+  digest. What does not match is not kept (`502`). They are never asked about again.
+- **A manifest is read before it is kept**, so the proxy knows the layers each image
+  uses. A layer that no kept manifest refers to is removed after a day, as on a hosted
+  repository, and fetched again if it is asked for.
+- **Tags** (`tags/list`) are the remote's, kept for `metadata_max_age_minutes`. The
+  catalog lists the images that have been pulled through the proxy.
+- An image the remote does not have, or will not show to the proxy's credential, is
+  answered `404`. A registry says the same of both.
+- Nothing can be pushed to a proxy or deleted from it through the registry API (`405`).
 
 ## Health endpoints
 

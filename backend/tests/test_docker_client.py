@@ -5,7 +5,8 @@ machine it runs on, which is the one that also runs the stack: images are built 
 nothing, pushed to MegooArti at 127.0.0.1, removed, and pulled back. A daemon that keeps
 its images in containerd uses containerd's own registry client for that. The last
 test uses skopeo, which is built on the image library Podman uses; its image is pulled
-from quay.io, so that test needs internet access.
+from quay.io, so that test needs internet access. So does the test of proxies: the
+backend container fetches from Docker Hub and from registry.k8s.io.
 
 The Docker client is given a configuration directory of its own, so the user's sign-ins
 and settings are neither read nor changed.
@@ -167,9 +168,10 @@ def signed_in(accounts, tmp_path):
     assert login.returncode == 0, said(login)
     assert REGISTRY in json.loads((config / "config.json").read_text("utf-8"))["auths"]
     yield config
-    held = docker(config, "image", "ls", "--quiet", "--filter", f"reference={REGISTRY}/*/*/*")
-    for image in set(held.stdout.split()):
-        docker(config, "rmi", "--force", image)
+    for depth in ("*/*", "*/*/*"):
+        held = docker(config, "image", "ls", "--quiet", "--filter", f"reference={REGISTRY}/{depth}")
+        for image in set(held.stdout.split()):
+            docker(config, "rmi", "--force", image)
 
 
 def test_docker_signs_in_pushes_and_pulls(signed_in, tmp_path):
@@ -275,6 +277,50 @@ def test_anyone_pulls_what_the_anonymous_user_may_read(signed_in, administrator,
     finally:
         call("PUT", "/settings/anonymous-access", {"enabled": False}, administrator)
     assert docker(nobody, "pull", public).returncode != 0, "pulled after it stopped being public"
+
+
+def test_images_are_pulled_through_proxies_of_public_registries(signed_in, administrator, tmp_path):
+    config = signed_in
+    # Docker Hub signs a proxy in at another host and keeps its official images under
+    # `library/`. registry.k8s.io asks for no sign-in and sends every request elsewhere.
+    remotes = {"docker-hub": "https://registry-1.docker.io", "k8s": "https://registry.k8s.io"}
+    for name, remote in remotes.items():
+        body = {"name": name, "format": "docker", "type": "proxy", "proxy": {"remote_url": remote}}
+        status, _, answer = call("POST", "/repositories", body, administrator)
+        assert status == 201, answer
+    hello = f"{REGISTRY}/docker-hub/hello-world:latest"
+    pause = f"{REGISTRY}/k8s/pause:3.10"
+
+    for image in (hello, pause):
+        pulled = docker(config, "pull", image)
+        assert pulled.returncode == 0, said(pulled)
+    ran = docker(config, "run", "--rm", hello)
+    assert ran.returncode == 0 and "Hello from Docker!" in ran.stdout, said(ran)
+
+    # What was pulled is listed, with the tags the remote has.
+    status, _, catalog = registry("GET", "_catalog")
+    assert {"docker-hub/hello-world", "k8s/pause"} <= set(json.loads(catalog)["repositories"])
+    status, _, tags = registry("GET", "docker-hub/hello-world/tags/list")
+    assert status == 200 and "latest" in json.loads(tags)["tags"], tags
+
+    # It is kept: with the remote blocked, the image is pulled again, by tag and by digest.
+    status, headers, _ = registry("HEAD", "docker-hub/hello-world/manifests/latest")
+    digest = headers["Docker-Content-Digest"]
+    blocked = {"proxy": {"remote_url": remotes["docker-hub"], "blocked": True}}
+    status, _, answer = call("PUT", "/repositories/docker-hub", blocked, administrator)
+    assert status == 200, answer
+    assert docker(config, "rmi", hello).returncode == 0
+    again = docker(config, "pull", hello)
+    assert again.returncode == 0, said(again)
+    pinned = docker(config, "pull", f"{REGISTRY}/docker-hub/hello-world@{digest}")
+    assert pinned.returncode == 0, said(pinned)
+    never_fetched = docker(config, "pull", f"{REGISTRY}/docker-hub/busybox:latest")
+    assert never_fetched.returncode != 0, "pulled what was never fetched from a blocked remote"
+
+    # Nothing is pushed to a proxy.
+    assert docker(config, "tag", hello, f"{REGISTRY}/docker-hub/mine:1.0").returncode == 0
+    pushed = docker(config, "push", f"{REGISTRY}/docker-hub/mine:1.0")
+    assert pushed.returncode != 0, "pushed to a proxy"
 
 
 def layer_holding(text: str) -> tuple[bytes, str]:

@@ -74,8 +74,10 @@ One design, delivered as three plans.
 
 ### 4.2 For proxy and group Docker (plans 7b and 7c)
 
-- **A remote that asks for a token.** The remote client can answer a registry's `Bearer` challenge: fetch a token from the realm the challenge names, with the proxy's credentials if it has any, and repeat the request with it. Tokens are remembered until they expire. The rules of the PyPI design's D8 apply to the realm: it is an address the remote names.
-- **What a request to a remote accepts.** A format can say which media types a fetch accepts, so that a manifest is fetched in the form it was pushed in.
+- **A remote that asks for a token.** The remote client can answer a registry's `Bearer` challenge: fetch a token from the realm the challenge names, with the proxy's credentials if it has any, and repeat the request with it. Tokens are remembered in memory until they expire, for at most an hour, and are never stored. The realm is an address the remote names, so the PyPI design's D8 applies to it in this form: it must not be an internal address unless the remote is at that host, and it must use HTTPS if the remote does. Unlike a file's address, it is given the credential, because it is where the remote says its users sign in; only a user name and password is sent there, never a stored bearer token. The host a blob is redirected to gets neither the credential nor the token.
+- **What a request to a remote accepts.** A fetch can say which media types it accepts, so that a manifest is fetched in the form it was pushed in.
+- **Asking without caching.** The proxy engine can fetch a small document into memory, or only ask about it, with everything it does for any fetch: the remote is not asked while it is blocked, a miss is remembered, a failure is recorded. The format reads the document and stores it itself. A miss need not be remembered, for a path that can be found at more than one address.
+- **A cached file can record what it refers to**, like a stored one, before what it names has been fetched.
 
 ## 5. Names and paths
 
@@ -187,7 +189,15 @@ Both need `delete`. Pushing a manifest and deleting one take the same lock on th
 
 **The remote.** A registry's address, such as `https://registry-1.docker.io` or `https://ghcr.io`. For Docker Hub, an image name with one component is asked for under `library/`, as Docker does. The remote's token sign-in is done by the remote client (section 4.2), with the proxy's configured credentials if it has any.
 
-A manifest is stored with what it refers to, as on a hosted repository, so that maintenance treats cached blobs the same way.
+A manifest is read before it is stored: what is not one of the four kinds, or is not the manifest whose digest was asked for, is not kept and is answered `502`. It is stored with what it refers to, as on a hosted repository, so that maintenance treats cached blobs the same way: a blob no kept manifest refers to is removed after a day, and fetched again when it is asked for.
+
+**A tag** is refreshed by asking the remote about it (`HEAD`), which registries that count pulls do not count. If the digest it reports is the one held, nothing is fetched. A remote that reports no digest is asked for the manifest itself. While the remote cannot be asked, or once it has dropped the tag, what is held is served.
+
+**A blob** is not remembered as missing: another image of the remote may have the one this image has not. `HEAD` for a blob that is not held asks the remote and fetches nothing.
+
+**A refusal** (`401` or `403`) from the remote for an image is answered `404`: a registry says the same of an image it does not have as of one it will not show.
+
+The remote's tag list is read page by page, up to 100 pages and 100,000 tags, and kept as one list under `lists/<image>`.
 
 ## 9. Group Docker (plan 7c)
 
@@ -231,7 +241,7 @@ Under `backend/src/megooarti/`:
 - **Races** use real transactions: two chunks to one upload, a push and a delete that share a layer.
 - **Real clients**, in the Docker-marked suite:
   - *Plan 7a:* the Docker client and daemon sign in, build a small image from nothing, push it, remove it locally, pull it and read its file back out of it; push it again under another tag; pull without signing in what the anonymous user may read; and are refused when they should be. A second client that uses Podman's image library copies an image with several platforms to the repository and back, and compares it. A deleted image's layers are gone from the repository.
-  - *Plan 7b:* an image is pulled through a proxy of a public registry.
+  - *Plan 7b:* an image is pulled through a proxy of Docker Hub and run, and one through a proxy of registry.k8s.io; both are listed; with the remote blocked the image is pulled again from what was kept; a push to the proxy is refused.
   - *Plan 7c:* images are pulled through a group, and an image pushed under a name the public registry also has is the one served.
 
 ## 13. Risks
