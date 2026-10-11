@@ -62,7 +62,8 @@ class Asset(Base):
     # component lock, that no asset is left. Deleting a repository still works, because
     # the check runs at the end of the statement, after its assets have gone too.
     component_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("components.id"), index=True)
-    path: Mapped[str] = mapped_column(String(1024))
+    # Ordered by its bytes, so that what is under a folder lies together in the index.
+    path: Mapped[str] = mapped_column(String(1024, collation="C"))
     blob_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("blobs.id", ondelete="RESTRICT"), index=True
     )
