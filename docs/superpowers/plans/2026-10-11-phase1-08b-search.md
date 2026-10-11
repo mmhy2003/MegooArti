@@ -26,6 +26,18 @@
 | P10 | The migration gives existing components their namespace, name and version as search text. | It cannot run a format's code. Rebuilding an index writes the rest. |
 | P11 | Rebuilding is done in the request, 500 files and then 500 components at a time, each piece committed. A file the format keeps for itself (`kind` `metadata`) gets no component; a component with no file left is removed. The answer counts `files`, `moved`, `components` and `removed`. | D11, D6's reasoning: no task system yet, and a rebuild that is interrupted has done part of the work and can be repeated. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P12 | The page of results is chosen first, by a subquery, and "when a file of it last changed" is worked out for its rows only. The component list of plan 8a is changed the same way. | The review measured a page at offset 400,000 at 2.5 seconds: the subquery ran for every row the offset skipped. |
+| P13 | A PyPI upload's `keywords` are kept and are part of what a release is found by. Control characters in them are dropped, not refused. | The spec said "the summary and keywords"; Task 4 had narrowed it to the summary without a ruling. |
+| P14 | npm's keywords come before its description in the search text. | The text is cut at 4,000 characters, and a long description pushed the keywords out. |
+| P15 | `q`, `namespace` and `name` are at most 256 characters, `version` 255, `repository` 64, `format` 32. | A kilobyte of stars and letters has no trigram to look up and was tried against every row, by any caller, twice per request. |
+| P16 | A checksum is lowered and trimmed, and may carry its name in front (`sha256:`), before it is checked. P9 stands for what is then not a checksum. | PowerShell prints capitals, Docker writes `sha256:`, and a pasted value often ends in a line break. |
+| P17 | In a rebuild, a component is read again under its lock before its search text is written, and a file is given its component by a statement that tolerates the file having been deleted. | The review interleaved a change and a delete with a rebuild: the first left the old words in place, the second ended the rebuild with a `500`. |
+| P18 | A test reads the kind and the operators of the new indexes from the database, and that the extension stays after the way back. | Alembic's check compares neither. |
+
 ## Global Constraints
 
 - Everything in the earlier plans' Global Constraints still applies. In particular: Alembic only; the standard error envelope; services never commit; no ORM relationships; only the security package reads `Principal.patterns`; every route authenticates via a dependency that reaches one in `AUTHENTICATION_DEPENDENCIES`; list endpoints use `Page` and `PageParams`; LF line endings; 100-character lines; ruff clean; spaced markdown table separators.

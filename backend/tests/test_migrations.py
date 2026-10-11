@@ -149,3 +149,25 @@ def test_the_search_column_and_its_indexes_go_on_the_way_back(empty_database):
     )
     assert columns == []
     assert fetch_all(empty_database, SEARCH_INDEXES) == []
+
+
+def test_the_search_indexes_are_of_the_kinds_search_needs(empty_database):
+    # Alembic's check compares neither the kind of an index nor its operators.
+    config = alembic_config(empty_database)
+    command.upgrade(config, "head")
+    defined = dict(
+        fetch_all(
+            empty_database,
+            "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' "
+            "AND (indexname LIKE 'ix_components_%_trgm' OR indexname LIKE 'ix_blobs_%')",
+        )
+    )
+    command.downgrade(config, "0006")
+    extensions = fetch_all(empty_database, "SELECT extname FROM pg_extension ORDER BY extname")
+
+    for column in ("search", "name", "namespace"):
+        definition = defined[f"ix_components_{column}_trgm"]
+        assert "USING gin" in definition and "gin_trgm_ops" in definition, definition
+    for column in ("md5", "sha1", "sha256", "sha512"):
+        assert "USING hash" in defined[f"ix_blobs_{column}"]
+    assert ("pg_trgm",) in extensions  # it stays: something else may use it

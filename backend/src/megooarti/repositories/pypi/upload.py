@@ -17,7 +17,16 @@ from megooarti.repositories.pypi import names
 
 # The fields that are used. A form carries dozens more, some of them very long.
 _KEPT = frozenset(
-    {":action", "name", "version", "summary", "requires_python", "sha256_digest", "md5_digest"}
+    {
+        ":action",
+        "name",
+        "version",
+        "summary",
+        "keywords",
+        "requires_python",
+        "sha256_digest",
+        "md5_digest",
+    }
 )
 _FILE = "content"
 FIELD_LIMIT = 4096
@@ -43,6 +52,7 @@ class Declared:
     summary: str | None
     requires_python: str | None
     digests: dict[str, str] = field(default_factory=dict)  # algorithm -> lower-case hex
+    keywords: str | None = None  # as declared, for finding the release by: never served
 
 
 class Form:
@@ -170,6 +180,15 @@ def _optional(fields: Mapping[str, str], name: str) -> str | None:
     return value or None
 
 
+def _words(fields: Mapping[str, str], name: str) -> str | None:
+    """A field kept only to be found by: what cannot be kept of it is dropped, not refused."""
+    printable = "".join(
+        character if ord(character) >= 32 and ord(character) != 127 else " "
+        for character in fields.get(name, "")
+    )
+    return " ".join(printable.split()) or None
+
+
 def declared(fields: Mapping[str, str], filename: str | None, files: int) -> Declared:
     """Check what a form says about its file. Raises InvalidUpload."""
     if fields.get(":action") != "file_upload":
@@ -204,6 +223,7 @@ def declared(fields: Mapping[str, str], filename: str | None, files: int) -> Dec
         filename=filename,
         file_version=file_version,
         summary=_optional(fields, "summary"),
+        keywords=_words(fields, "keywords"),
         requires_python=_optional(fields, "requires_python"),
         digests=digests,
     )

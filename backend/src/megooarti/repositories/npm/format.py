@@ -730,12 +730,13 @@ class NpmFormat(Format):
         manifest = manifest if isinstance(manifest, dict) else {}
         words = [f"@{key.namespace}/{key.name}" if key.namespace else key.name]
         description, keywords = manifest.get("description"), manifest.get("keywords")
-        if isinstance(description, str):
-            words.append(description)
+        # Keywords first: what is found by is cut, and a description can be long.
         if isinstance(keywords, str):
             words.append(keywords)
         elif isinstance(keywords, list):
             words += [word for word in keywords if isinstance(word, str)]
+        if isinstance(description, str):
+            words.append(description)
         return " ".join([super().search_text(key, attributes), *words])
 
     def describe_component(self, path: str) -> ComponentKey | None:

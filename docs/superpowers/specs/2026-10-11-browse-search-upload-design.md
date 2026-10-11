@@ -125,12 +125,14 @@ The answer is a page of components, each with its repository and format, in the 
 | Format | Besides namespace, name and version |
 | --- | --- |
 | Maven | `group:artifact:version` as one word. The POM's name and description are not read yet |
-| npm | The scope and name as `@scope/name`; the description and keywords of its `package.json` |
-| PyPI | The summary the upload declared |
+| npm | The scope and name as `@scope/name`; the keywords and description of its `package.json`, in that order, since the text is cut |
+| PyPI | The summary and keywords the upload declared |
 | Docker | `image:tag`. A manifest's component has none (D10) |
 | Raw | Nothing: a file's component is its folder and its name |
 
-A component's search text is cut at 4,000 characters.
+A component's search text is cut at 4,000 characters. What a proxy caches has no description or keywords: it is found by its namespace, name and version.
+
+No value is longer than what it is compared with can be (256 characters for `q`, a namespace or a name; 255 for a version): a long pattern has nothing an index can look up. A checksum is taken in either case, and with or without its name in front.
 
 `POST /api/v1/repositories/{name}/rebuild-index` (an administrator's) does D11, a piece at a time, each piece committed, and answers with `files` and `components` (looked at), `moved` (files given to another component than they had) and `removed` (components that had no file left).
 
@@ -169,7 +171,8 @@ Under `backend/src/megooarti/`:
 | --- | --- |
 | `repositories/browse.py` | Walking a folder; the details of a file and a component; the paths under a folder. Queries and plain values, no HTTP |
 | `repositories/content_api.py` | The routes of section 5, deleting a folder in pieces, and, later, upload |
-| `repositories/search.py`, `repositories/search_api.py` | Turning what was typed into a query; the route; rebuilding an index |
+| `repositories/search.py`, `repositories/search_api.py` | Turning what was typed into a query; the route |
+| `repositories/content.py`, `repositories/api.py` | Rebuilding an index: the two walks, and the administrator's route |
 | `repositories/formats.py` | The hooks: `delete_asset`, `download_path`, `unlisted_namespaces`, `search_text`, `upload`, `usage` |
 | `repositories/<format>/format.py` | Each format's own answer to the hooks |
 | `security/authentication.py` | `require_caller`: somebody is calling; the route asks what they may do |

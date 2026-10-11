@@ -8,6 +8,9 @@ administrator run `CREATE EXTENSION pg_trgm` in the database first.
 Components that exist are given their namespace, name and version as search text.
 Rebuilding a repository's index writes what its format would have written.
 
+This rewrites every component and builds seven indexes, with the tables locked while
+it does: about half a minute for 600,000 components and 900,000 blobs.
+
 Revision ID: 0007
 Revises: 0006
 Create Date: 2026-10-11

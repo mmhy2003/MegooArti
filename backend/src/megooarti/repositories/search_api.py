@@ -16,7 +16,12 @@ from megooarti.security.authentication import Principal, require_caller
 
 router = APIRouter(prefix="/search", tags=["content"])
 
-Text = Annotated[str, Query(max_length=1024)]
+# No value is longer than what it is compared with can be. A long pattern has
+# nothing an index can look up, and would be tried against every row.
+Words = Annotated[str, Query(max_length=256, description="Words the component contains.")]
+Name = Annotated[str, Query(max_length=256, description="The whole value; `*` is anything.")]
+Version = Annotated[str, Query(max_length=255, description="The whole value; `*` is anything.")]
+Checksum = Annotated[str, Query(max_length=160, description="Of a file of the component.")]
 
 
 class Result(BaseModel):
@@ -32,16 +37,16 @@ class Result(BaseModel):
 
 @router.get("", response_model=Page[Result])
 async def search_components(
-    q: Annotated[str, Query(max_length=1024, description="Words the component contains.")] = "",
-    format: Text = "",
-    repository: Text = "",
-    namespace: Text = "",
-    name: Text = "",
-    version: Text = "",
-    md5: Text = "",
-    sha1: Text = "",
-    sha256: Text = "",
-    sha512: Text = "",
+    q: Words = "",
+    format: Annotated[str, Query(max_length=32)] = "",
+    repository: Annotated[str, Query(max_length=64)] = "",
+    namespace: Name = "",
+    name: Name = "",
+    version: Version = "",
+    md5: Checksum = "",
+    sha1: Checksum = "",
+    sha256: Checksum = "",
+    sha512: Checksum = "",
     params: PageParams = Depends(),
     caller: Principal = Depends(require_caller),
     db: AsyncSession = Depends(get_session),
@@ -69,7 +74,7 @@ async def search_components(
         )
     except search.BadChecksum as error:
         digits = search.CHECKSUMS[str(error)]
-        message = f"Must be {digits} hexadecimal digits in lower case."
+        message = f"Must be {digits} hexadecimal digits."
         details = [{"field": str(error), "message": message}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
     return page(items, total, params)

@@ -163,6 +163,8 @@ async def _upload(context: RepositoryContext, request: Request) -> Response:
         raise ApiError(400, "checksum_mismatch", f"The {wrong[0]} digest does not match the file.")
 
     release = {"name": sent.name, "version": sent.version, "summary": sent.summary}
+    if sent.keywords:
+        release["keywords"] = sent.keywords
     # The facade checks `add` or `edit` and the deployment policy, under the path's lock.
     # The path has the version in the file's name, not the one declared: a file name
     # then has one address in its project, and declaring another version cannot put a
@@ -384,11 +386,12 @@ class PypiFormat(Format):
     name = "pypi"
 
     def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
-        """Its name and version, and the summary its upload declared."""
+        """Its name and version, and the summary and keywords its upload declared."""
         declared = attributes.get(_DECLARED)
-        summary = declared.get("summary") if isinstance(declared, dict) else None
-        words = super().search_text(key, attributes)
-        return f"{words} {summary}" if isinstance(summary, str) else words
+        declared = declared if isinstance(declared, dict) else {}
+        said = [declared.get("summary"), declared.get("keywords")]
+        words = [super().search_text(key, attributes)]
+        return " ".join(words + [text for text in said if isinstance(text, str)])
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""

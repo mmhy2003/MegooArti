@@ -256,12 +256,12 @@ async def components(
         .correlate(Component)
         .scalar_subquery()
     )
+    order = (Component.namespace, Component.name, Component.created_at.desc(), Component.id)
+    chosen = (
+        select(Component.id).where(*conditions).order_by(*order).limit(limit).offset(offset)
+    ).subquery()
     rows = await db.execute(
-        select(*_COLUMNS, modified)
-        .where(*conditions)
-        .order_by(Component.namespace, Component.name, Component.created_at.desc(), Component.id)
-        .limit(limit)
-        .offset(offset)
+        select(*_COLUMNS, modified).join(chosen, chosen.c.id == Component.id).order_by(*order)
     )
     return [_summary(*row) for row in rows], total or 0
 

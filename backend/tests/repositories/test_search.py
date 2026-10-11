@@ -183,7 +183,7 @@ async def test_a_checksum_finds_the_component_of_the_file(client, root, stocked)
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("sha1", "abc"), ("sha256", "G" * 64), ("md5", "A" * 32), ("sha512", "0" * 127 + "!")],
+    [("sha1", "abc"), ("sha256", "G" * 64), ("md5", "a" * 33), ("sha512", "0" * 127 + "!")],
 )
 async def test_a_checksum_must_be_one(client, root, stocked, field, value):
     response = await client.get(SEARCH, params={field: value}, headers=root)
@@ -260,3 +260,66 @@ async def test_what_is_asked_for_has_a_length(client, root, stocked):
     response = await client.get(SEARCH, params={"q": "x" * 1025}, headers=root)
 
     assert (response.status_code, error_code(response)) == (422, "validation_error")
+
+
+async def test_a_checksum_is_taken_as_tools_print_it(client, root, stocked):
+    sha256 = hashlib.sha256(JAR).hexdigest()
+    found = ["maven:com.acme:commons-lang:3.0"]
+
+    assert await find(client, root, sha256=sha256.upper()) == found  # as PowerShell prints it
+    assert await find(client, root, sha256=f"  {sha256}\n") == found
+    assert await find(client, root, sha256=f"sha256:{sha256}") == found  # as Docker writes it
+    assert await find(client, root, sha1=f"SHA1:{hashlib.sha1(JAR).hexdigest()}") == found
+
+
+@pytest.mark.parametrize(
+    ("field", "length"),
+    [
+        ("q", 257),
+        ("namespace", 257),
+        ("name", 257),
+        ("version", 256),
+        ("repository", 65),
+        ("format", 33),
+    ],
+)
+async def test_nothing_longer_than_a_value_can_be_is_looked_for(
+    client, root, stocked, field, length
+):
+    # A long pattern of stars and letters has no trigram to look up: it would read every row.
+    too_long = await client.get(SEARCH, params={field: ("*a" * 200)[:length]}, headers=root)
+    longest = await client.get(SEARCH, params={field: "a" * (length - 1)}, headers=root)
+
+    assert (too_long.status_code, error_code(too_long)) == (422, "validation_error")
+    assert longest.status_code == 200
+
+
+async def test_pattern_characters_in_a_stored_name_and_in_a_field(client, root, files):
+    for name in ("100%25.txt", "a_b.txt", "axb.txt", "plain.txt"):  # %25 is a percent sign
+        await client.put(f"/repository/files/odd/{name}", content=b"x", headers=root)
+
+    assert await find(client, root, name="100%*") == ["files:odd:100%.txt:"]
+    assert await find(client, root, name="a_b.txt") == ["files:odd:a_b.txt:"]  # not axb.txt
+    assert await find(client, root, q="a_b") == ["files:odd:a_b.txt:"]
+    assert await find(client, root, name="%") == []
+    assert await find(client, root, name="_______") == []
+
+
+async def test_a_backslash_that_is_stored_is_found_as_itself(client, root, db):
+    await create(db, "npm", "npm")
+    await publish(client, root, "tool", "1.0.0", description="path C:\\Temp\\x and 50%_off")
+
+    assert await find(client, root, q="c:\\temp") == ["npm::tool:1.0.0"]
+    assert await find(client, root, q="c:*x") == ["npm::tool:1.0.0"]
+    assert await find(client, root, q="50%_off") == ["npm::tool:1.0.0"]
+    assert await find(client, root, q="c:\\\\temp") == []
+
+
+async def test_a_page_far_into_the_list_is_the_same_rows(client, root, stocked):
+    everything = await client.get(SEARCH, params={"limit": 200}, headers=root)
+    names = [item["id"] for item in everything.json()["items"]]
+
+    for offset in range(len(names)):
+        page = await client.get(SEARCH, params={"limit": 3, "offset": offset}, headers=root)
+        assert [item["id"] for item in page.json()["items"]] == names[offset : offset + 3]
+        assert all(item["modified"] for item in page.json()["items"])

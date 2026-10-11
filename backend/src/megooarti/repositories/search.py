@@ -74,7 +74,8 @@ def _conditions(wanted: Wanted) -> list:
         if value:
             conditions.append(column.ilike(pattern(value), escape=_ESCAPE))
     for field, length in CHECKSUMS.items():
-        value = getattr(wanted, field)
+        # As tools print it: in capitals, with a space or a line break, with its name.
+        value = getattr(wanted, field).strip().lower().removeprefix(f"{field}:")
         if not value:
             continue
         if len(value) != length or value.strip("0123456789abcdef"):
@@ -126,6 +127,25 @@ async def search(
     conditions.append(Component.repository_id.in_([repository.id for repository in repositories]))
     conditions += _unlisted(repositories)
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
+    # By bytes, so that the order is the same whatever the database orders by.
+    order = (
+        Component.name.collate("C"),
+        Component.namespace.collate("C"),
+        Repository.name_key.collate("C"),
+        Component.created_at.desc(),
+        Component.id,
+    )
+    # The page is chosen first. Asked for in one query, "when a file of it last changed"
+    # would be worked out for every row an offset skips as well.
+    chosen = (
+        select(Component.id)
+        .join(Repository, Repository.id == Component.repository_id)
+        .where(*conditions)
+        .order_by(*order)
+        .limit(limit)
+        .offset(offset)
+        .subquery()
+    )
     modified = (
         select(func.max(Asset.updated_at))
         .where(Asset.component_id == Component.id)
@@ -144,18 +164,9 @@ async def search(
             Component.updated_at,
             modified,
         )
+        .join(chosen, chosen.c.id == Component.id)
         .join(Repository, Repository.id == Component.repository_id)
-        .where(*conditions)
-        .order_by(
-            # By bytes, so that the order is the same whatever the database orders by.
-            Component.name.collate("C"),
-            Component.namespace.collate("C"),
-            Repository.name_key,
-            Component.created_at.desc(),
-            Component.id,
-        )
-        .limit(limit)
-        .offset(offset)
+        .order_by(*order)
     )
     # The last two columns: when the component itself changed, and when a file of it did.
     found = [Found(*row[:7], row[8] or row[7]) for row in rows]

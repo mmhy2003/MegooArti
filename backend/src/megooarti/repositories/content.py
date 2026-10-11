@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import delete, func, insert, or_, select, text
+from sqlalchemy import delete, func, insert, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from starlette.requests import Request
@@ -945,9 +945,12 @@ class RepositoryContext:
             component = None if key is None else await self._component(key)
             wanted = None if component is None else component.id
             if asset.component_id != wanted:
-                asset.component_id = wanted
-                moved += 1
-        await self.db.flush()
+                # By statement: the file may have been deleted since the piece was
+                # read, and that is no reason to stop.
+                given = await self.db.execute(
+                    update(Asset).where(Asset.id == asset.id).values(component_id=wanted)
+                )
+                moved += given.rowcount
         return len(rows), moved, rows[-1].path if len(rows) == limit else None
 
     async def redescribe(
@@ -962,16 +965,20 @@ class RepositoryContext:
         wanted = select(Component).where(Component.repository_id == self.repository.id)
         if after is not None:
             wanted = wanted.where(Component.id > after)
-        rows = list(await self.db.scalars(wanted.order_by(Component.id).limit(limit)))
+        wanted = wanted.order_by(Component.id)
+        keys = (Component.id, Component.namespace, Component.name, Component.version)
+        rows = (await self.db.execute(wanted.with_only_columns(*keys).limit(limit))).all()
         removed = 0
-        for component in rows:
+        for identifier, namespace, name, version in rows:
             # The lock an upload into the component holds, so that one being added to
-            # is not taken for empty.
-            await self._lock_component(
-                ComponentKey(component.namespace, component.name, component.version)
-            )
+            # is not taken for empty. Read under it: what is said about the component
+            # may have changed since the piece was read.
+            await self._lock_component(ComponentKey(namespace, name, version))
+            component = await self.db.get(Component, identifier, populate_existing=True)
+            if component is None:
+                continue  # deleted meanwhile, with its last file
             has_file = await self.db.scalar(
-                select(Asset.id).where(Asset.component_id == component.id).limit(1)
+                select(Asset.id).where(Asset.component_id == identifier).limit(1)
             )
             if has_file is None:
                 await self.db.delete(component)
@@ -979,7 +986,7 @@ class RepositoryContext:
             else:
                 self._describe(component)
         await self.db.flush()
-        return len(rows), removed, rows[-1].id if len(rows) == limit else None
+        return len(rows), removed, rows[-1][0] if len(rows) == limit else None
 
     async def respond(self, path: str, request: Request) -> Response:
         """The response to a GET or HEAD for a path. The caller has checked `read`."""

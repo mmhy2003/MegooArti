@@ -186,3 +186,54 @@ async def test_rebuilding_is_an_administrators(client, root, db, files, make_use
     assert (refused.status_code, error_code(refused)) == (403, "forbidden")
     assert nobody.status_code == 401
     assert (absent.status_code, error_code(absent)) == (404, "not_found")
+
+
+async def test_what_is_said_about_a_component_while_it_is_rebuilt_is_what_it_is_found_by(
+    client, root, db, context_for, monkeypatch
+):
+    repository = await create(db, "npm", "npm")
+    await publish(client, root, "tool", "1.0.0", description="first words")
+    context = await context_for(repository, None)
+    locking = context._lock_component
+
+    async def changed_meanwhile(key) -> None:
+        # Another request changes the description after the piece was read and before
+        # this component's turn. It commits; here it is the same transaction.
+        await db.execute(
+            update(Component)
+            .values(attributes={"npm": {"description": "second words"}})
+            # As another session's change arrives: the rows this one loaded know nothing of it.
+            .execution_options(synchronize_session=False)
+        )
+        await locking(key)
+
+    monkeypatch.setattr(context, "_lock_component", changed_meanwhile)
+
+    await context.redescribe()
+    await db.commit()
+
+    assert list(await db.scalars(select(Component.search))) == ["tool 1.0.0 tool second words"]
+
+
+async def test_a_file_deleted_while_its_piece_is_gone_through_does_not_stop_the_rebuild(
+    client, root, db, context_for, monkeypatch
+):
+    repository = await create(db, "maven", "maven")
+    await deploy(client, root, "com/acme/app/1.0/app-1.0.jar", "com/acme/lib/2.0/lib-2.0.jar")
+    await forget_components(db)
+    context = await context_for(repository, None)
+    making = context._component
+
+    async def deleted_meanwhile(key):
+        # Another request deletes the first file after the piece was read.
+        await db.execute(delete(Asset).where(Asset.path.like("%app%")))
+        return await making(key)
+
+    monkeypatch.setattr(context, "_component", deleted_meanwhile)
+
+    seen, moved, after = await context.reindex()
+    await context.redescribe()
+    await db.commit()
+
+    assert (seen, moved, after) == (2, 1, None)
+    assert list(await db.scalars(select(Component.name))) == ["lib"]

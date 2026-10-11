@@ -69,7 +69,7 @@ async def test_an_npm_package_is_found_by_its_name_description_and_keywords(clie
     await publish(client, root, "plain", "2.0.0", description=["not text"], keywords="one two")
 
     assert await texts(db, None) == [
-        "acme tool 1.0.0 @acme/tool cuts things saw blade",
+        "acme tool 1.0.0 @acme/tool saw blade cuts things",
         "plain 2.0.0 plain one two",
     ]
 
@@ -108,3 +108,25 @@ async def test_changing_what_is_said_about_a_component_changes_what_it_is_found_
     await db.commit()
 
     assert await texts(db, None) == ["tool 1.0.0 tool deprecated: use saw"]
+
+
+async def test_a_python_release_is_found_by_the_keywords_its_upload_declared(client, root, db):
+    await create(db, "pypi", "pypi")
+    await upload(
+        client,
+        root,
+        "greeter-1.0-py3-none-any.whl",
+        summary="Says Hello",
+        keywords="Greeting, salutation\twave\x01",
+    )
+
+    assert await texts(db, None) == ["greeter 1.0 says hello greeting, salutation wave"]
+
+
+async def test_npm_keywords_are_not_lost_behind_a_long_description(client, root, db):
+    await create(db, "npm", "npm")
+
+    await publish(client, root, "tool", "1.0.0", description="word " * 5000, keywords=["sawblade"])
+
+    (text,) = await texts(db, None)
+    assert len(text) == 4000 and text.startswith("tool 1.0.0 tool sawblade word word")
