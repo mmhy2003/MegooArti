@@ -91,7 +91,8 @@ class AssetReference(Base):
     asset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True
     )
-    target: Mapped[str] = mapped_column(String(1024), primary_key=True, index=True)
+    # A path, compared with paths, so ordered as they are.
+    target: Mapped[str] = mapped_column(String(1024, collation="C"), primary_key=True, index=True)
 
 
 class Upload(Base):

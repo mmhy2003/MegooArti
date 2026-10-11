@@ -792,6 +792,7 @@ class RepositoryContext:
         *,
         content_type: str,
         limit: int,
+        removing: bool = False,
     ) -> None:
         """Change a document the server keeps on an uploader's behalf. The caller commits.
 
@@ -800,9 +801,16 @@ class RepositoryContext:
         each other. This needs `add` or `edit` and is not subject to `disable_redeploy`,
         because the uploader is not replacing anything they published. It refuses a
         path that holds any other kind of file, so it cannot overwrite an artifact.
+
+        `removing` says the change follows something the caller deleted, and is part
+        of that: it then needs `delete`, as the deletion did, and nothing more.
         """
         path = normalise_path(path)
-        self.require_write()
+        if removing:
+            authorize(self.principal, self.permission("delete"), scheme="Basic")
+            self._check_policy(replacing=False)
+        else:
+            self.require_write()
         await self._lock("path", path)
         existing = await self.get(path, fresh=True)
         if existing is not None and existing.kind != _MAINTAINED:

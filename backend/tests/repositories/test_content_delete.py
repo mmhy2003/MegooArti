@@ -177,3 +177,49 @@ async def test_deleting_from_a_proxy_removes_the_cached_copy(client, mirror, fak
 
     assert (deleted.status_code, gone) == (204, [])
     assert again.content == b"what the remote has now"  # fetched again when asked for
+
+
+@pytest.mark.parametrize(
+    "after", ["a", "aaa/keep", "app", "app-old/keep", "zzz/keep", "ap", "/app/one", "app0"]
+)
+async def test_a_folder_delete_cannot_be_pointed_outside_its_folder(client, files, root, after):
+    await put(client, root, "aaa/keep", "app", "app-old/keep", "app/one", "app/two", "zzz/keep")
+
+    response = await client.delete(
+        f"{CONTENT}/files/tree", params={"path": "app", "after": after}, headers=root
+    )
+
+    assert (response.status_code, error_code(response)) == (422, "validation_error")
+    assert await names(client, root) == ["aaa", "app", "app-old", "app", "zzz"]
+    assert await names(client, root, "app") == ["one", "two"]
+
+
+async def test_deleting_needs_browse_and_delete_and_no_more(client, files, root, make_user, db):
+    await put(client, root, "docs/guide.md", "docs/intro.md", "more/x")
+    may = ["repository:raw:files:browse", "repository:raw:files:delete"]
+    await roles.create_role(db, "cleaners", "", may, [])
+    await db.commit()
+    await make_user("cleaner", roles=["cleaners"])
+    cleaner = basic("cleaner", PASSWORD)
+    listed = await client.get(
+        f"{CONTENT}/files/components", params={"name": "intro.md"}, headers=cleaner
+    )
+
+    statuses = [
+        (
+            await client.delete(
+                f"{CONTENT}/files/asset", params={"path": "docs/guide.md"}, headers=cleaner
+            )
+        ).status_code,
+        (
+            await client.delete(
+                f"{CONTENT}/files/components/{listed.json()['items'][0]['id']}", headers=cleaner
+            )
+        ).status_code,
+        (
+            await client.delete(f"{CONTENT}/files/tree", params={"path": "more"}, headers=cleaner)
+        ).status_code,
+    ]
+
+    assert statuses == [204, 204, 200]
+    assert await names(client, root) == []

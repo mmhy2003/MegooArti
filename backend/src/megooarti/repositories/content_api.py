@@ -104,7 +104,9 @@ def _handler(repository: Repository) -> Format:
     return handler
 
 
-async def _view(db: AsyncSession, repository: Repository, base: str) -> RepositoryView:
+async def _view(
+    db: AsyncSession, repository: Repository, base: str, caller: Principal
+) -> RepositoryView:
     handler = get_format(repository.format)
     if handler is not None and handler.served_at == "registry":
         # A container client is given a host and a name, not an address.
@@ -113,7 +115,12 @@ async def _view(db: AsyncSession, repository: Repository, base: str) -> Reposito
         url = f"{base}/repository/{repository.name}/"
     members = None
     if repository.type == "group":
-        members = await service.member_names(db, repository)
+        # Only those the caller may browse: the others are not theirs to know of.
+        members = [
+            member.name
+            for member in await service.members(db, repository)
+            if caller.allows(_permission(member, "browse"))
+        ]
     return RepositoryView(
         name=repository.name,
         format=repository.format,
@@ -161,7 +168,8 @@ async def list_repositories(
     allowed = [found for found in every if caller.allows(_permission(found, "browse"))]
     base = await _base(request, db)
     shown = allowed[params.offset : params.offset + params.limit]
-    return page([await _view(db, found, base) for found in shown], len(allowed), params)
+    views = [await _view(db, found, base, caller) for found in shown]
+    return page(views, len(allowed), params)
 
 
 @router.get("/{repository}", response_model=RepositoryView)
@@ -172,7 +180,7 @@ async def get_repository(
     db: AsyncSession = Depends(get_session),
 ) -> RepositoryView:
     found = await _repository(db, repository, caller)
-    return await _view(db, found, await _base(request, db))
+    return await _view(db, found, await _base(request, db), caller)
 
 
 @router.get("/{repository}/tree", response_model=Listing)
@@ -192,8 +200,11 @@ async def list_folder(
     folder = path.strip("/")
     if folder:
         normalise_path(folder)
+    unlisted = _handler(found).unlisted_namespaces
     try:
-        items, following = await browse.children(db, found, folder, after=after, limit=limit)
+        items, following = await browse.children(
+            db, found, folder, unlisted=unlisted, after=after, limit=limit
+        )
     except browse.BadCursor:
         details = [{"field": "after", "message": "Not something a listing returned."}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
@@ -211,10 +222,13 @@ async def get_asset(
     db: AsyncSession = Depends(get_session),
 ) -> AssetView:
     found = await _holding(db, repository, caller)
-    detail = await browse.asset(db, found, normalise_path(path))
+    handler = _handler(found)
+    detail = await browse.asset(
+        db, found, normalise_path(path), unlisted=handler.unlisted_namespaces
+    )
     if detail is None:
         raise ApiError(404, "not_found", "No such file.")
-    address = _handler(found).download_path(found.name, detail.path)
+    address = handler.download_path(found.name, detail.path)
     download = None if address is None else await _base(request, db) + address
     return AssetView.model_validate({**vars(detail), "download": download}, from_attributes=True)
 
@@ -320,6 +334,11 @@ async def delete_folder(
     """
     context = await _deletable(request, db, repository, caller)
     folder = normalise_path(path.strip("/"))
+    if after and not after.startswith(f"{folder}/"):
+        # What a request for this folder returned is a path in it. Anything else
+        # would point the delete at the folder's neighbours.
+        details = [{"field": "after", "message": "Not something this folder's delete returned."}]
+        raise ApiError(422, "validation_error", "The request is not valid.", details)
     found = await browse.paths_under(
         db, context.repository, folder, after=after, limit=_FOLDER_AT_ONCE
     )

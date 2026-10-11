@@ -4,7 +4,10 @@ A folder's children are found by jumping through the index on paths, which is on
 right if paths are ordered by their bytes: everything under `a/` then lies between
 `a/` and `a0`. The database's own collation orders by language rules instead.
 
-This rebuilds the index on paths, which takes time on a large installation.
+What a file refers to is a path too, and is compared with paths, so it is ordered
+the same way: otherwise the index on it could not be used for that comparison.
+
+This rebuilds the indexes on both, which takes time on a large installation.
 
 Revision ID: 0006
 Revises: 0005
@@ -22,21 +25,26 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+_PATHS = (("assets", "path"), ("asset_references", "target"))
+
+
 def upgrade() -> None:
-    op.alter_column(
-        "assets",
-        "path",
-        type_=sa.String(length=1024, collation="C"),
-        existing_type=sa.String(length=1024),
-        existing_nullable=False,
-    )
+    for table, column in _PATHS:
+        op.alter_column(
+            table,
+            column,
+            type_=sa.String(length=1024, collation="C"),
+            existing_type=sa.String(length=1024),
+            existing_nullable=False,
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "assets",
-        "path",
-        type_=sa.String(length=1024, collation="default"),
-        existing_type=sa.String(length=1024, collation="C"),
-        existing_nullable=False,
-    )
+    for table, column in _PATHS:
+        op.alter_column(
+            table,
+            column,
+            type_=sa.String(length=1024, collation="default"),
+            existing_type=sa.String(length=1024, collation="C"),
+            existing_nullable=False,
+        )

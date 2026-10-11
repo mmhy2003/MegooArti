@@ -686,13 +686,16 @@ curl -u alice -X DELETE https://repo.example.com/api/v1/content/maven-releases/c
 curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/tree?path=com/acme/app'
 ```
 
-- **Seeing needs `browse`** on the repository; downloading needs `read`, and deleting
-  `delete`. The list leaves out what you may not browse.
+- **Seeing needs `browse`** on the repository, and downloading needs `read`. Deleting
+  through this API needs `browse` and `delete`, and nothing else: not the right to
+  publish. The list leaves out what you may not browse, and a group names only the
+  members you may browse.
 - **A folder** (`tree`) lists what is directly in it, in the byte order of the names,
   each entry a `folder` or a `file`. It is read a page at a time: give the `next` of
   one answer as `after` in the following request. There is no total, because a
   folder can hold millions of entries and counting them would mean reading them. An
-  empty `path` is the root.
+  empty `path` is the root, and `limit` is at most 200. A name that is both a file and
+  a folder is listed as each.
 - **A file** (`asset`) is described with its size, content type, four checksums, blob
   store, who stored it and when, when it was last downloaded, the component it
   belongs to, and the address to download it from.
@@ -708,9 +711,13 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
 - **What a format keeps for itself cannot be deleted on its own** (`409
   managed_by_format`): an npm package's dist-tags, a Docker layer that an image uses.
 - **Deleting a folder** removes the files under it through the same rules, at most
-  1,000 in one request. The answer says how many were `deleted`, how many were
-  `skipped` because the format keeps them, and gives a `next` to repeat the request
-  with while there may be more.
+  1,000 in one request. The answer says how many of them were `deleted` (what went
+  with them, such as the tags and layers of a Docker manifest, is not counted), how
+  many were `skipped` because the format keeps them, and gives a `next` to repeat the
+  request with, as `after`, while there may be more. The root of a repository cannot
+  be deleted this way.
+- **An offline repository** can still be browsed and deleted from here. Being offline
+  stops package clients, not the people who tend the repository.
 - **A proxy** is browsed for what it has cached, and deleting from it removes the
   cached copy: it is fetched again when it is next asked for.
 - **A group** holds nothing of its own. It lists its `members`, which are browsed one

@@ -11,7 +11,6 @@ Queries and plain values only. Who may see what is decided by the routes.
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,7 +97,6 @@ class ComponentSummary:
     version: str
     created: datetime
     modified: datetime
-    attributes: dict[str, Any]
 
 
 class BadCursor(ValueError):
@@ -123,13 +121,20 @@ def _lower_bound(prefix: str, after: str) -> tuple[str, bool]:
 
 
 async def children(
-    db: AsyncSession, repository: Repository, folder: str, *, after: str = "", limit: int
+    db: AsyncSession,
+    repository: Repository,
+    folder: str,
+    *,
+    unlisted: frozenset[str] = frozenset(),
+    after: str = "",
+    limit: int,
 ) -> tuple[list[Child], str | None]:
     """What is directly in a folder, in byte order of the paths, and where to go on.
 
     `folder` is a path without a slash at either end, or "" for the root. A name that
     is both a file and a folder is listed as each. The second value is what to give
-    as `after` for the rest, or None at the end. Raises BadCursor.
+    as `after` for the rest, or None at the end. A file's component is left out if it
+    is in one of the `unlisted` namespaces, which nobody can open. Raises BadCursor.
     """
     prefix = f"{folder}/" if folder else ""
     lower, inclusive = _lower_bound(prefix, after)
@@ -159,7 +164,9 @@ async def children(
             .outerjoin(Component, Component.id == Asset.component_id)
             .where(Asset.repository_id == repository.id, Asset.path.in_(files))
         )
-        details = {path: (size, modified, _ref(part)) for path, size, modified, part in held}
+        details = {
+            path: (size, modified, _ref(part, unlisted)) for path, size, modified, part in held
+        }
     listed = [
         child
         if child.kind == "folder"
@@ -171,13 +178,17 @@ async def children(
     return listed, following
 
 
-def _ref(component: Component | None) -> ComponentRef | None:
-    if component is None:
+def _ref(
+    component: Component | None, unlisted: frozenset[str] = frozenset()
+) -> ComponentRef | None:
+    if component is None or component.namespace in unlisted:
         return None
     return ComponentRef(component.id, component.namespace, component.name, component.version)
 
 
-async def asset(db: AsyncSession, repository: Repository, path: str) -> AssetDetail | None:
+async def asset(
+    db: AsyncSession, repository: Repository, path: str, *, unlisted: frozenset[str] = frozenset()
+) -> AssetDetail | None:
     """Everything about one file, or None if there is none at the path."""
     found = (
         await db.execute(
@@ -205,7 +216,7 @@ async def asset(db: AsyncSession, repository: Repository, path: str) -> AssetDet
         modified=held.updated_at,
         last_downloaded=held.last_downloaded_at,
         last_verified=held.last_verified_at,
-        component=_ref(component),
+        component=_ref(component, unlisted),
     )
 
 
@@ -237,65 +248,86 @@ async def components(
     if name is not None:
         conditions.append(Component.name == name)
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
-    modified = func.max(Asset.updated_at)
+    # The page is chosen first, and only its components' files are looked at: grouping
+    # every component with its files to show fifty would read the whole repository.
+    modified = (
+        select(func.max(Asset.updated_at))
+        .where(Asset.component_id == Component.id)
+        .correlate(Component)
+        .scalar_subquery()
+    )
     rows = await db.execute(
-        select(Component, modified)
-        .outerjoin(Asset, Asset.component_id == Component.id)
+        select(*_COLUMNS, modified)
         .where(*conditions)
-        .group_by(Component.id)
         .order_by(Component.namespace, Component.name, Component.created_at.desc(), Component.id)
         .limit(limit)
         .offset(offset)
     )
-    return [_summary(part, changed) for part, changed in rows], total or 0
+    return [_summary(*row) for row in rows], total or 0
 
 
-def _summary(component: Component, modified: datetime | None) -> ComponentSummary:
-    return ComponentSummary(
-        id=component.id,
-        namespace=component.namespace,
-        name=component.name,
-        version=component.version,
-        created=component.created_at,
-        modified=modified or component.updated_at,
-        attributes=component.attributes,
-    )
+# What is shown of a component. Not its attributes: a format may keep a whole manifest there.
+_COLUMNS = (
+    Component.id,
+    Component.namespace,
+    Component.name,
+    Component.version,
+    Component.created_at,
+    Component.updated_at,
+)
+
+
+def _summary(
+    identifier: uuid.UUID,
+    namespace: str,
+    name: str,
+    version: str,
+    created: datetime,
+    updated: datetime,
+    modified: datetime | None,
+) -> ComponentSummary:
+    return ComponentSummary(identifier, namespace, name, version, created, modified or updated)
 
 
 async def component(
     db: AsyncSession, repository: Repository, component_id: uuid.UUID, *, unlisted: frozenset[str]
 ) -> tuple[ComponentSummary, list[Child]] | None:
     """One component and its files, in path order, or None if it is not one to show."""
-    found = await db.scalar(
-        select(Component).where(Component.id == component_id, *_listed(repository, unlisted))
-    )
+    found = (
+        await db.execute(
+            select(*_COLUMNS).where(Component.id == component_id, *_listed(repository, unlisted))
+        )
+    ).one_or_none()
     if found is None:
         return None
     rows = await db.execute(
         select(Asset.path, Blob.size, Asset.updated_at)
         .join(Blob, Blob.id == Asset.blob_id)
-        .where(Asset.component_id == found.id)
+        .where(Asset.component_id == component_id)
         .order_by(Asset.path)
     )
-    reference = _ref(found)
+    reference = ComponentRef(*found[:4])
     files = [
         Child(path.rpartition("/")[2], path, "file", size, modified, reference)
         for path, size, modified in rows
     ]
     newest = max((child.modified for child in files), default=None)
-    return _summary(found, newest), files
+    return _summary(*found, newest), files
 
 
 async def paths_under(
     db: AsyncSession, repository: Repository, folder: str, *, after: str = "", limit: int
 ) -> list[str]:
-    """The paths of the files under a folder, in order, starting after `after`."""
+    """The paths of the files under a folder, in order, starting after `after`.
+
+    Never a path outside the folder, whatever `after` is.
+    """
     prefix = f"{folder}/"
     rows = await db.scalars(
         select(Asset.path)
         .where(
             Asset.repository_id == repository.id,
-            Asset.path > (after or prefix),
+            Asset.path > max(after.encode(), prefix.encode()).decode(),
             Asset.path < prefix[:-1] + _AFTER_SLASH,
         )
         .order_by(Asset.path)

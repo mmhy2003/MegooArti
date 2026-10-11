@@ -274,6 +274,7 @@ READS = [
     ("/files/tree", {}),
     ("/files/asset", {"path": "docs/guide.md"}),
     ("/files/components", {}),
+    ("/files/components/{component}", {}),
 ]
 
 
@@ -282,6 +283,8 @@ async def test_seeing_needs_browse_and_nothing_else(
     client, files, root, reader, make_user, db, path, params
 ):
     await put(client, root, "docs/guide.md")
+    listed = await client.get(f"{CONTENT}/files/components", headers=root)
+    path = path.format(component=listed.json()["items"][0]["id"])
     await roles.create_role(db, "downloaders", "", ["repository:raw:files:read"], [])
     await db.commit()
     await make_user("downloader", roles=["downloaders"])
@@ -324,3 +327,23 @@ async def test_someone_who_must_change_their_password_sees_nothing_yet(client, f
     response = await client.get(CONTENT, headers=basic("fresh", PASSWORD))
 
     assert (response.status_code, error_code(response)) == (403, "password_change_required")
+
+
+async def test_a_group_names_only_the_members_the_caller_may_browse(
+    client, files, root, reader, db
+):
+    await create(db, "private")
+    await create(db, "all", type="group", group={"members": ["private", "files"]})
+    await roles.create_role(db, "group-browsers", "", ["repository:raw:all:browse"], [])
+    await db.commit()
+    user = await users.get_user_by_username(db, "reader")
+    await users.set_roles(db, user, ["browsers", "group-browsers"])
+    await db.commit()
+
+    one = await client.get(f"{CONTENT}/all", headers=reader)
+    listed = await client.get(CONTENT, headers=reader)
+    everything = await client.get(f"{CONTENT}/all", headers=root)
+
+    assert one.json()["members"] == ["files"]
+    assert "private" not in listed.text
+    assert everything.json()["members"] == ["private", "files"]

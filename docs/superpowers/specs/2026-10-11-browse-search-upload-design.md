@@ -45,7 +45,7 @@ One design, delivered as three plans.
 | # | Decision | Reason |
 | --- | --- | --- |
 | D1 | The API for using content is `/api/v1/content/...` and `/api/v1/search`. `/api/v1/repositories` stays the administration of repositories. | The two have different readers and different permissions. A person who may browse one repository must not need, or see, its configuration. |
-| D2 | Seeing a listing or a detail needs `browse` on the repository; downloading needs `read`, as it does today; deleting needs `delete`; uploading needs `add`, or `edit` to replace. A repository the caller may not browse is answered as any other route answers a missing permission (`401` or `403`), and is left out of every list. | CMP-9. The `browse` action was reserved for this by the identity design. |
+| D2 | Seeing a listing or a detail needs `browse` on the repository; downloading needs `read`, as it does today; deleting needs `browse` and `delete`, and no right to publish; uploading needs `add`, or `edit` to replace. A group names only the members the caller may browse. A repository the caller may not browse is answered as any other route answers a missing permission (`401` or `403`), and is left out of every list. | CMP-9. The `browse` action was reserved for this by the identity design. |
 | D3 | The folder tree is computed from the paths of the files, not kept in a table of its own. `assets.path` is given byte-order collation, so the children of a folder are found by jumping through the index from one child to the next, in time that depends on the number of children shown and not on what lies beneath them. A folder listing is paged with a cursor (`after`), and has no total. | A table of folders has to be kept right on every store and delete, by every format, under concurrency; Nexus's was a lasting source of faults. A total would mean reading every child. |
 | D4 | Browsing a group shows its members, each of which is browsed on its own. | Chosen by the product owner. A merged tree could show a proxy's copy of a name that the group answers from a hosted repository. |
 | D5 | Deleting goes through the format: a format is asked to delete a file, or a component, and does what its own client's delete would do (Maven rebuilds metadata and checksums, npm rewrites the package document, Docker removes what only that image used). A file that is the format's own bookkeeping cannot be deleted by itself, and the answer says why (`409`). | CMP-8, and success criterion three. The generic delete of a path would leave metadata that lists what is gone. |
@@ -63,7 +63,7 @@ One design, delivered as three plans.
 
 ### 4.1 For browsing and deleting (plan 8a)
 
-- **Paths in byte order.** A migration changes `assets.path` to the `C` collation. Everything that orders by path now orders by bytes, which is what the tests and the formats already assume.
+- **Paths in byte order.** A migration changes `assets.path` to the `C` collation, and `asset_references.target` with it, since it is compared with paths. Everything that orders by path now orders by bytes, which is what the tests and the formats already assume.
 - **Walking a folder.** A query that returns the children of a folder: for each, its name, whether it is a folder or a file, and for a file its size and when it changed.
 - **Details.** Queries for one file with everything CMP-3 names, for the components of a repository, and for one component with its files.
 - **Deleting through the format.** A hook on a format, `delete_asset`. The generic format deletes the file. A component is deleted by deleting each of its files this way.
@@ -91,7 +91,7 @@ All under `/api/v1/content`. Lists use the paging of every other list, except th
 | `GET /content/{repository}/asset?path=` | One file: `path`, `size`, `content_type`, `md5`, `sha1`, `sha256`, `sha512`, `blob_store`, `created_by`, `created`, `modified`, `last_downloaded`, `last_verified` (a proxy's), its `component`, and `download`, its address on the content route or the registry |
 | `DELETE /content/{repository}/asset?path=` | Delete the file through the format (D5). `204` |
 | `DELETE /content/{repository}/tree?path=&after=` | Delete what is under a folder (D6). `200` with `deleted`, `skipped` (files the format keeps itself) and `next`, which is given as `after` to go on, or is null. The root cannot be deleted this way |
-| `GET /content/{repository}/components?namespace=&name=` | The components that are listed (D9): `id`, `namespace`, `name`, `version`, `created`, `modified`, in the order of namespace, name and newest first |
+| `GET /content/{repository}/components?namespace=&name=` | The components that are listed (D10): `id`, `namespace`, `name`, `version`, `created`, `modified`, in the order of namespace, name and newest first |
 | `GET /content/{repository}/components/{id}` | One component, with its `files` and, from plan 8c, its `usage` |
 | `DELETE /content/{repository}/components/{id}` | Delete the component through the format. `204` |
 
@@ -165,16 +165,16 @@ Under `backend/src/megooarti/`:
 
 | File | Responsibility |
 | --- | --- |
-| `repositories/browse.py` | Walking a folder; the details of a file and a component; deleting a folder in pieces. Queries and plain values, no HTTP |
-| `repositories/content_api.py` | The routes of section 5 and, later, upload |
+| `repositories/browse.py` | Walking a folder; the details of a file and a component; the paths under a folder. Queries and plain values, no HTTP |
+| `repositories/content_api.py` | The routes of section 5, deleting a folder in pieces, and, later, upload |
 | `repositories/search.py`, `repositories/search_api.py` | Turning what was typed into a query; the route; rebuilding an index |
-| `repositories/formats.py` | The hooks: `delete_asset`, `delete_component`, `search_text`, `upload`, `usage` |
+| `repositories/formats.py` | The hooks: `delete_asset`, `download_path`, `unlisted_namespaces`, `search_text`, `upload`, `usage` |
 | `repositories/<format>/format.py` | Each format's own answer to the hooks |
-| `security/authentication.py` | Which repositories a principal may browse |
+| `security/authentication.py` | `require_caller`: somebody is calling; the route asks what they may do |
 
 ## 10. Testing
 
-- **The tree** is tested for what a folder shows: folders before files, names that are prefixes of one another, names with characters around `/` in byte order, a folder with thousands of children read page by page, an empty repository, a path that is a file. A test counts the statements a listing takes on a folder whose children hold many files, to hold D3.
+- **The tree** is tested for what a folder shows: names that are prefixes of one another, names with characters around `/` in byte order, a folder with thousands of children read page by page, an empty repository, a path that is a file. A test counts the statements a listing takes on a folder whose children hold many files, to hold D3.
 - **Details** are tested for every field of CMP-3, for a hosted file and a proxy's.
 - **Deleting** is tested for each format through the API and then through the format's own protocol: after a delete, what the client sees is what it would see had its own client deleted. Each thing that cannot be deleted by itself is tested for its refusal.
 - **Permissions** are tested for each route with `browse` alone, with `read` alone, with nothing, and anonymously; lists are tested for leaving out what the caller may not browse.

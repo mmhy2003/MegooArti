@@ -4,10 +4,11 @@ import hashlib
 from contextlib import contextmanager
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from megooarti.repositories import browse, service
 from megooarti.repositories.browse import BadCursor
+from megooarti.repositories.models import Asset
 from tests.repositories.conftest import someone
 
 EVERYTHING = someone("repository:raw:files", "repository:maven:releases")
@@ -199,3 +200,110 @@ async def test_the_paths_under_a_folder_are_read_in_order_and_in_pieces(context,
 
     assert everything == ["a/1", "a/2", "a/b/3"]
     assert (first, rest) == (["a/1", "a/2"], ["a/b/3"])
+
+
+AWKWARD = [
+    "app",
+    "app/one",
+    "app/two/three",
+    "app-old/x",
+    "app.bak/x",
+    "app0",
+    "app0/x",
+    "apple",
+    "app /x",
+    "app!",
+    "App",
+    "d:app",
+    "f:app/x",
+    "100%",
+    "a_b",
+    "it's",
+    "caf\u00e9/x",
+    "\u6f22\u5b57",
+    "z",
+]
+
+
+def expected_children(paths: list[str], folder: str) -> list[tuple[str, str]]:
+    """What a folder shows, worked out the slow way."""
+    prefix = f"{folder}/" if folder else ""
+    seen: list[tuple[str, str]] = []
+    for path in sorted(paths, key=lambda path: path.encode()):
+        if not path.startswith(prefix):
+            continue
+        name, nested, _ = path[len(prefix) :].partition("/")
+        child = ("folder" if nested else "file", name)
+        if child not in seen:
+            seen.append(child)
+    return seen
+
+
+@pytest.mark.parametrize("limit", [1, 2, 3, 7, 50])
+@pytest.mark.parametrize("folder", ["", "app", "app0", "app/two", "caf\u00e9"])
+async def test_awkward_names_are_all_listed_once_at_any_page_size(
+    context, db, files, folder, limit
+):
+    await put(context, *AWKWARD)
+    read, after = [], ""
+
+    while True:
+        items, following = await browse.children(db, files, folder, after=after, limit=limit)
+        assert items or following is None  # never an empty page with more to come
+        read += [(child.kind, child.name) for child in items]
+        if following is None:
+            break
+        after = following
+
+    assert read == expected_children(AWKWARD, folder)
+
+
+async def test_a_folder_of_thousands_is_read_page_by_page(context, db, files):
+    await put(context, "seed")
+    blob = (await db.scalars(select(Asset.blob_id))).first()
+    names = [f"file-{number:05}" for number in range(2500)]
+    db.add_all(
+        Asset(
+            repository_id=files.id,
+            path=f"many/{name}",
+            blob_id=blob,
+            content_type="text/plain",
+            created_by="dana",
+        )
+        for name in names
+    )
+    await db.flush()
+    read, after, pages = [], "", 0
+
+    while after is not None:
+        items, after = await browse.children(db, files, "many", after=after or "", limit=200)
+        read += [child.name for child in items]
+        pages += 1
+
+    assert (read, pages) == (names, 13)
+
+
+async def test_the_paths_under_a_folder_never_include_what_is_outside_it(context, db, files):
+    await put(context, "aaa/keep", "app", "app-old/keep", "app/one", "app/two", "zzz/keep")
+
+    for after in ("a", "aaa/keep", "app", "app-old/keep", ""):
+        assert await browse.paths_under(db, files, "app", after=after, limit=10) == [
+            "app/one",
+            "app/two",
+        ]
+    assert await browse.paths_under(db, files, "app", after="app/one", limit=10) == ["app/two"]
+    assert await browse.paths_under(db, files, "app", after="zzz", limit=10) == []
+
+
+async def test_components_are_paged_with_when_they_last_changed(context, db, files):
+    await put(context, "docs/a", "docs/b", "docs/c", "top")
+
+    page, total = await browse.components(db, files, unlisted=frozenset(), limit=2, offset=1)
+    hidden, fewer = await browse.components(
+        db, files, unlisted=frozenset({"docs"}), limit=10, offset=0
+    )
+
+    assert total == 4
+    assert [(part.namespace, part.name) for part in page] == [("docs", "a"), ("docs", "b")]
+    assert all(part.modified is not None for part in page)
+    assert ([part.name for part in hidden], fewer) == (["top"], 1)

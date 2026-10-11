@@ -78,3 +78,23 @@ def test_migration_waits_while_another_process_holds_the_lock(empty_database):
     asyncio.run(scenario())
 
     assert applied_revision(empty_database) == [(head_revision(),)]
+
+
+PATH_COLLATIONS = (
+    "SELECT table_name, collation_name FROM information_schema.columns "
+    "WHERE (table_name, column_name) IN (('assets', 'path'), ('asset_references', 'target')) "
+    "ORDER BY table_name"
+)
+
+
+def test_paths_are_ordered_by_their_bytes_whatever_the_database_orders_by(empty_database):
+    # The folder walk is only right in byte order. A test database may order that way
+    # by itself, and the model check does not look at collations: this does.
+    config = alembic_config(empty_database)
+    command.upgrade(config, "head")
+    upgraded = fetch_all(empty_database, PATH_COLLATIONS)
+    command.downgrade(config, "0005")
+    before = fetch_all(empty_database, PATH_COLLATIONS)
+
+    assert upgraded == [("asset_references", "C"), ("assets", "C")]
+    assert before == [("asset_references", None), ("assets", None)]

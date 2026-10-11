@@ -27,6 +27,18 @@
 | P11 | A new dependency, `require_caller`, is what these routes authenticate with: somebody is calling, signed in or anonymous, and has no password change pending. The route then asks the principal what it may do. | The list of repositories has no one permission to require. `Principal.allows` is already how routes ask. |
 | P12 | A repository the caller may not browse is `403` (or `401` for nobody), not `404`. | D2. That a repository exists is not hidden anywhere else either. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P13 | The `after` of a folder delete must be a path in that folder (`422` otherwise), and `browse.paths_under` never returns a path outside the folder whatever it is given. | The review deleted a folder's neighbours with `?path=app&after=a`: any `after` replaced the folder's lower bound. |
+| P14 | Deleting an npm version through the content API needs `delete` and not the right to publish: `context.maintain` takes `removing=True` for the change of dist-tags that follows a deletion. | With `browse` and `delete` alone the delete was `403`, against D2. |
+| P15 | A group's view names only the members the caller may browse. | The names of repositories the caller may not browse were handed over. |
+| P16 | The migration gives `asset_references.target` the `C` collation too, and a test reads both collations from the database after upgrade and after downgrade. | Compared with paths under another collation, the index on `target` was no longer used by the sweep. And nothing failed if the collation was lost: the test database orders by bytes by default, and Alembic's check does not compare collations. |
+| P17 | A page of components is chosen first, and only its components' files are looked at. A component's attributes are not loaded. | The review measured the first page of 300,000 components at half a second, grouped with all their files, against a millisecond. |
+| P18 | In a listing and in a file's details, the component is left out if it is in a namespace the format keeps for itself. | A Docker manifest's entry carried the id of a component that answers `404`. |
+| P19 | Deleting needs `browse` as well as `delete`; an offline repository can be browsed and deleted from. The README says both. | Rulings on what the review asked: the API is the same door for seeing and deleting, and being offline is for package clients. |
+
 ## Global Constraints
 
 - Everything in the earlier plans' Global Constraints still applies. In particular: Alembic only; the standard error envelope; services never commit; no ORM relationships; `megooarti.clock.utcnow()`; only the security package reads `Principal.patterns`; every route authenticates via a dependency that reaches one in `AUTHENTICATION_DEPENDENCIES`; formats do not commit, the route does; list endpoints use `Page` and `PageParams` (the folder tree is the stated exception); LF line endings; 100-character lines; ruff clean; spaced markdown table separators.

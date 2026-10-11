@@ -74,3 +74,29 @@ async def test_a_package_is_deleted_as_a_folder(client, registry, root):
 
     assert response.json() == {"deleted": 2, "skipped": 0, "next": None}
     assert (gone.status_code, kept.status_code) == (404, 200)
+
+
+async def test_deleting_a_version_needs_delete_and_not_the_right_to_publish(
+    client, registry, root, make_user, db
+):
+    from megooarti.security import roles
+    from tests.accounts import PASSWORD, basic
+
+    for version in ("1.0.0", "2.0.0", "3.0.0"):
+        await publish(client, root, "tool", version)
+    may = ["repository:npm:npm:browse", "repository:npm:npm:delete"]
+    await roles.create_role(db, "cleaners", "", may, [])
+    await db.commit()
+    await make_user("cleaner", roles=["cleaners"])
+    cleaner = basic("cleaner", PASSWORD)
+    listed = await client.get(f"{CONTENT}/components", params={"name": "tool"}, headers=cleaner)
+    second = next(item for item in listed.json()["items"] if item["version"] == "2.0.0")
+
+    file = await delete_file(client, cleaner, paths.tarball_path("tool", "3.0.0"))
+    component = await client.delete(f"{CONTENT}/components/{second['id']}", headers=cleaner)
+    document = (await client.get(address("tool"), headers=root)).json()
+    publishing = await publish(client, cleaner, "tool", "4.0.0")
+
+    assert (file.status_code, component.status_code) == (204, 204)
+    assert (list(document["versions"]), document["dist-tags"]) == (["1.0.0"], {"latest": "1.0.0"})
+    assert publishing.status_code == 403  # the right to delete is not the right to publish

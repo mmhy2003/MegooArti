@@ -253,11 +253,14 @@ async def _stored_tags(context: RepositoryContext, package: str) -> dict[str, st
         return {}
 
 
-async def _change_tags(context: RepositoryContext, package: str, change: TagChange) -> None:
+async def _change_tags(
+    context: RepositoryContext, package: str, change: TagChange, *, removing: bool = False
+) -> None:
     """Change a package's dist-tags under their lock.
 
     The versions are read inside the lock, so a tag is judged against what exists once
-    every earlier change has been committed.
+    every earlier change has been committed. `removing` is for the change that follows
+    a version's deletion: it needs what the deletion needed, and no right to publish.
     """
 
     async def update(current: bytes | None) -> bytes | None:
@@ -268,7 +271,11 @@ async def _change_tags(context: RepositoryContext, package: str, change: TagChan
         return documents.dumps(kept) if kept else None
 
     await context.maintain(
-        paths.dist_tags_path(package), update, content_type=_JSON, limit=TAGS_LIMIT
+        paths.dist_tags_path(package),
+        update,
+        content_type=_JSON,
+        limit=TAGS_LIMIT,
+        removing=removing,
     )
 
 
@@ -714,7 +721,7 @@ class NpmFormat(Format):
         if not await context.delete(path):
             return False
         # A tag that named the version moves to what is left, or goes with the last one.
-        await _change_tags(context, parsed.package, documents.effective_tags)
+        await _change_tags(context, parsed.package, documents.effective_tags, removing=True)
         return True
 
     def describe_component(self, path: str) -> ComponentKey | None:
