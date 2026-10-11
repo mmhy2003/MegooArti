@@ -55,7 +55,7 @@ async def test_an_image_is_pushed_and_pulled_by_tag_and_by_digest(client, images
     assert (headed.status_code, headed.content) == (200, b"")
     assert headed.headers["Docker-Content-Digest"] == digest
     assert headed.headers["Content-Length"] == str(len(manifest))
-    component = await db.scalar(select(Component))
+    component = await db.scalar(select(Component).where(Component.namespace == ""))
     assert (component.namespace, component.name, component.version) == ("", "team/app", "1.0")
     assert f"manifests/team/app/{digest}" in await stored(db)
     assert "tags/team/app/1.0" in await stored(db)
@@ -368,3 +368,23 @@ async def test_what_a_manifest_or_a_tag_list_does_not_do(client, images, root, m
     response = await client.request(method, f"{V2}/{path}", headers=root)
 
     assert (response.status_code, error_code(response)) == (405, "UNSUPPORTED")
+
+
+async def test_an_image_pushed_by_its_digest_alone_has_no_tag_and_is_not_listed(
+    client, images, root, db
+):
+    config, data = config_for("one"), layer("one")
+    for blob in (config, data):
+        await push_blob(client, root, "team/pinned", blob)
+    manifest = image_manifest(config, data)
+    pushed = await push_manifest(client, root, "team/pinned", digest_of(manifest), manifest)
+
+    tags = await client.get(f"{V2}/team/pinned/tags/list", headers=root)
+    catalog = await client.get("/v2/_catalog", headers=root)
+    held = await db.scalar(select(Component).where(Component.namespace == "manifests"))
+
+    assert pushed.status_code == 201
+    assert (tags.status_code, error_code(tags)) == (404, "NAME_UNKNOWN")
+    assert catalog.json() == {"repositories": []}
+    # But the repository knows that it has something of the image.
+    assert (held.name, held.version) == ("team/pinned", digest_of(manifest))

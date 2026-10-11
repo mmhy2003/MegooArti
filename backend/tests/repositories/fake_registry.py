@@ -233,3 +233,21 @@ class FakeRegistry:
             more = f"/v2/{image}/tags/list?n={count}&last={page[-1]}"
             headers["Link"] = f'<{more}>; rel="next"'
         return JSONResponse({"name": image, "tags": page}, headers=headers)
+
+
+class _ByHost(httpx.AsyncBaseTransport):
+    def __init__(self, registries: dict[str, FakeRegistry]) -> None:
+        self._registries = registries
+        self._otherwise = next(iter(registries.values()))
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        registry = self._registries.get(request.url.host, self._otherwise)
+        return await _Transport(registry).handle_async_request(request)
+
+
+def client_for(registries: dict[str, FakeRegistry]) -> httpx.AsyncClient:
+    """One client for several registries, each at its own host name.
+
+    Any other host, such as the sign-in address, reaches the first of them.
+    """
+    return new_client(transport=_ByHost(registries))

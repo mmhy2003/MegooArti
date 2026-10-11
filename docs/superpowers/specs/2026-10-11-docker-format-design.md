@@ -203,9 +203,9 @@ The remote's tag list is read page by page, up to 100 pages and 100,000 tags, an
 
 `GET` and `HEAD` only.
 
-**Who answers for an image** follows D12, by the rule in the group engine: the repositories behind the group in the order they are tried, nested groups replaced by their members. If a hosted repository has a tag of the image, hosted repositories alone answer for it; if every one that has it is offline, the answer is `503`. Otherwise the online proxies answer.
+**Who answers for an image** follows D12, by the rule in the group engine: the repositories behind the group in the order they are tried, nested groups replaced by their members. If a hosted repository has the image, hosted repositories alone answer for it; if every one that has it is offline, the answer is `503`. Otherwise the online proxies answer.
 
-A hosted repository also answers for what it holds under the digest that is asked for, a manifest of that image or a blob, even if it has no tag of the image: an image that lost its last tag is still pulled by its digest, and content named by its digest cannot be another image standing in.
+A hosted repository has an image while it holds a manifest of it, with a tag or without. Deleting a tag withdraws a release; it must not hand the name to a public image, and the image must still be pulled by its digest through the group. So that "has anything of this image" is one indexed lookup, a manifest is a component as well as a tag is, in a namespace of its own (`manifests`), with its digest as the version; tag lists and the catalog are made of the tags alone. A blob is not an image's: a hosted repository that holds a layer a public image also uses does not answer for that image, online or offline.
 
 If nobody that answers has what is asked for and one of them could not ask its remote, the answer is that repository's `502`, not `404`: an outage must not look like an image that does not exist.
 

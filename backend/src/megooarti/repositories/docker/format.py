@@ -24,7 +24,9 @@ says which manifest the tag names, and that is fetched only if it is another one
 
 A group answers for an image from the hosted repositories behind it if one of them has
 the image, and only otherwise from its proxies: an image on a public registry must not
-stand in for one that was pushed here, nor add tags to it.
+stand in for one that was pushed here, nor add tags to it. A repository has an image
+while it holds a manifest of it, tagged or not; to make that one lookup, a manifest is
+a component too, in a namespace apart from the tags.
 """
 
 import json
@@ -382,7 +384,7 @@ async def images(context: RepositoryContext) -> list[str]:
                 behind.update(await images(leaf.context))
         return sorted(behind)[:_CATALOG_MOST]
     found, _ = await context.package_names("", limit=_CATALOG_MOST, offset=0)
-    return [name for _, name in found]
+    return [name for namespace, name in found if namespace == ""]  # those with a tag
 
 
 # --- A proxy: what its remote has, fetched when it is asked for -----------------------
@@ -658,33 +660,20 @@ async def _proxied_tags(
 # --- A group: the repositories behind it, as one --------------------------------------
 
 
-async def _answering(
-    context: RepositoryContext, image: str, wanted: str | None = None
-) -> list[RepositoryContext]:
+async def _answering(context: RepositoryContext, image: str) -> list[RepositoryContext]:
     """The repositories behind a group that answer for an image, in the order to try them.
 
     If a hosted repository has the image, hosted ones alone answer for it, whatever a
-    proxy's remote has under the same name. A hosted repository has an image if it has
-    a tag of it. It also answers if it holds `wanted`, the stored path of what is asked
-    for by its digest: an image that lost its last tag is still pulled by its digest,
-    and content named by its digest cannot be anything else.
+    proxy's remote has under the same name. A hosted repository has an image while it
+    holds a manifest of it, with a tag or without: deleting a tag withdraws a release,
+    and must not hand its name to whoever has the same name elsewhere. A layer is not
+    an image's: holding one that a public image also uses decides nothing.
 
     If the only hosted repositories that have the image are offline, the answer is
     `503`: while they are away, nothing else may answer in their place.
     """
     leaves = await group.leaves(context)
-    holders, away = [], False
-    for leaf in leaves:
-        member = leaf.context
-        if member.repository.type != "hosted":
-            continue
-        has = bool(await member.names("", [image]))
-        if not has and wanted is not None:
-            has = await member.stat(wanted) is not None
-        if has and leaf.online:
-            holders.append(member)
-        elif has:
-            away = True
+    holders, away = await group.owners(leaves, names.MANIFESTS, image)
     if holders:
         return holders
     if away:
@@ -701,13 +690,8 @@ async def _grouped(
     serve: Serve,
 ) -> Response:
     """A manifest or a blob, from the first repository that has it among those that answer."""
-    wanted = None
-    if parsed.kind == "blob":
-        wanted = names.blob_path(parsed.reference)
-    elif names.is_digest(parsed.reference):
-        wanted = names.manifest_path(parsed.image, parsed.reference)
     unavailable = None
-    for member in await _answering(context, parsed.image, wanted):
+    for member in await _answering(context, parsed.image):
         try:
             return await serve(member, request, path)
         except ApiError as error:
@@ -733,7 +717,10 @@ async def _grouped_tags(
     for member in await _answering(context, image):
         try:
             if member.repository.type == "hosted":
-                tags.update(await member.versions("", image))
+                held = await member.versions("", image)
+                if not held:
+                    continue  # it has the image, and no tag of it
+                tags.update(held)
             else:
                 tags.update(await _remote_tags(member, image))
         except ApiError as error:
@@ -772,9 +759,18 @@ class DockerFormat(Format):
             raise ApiError(422, "validation_error", "The request is not valid.", details)
 
     def describe_component(self, path: str) -> ComponentKey | None:
-        """A tag is a component: the image, and the tag as its version. Nothing else is."""
+        """A tag is a component: the image, and the tag as its version.
+
+        A manifest is one as well, in a namespace of its own, with its digest as the
+        version. It is what says that a repository has something of an image, tagged
+        or not, which decides who answers for the image behind a group. Tag lists and
+        the catalog are made of the tags alone.
+        """
         named = names.tag_of(path)
-        return None if named is None else ComponentKey("", *named)
+        if named is not None:
+            return ComponentKey("", *named)
+        held = names.manifest_of(path)
+        return None if held is None else ComponentKey(names.MANIFESTS, *held)
 
     async def maintain(self, context: RepositoryContext, now: datetime) -> None:
         """Remove blobs that no manifest has referred to for a day."""

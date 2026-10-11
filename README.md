@@ -642,19 +642,22 @@ docker pull repo.example.com/docker-all/alpine:3
 ```
 
 - **A group protects the images you push.** If a hosted repository behind the group
-  has a tag of an image, only hosted repositories answer for that image: its tags,
-  its manifests and its layers. An image on a public registry with the same name
-  cannot stand in for yours or add a tag to it (the dependency-confusion attack),
-  whatever the order of the members. While that hosted repository is offline the
-  group answers `503` for the image.
-- **An image that lost its last tag** is still pulled through the group by its digest,
-  from the hosted repository that holds it.
+  has an image, only hosted repositories answer for that image: its tags, its
+  manifests and its layers. An image on a public registry with the same name cannot
+  stand in for yours or add a tag to it (the dependency-confusion attack), whatever
+  the order of the members. If the only hosted repositories that have the image are
+  offline, the group answers `503` for it.
+- **A name is protected while a hosted repository holds anything of the image**, with
+  a tag or without. Deleting a tag withdraws a release and does not hand the name to
+  a public image: the tag is then `404`, and the image is still pulled by its digest.
+  The name is free again once every manifest of the image has been deleted by its
+  digest.
 - **Everything else** comes from the proxies behind the group, the first that has it.
   If none has it and one of them could not ask its remote, the answer is `502`, not
   `404`.
 - **Tags** (`tags/list`) are those of every repository that answers for the image,
-  each once. The catalog lists every image the repositories behind the group hold as
-  `<group>/<image>`.
+  each once. The catalog lists every image with a tag in the online repositories
+  behind the group, as `<group>/<image>`.
 - Push to the hosted repository, not to the group: a group takes no pushes (`405`).
   Groups can contain groups.
 

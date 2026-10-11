@@ -161,3 +161,19 @@ def test_stored_paths():
 )
 def test_a_stored_tag_names_its_image(path, expected):
     assert names.tag_of(path) == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("manifests/app/sha256:" + "a" * 64, ("app", "sha256:" + "a" * 64)),
+        ("manifests/team/app/sha256:" + "a" * 64, ("team/app", "sha256:" + "a" * 64)),
+        ("manifests/team/app/latest", None),
+        ("manifests/sha256:" + "a" * 64, None),
+        ("manifests/Team/sha256:" + "a" * 64, None),
+        ("tags/team/app/sha256:" + "a" * 64, None),
+        ("blobs/sha256:" + "a" * 64, None),
+    ],
+)
+def test_which_stored_paths_are_manifests_of_an_image(path, expected):
+    assert names.manifest_of(path) == expected

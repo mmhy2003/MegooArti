@@ -22,6 +22,13 @@
 | P6 | A tag list is the union of the hosted repositories' tags if they answer, or of the proxies' lists as their remotes give them. A proxy that cannot give its list is passed over if another can. | Section 9 and REP-12. |
 | P7 | The real-client test lists the proxy before the hosted repository in the group, and pushes an image named `busybox`. | The order must not decide whose image a name is, and the name must be one Docker Hub really has. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P8 | P1 and P2 are replaced. A hosted repository has an image while it holds a manifest of it, tagged or not. A manifest is a component in the namespace `manifests`, with its digest as the version, and `_answering` asks `group.owners` for that namespace. Holding a blob decides nothing. | The review showed two things. With "has a tag", deleting the last tag of an image, or pushing it by digest only, left its name to the proxies: the public image was served under the very tag that had been withdrawn. And with "holds the blob asked for", an offline hosted repository that held a base layer made that layer `503` for the public image it came from. |
+| P9 | A hosted repository that has an image and no tag of it adds nothing to the group's tag list; if nobody adds anything, the list is `404 NAME_UNKNOWN`, as on the hosted repository itself. | Follows from P8. |
+
 ## Global Constraints
 
 - Everything in the earlier plans' Global Constraints still applies. In particular: no ORM relationships; formats do not commit, the route does, and the proxy engine commits what it must; errors under `/v2/` have the registry's shape; only `docker/format.py` touches the repository context; LF line endings; 100-character lines; ruff clean; spaced markdown table separators.

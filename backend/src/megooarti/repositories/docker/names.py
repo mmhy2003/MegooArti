@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 # An image's name with its repository in front, as a client writes it.
 MAX_NAME_LENGTH = 255
+# The namespace of the components that manifests are, apart from the tags.
+MANIFESTS = "manifests"
 _COMPONENT = r"[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*"
 _NAME = re.compile(rf"{_COMPONENT}(?:/{_COMPONENT})*")
 _TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
@@ -60,6 +62,15 @@ def manifest_path(image: str, digest: str) -> str:
 def tag_path(image: str, tag: str) -> str:
     """Where a tag is stored: a file that holds the manifest the tag names."""
     return f"tags/{image}/{tag}"
+
+
+def manifest_of(path: str) -> tuple[str, str] | None:
+    """The image and the digest a stored path is for, or None if it is not a manifest's."""
+    kind, _, rest = path.partition("/")
+    image, _, digest = rest.rpartition("/")
+    if kind != "manifests" or not is_valid_name(image) or not is_digest(digest):
+        return None
+    return image, digest
 
 
 def list_path(image: str) -> str:

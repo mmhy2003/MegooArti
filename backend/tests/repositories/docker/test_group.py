@@ -16,9 +16,11 @@ from tests.repositories.docker.conftest import (
     image_manifest,
     index_manifest,
     layer,
+    push_blob,
     push_image,
+    push_manifest,
 )
-from tests.repositories.fake_registry import REGISTRY, FakeRegistry
+from tests.repositories.fake_registry import REGISTRY, FakeRegistry, client_for
 
 ALL = "/v2/all"
 PUBLIC_LAYER = b"\x1f\x8b a layer of the public image"
@@ -321,3 +323,159 @@ async def test_a_group_with_nothing_behind_it_has_nothing(client, db, root, regi
 
     assert (response.status_code, error_code(response)) == (404, "MANIFEST_UNKNOWN")
     assert catalog.json() == {"repositories": []}
+
+
+@pytest.fixture
+async def two_proxies(db, app, registry) -> tuple[FakeRegistry, FakeRegistry]:
+    """Two proxies of two different registries behind a group. Returns the registries."""
+    second = FakeRegistry()
+    second.wants_token = False
+    app.state.http = client_for({"registry.test": registry, "second.test": second})
+    await create(db, "one", proxy={"remote_url": REGISTRY})
+    await create(db, "two", proxy={"remote_url": "https://second.test"})
+    await create(db, "all", group=["one", "two"])
+    return registry, second
+
+
+async def test_what_only_the_second_proxy_has_comes_from_it(client, two_proxies, root):
+    _, second = two_proxies
+    manifest = second.add_image("library/tool", "1.0", PUBLIC_LAYER)
+
+    pulled = await client.get(f"{ALL}/library/tool/manifests/1.0", headers=root)
+    blob = await client.get(f"{ALL}/library/tool/blobs/{digest_of(PUBLIC_LAYER)}", headers=root)
+
+    assert (pulled.content, blob.content) == (manifest, PUBLIC_LAYER)
+
+
+@pytest.mark.parametrize("failure", ["down", 500, 429])
+async def test_a_proxy_that_fails_does_not_hide_what_the_next_one_has(
+    client, two_proxies, root, failure
+):
+    first, second = two_proxies
+    manifest = second.add_image("library/tool", "1.0", PUBLIC_LAYER)
+    if failure == "down":
+        first.down = True
+    else:
+        first.status = failure
+
+    pulled = await client.get(f"{ALL}/library/tool/manifests/1.0", headers=root)
+    blob = await client.get(f"{ALL}/library/tool/blobs/{digest_of(PUBLIC_LAYER)}", headers=root)
+    tags = await client.get(f"{ALL}/library/tool/tags/list", headers=root)
+
+    assert (pulled.content, blob.content) == (manifest, PUBLIC_LAYER)
+    assert tags.json()["tags"] == ["1.0"]
+
+
+async def test_the_tags_of_two_proxies_are_listed_together(client, two_proxies, root):
+    first, second = two_proxies
+    for registry, tags in ((first, ("1.0", "2.0")), (second, ("2.0", "3.0"))):
+        for tag in tags:
+            registry.add_image("library/tool", tag, PUBLIC_LAYER)
+
+    listed = await client.get(f"{ALL}/library/tool/tags/list", headers=root)
+
+    assert listed.json()["tags"] == ["1.0", "2.0", "3.0"]
+
+
+async def test_the_catalog_leaves_out_what_an_offline_repository_holds(
+    client, everything, root, registry, db
+):
+    await push_image(client, root, "team/app", "1.0", "ours", repository="ours")
+    registry.add_image("library/tool", "1.0", PUBLIC_LAYER)
+    await client.get("/v2/hub/library/tool/manifests/1.0", headers=root)
+    await take_offline(db, "ours")
+
+    catalog = await client.get("/v2/_catalog", headers=root)
+
+    through = [name for name in catalog.json()["repositories"] if name.startswith("all/")]
+    assert through == ["all/library/tool"]
+
+
+async def test_asking_about_a_name_that_was_pushed_is_answered_as_fetching_it_is(
+    client, everything, root, registry
+):
+    pushed = await push_image(client, root, "team/app", "1.0", "ours", repository="ours")
+    registry.add_image("team/app", "1.0", PUBLIC_LAYER)
+    registry.add_image("team/app", "2.0", PUBLIC_LAYER)
+
+    ours_tag = await client.head(f"{ALL}/team/app/manifests/1.0", headers=root)
+    their_tag = await client.head(f"{ALL}/team/app/manifests/2.0", headers=root)
+    their_blob = await client.head(f"{ALL}/team/app/blobs/{digest_of(PUBLIC_LAYER)}", headers=root)
+
+    assert ours_tag.headers["Docker-Content-Digest"] == digest_of(pushed)
+    assert (their_tag.status_code, their_blob.status_code) == (404, 404)
+    assert registry.requests == []
+
+
+async def test_of_two_hosted_repositories_that_have_a_tag_the_first_answers(
+    client, db, root, registry
+):
+    await create(db, "first")
+    await create(db, "second")
+    await create(db, "all", group=["first", "second"])
+    first = await push_image(client, root, "team/app", "1.0", "from first", repository="first")
+    await push_image(client, root, "team/app", "1.0", "from second", repository="second")
+
+    response = await client.get(f"{ALL}/team/app/manifests/1.0", headers=root)
+
+    assert response.content == first
+
+
+async def test_a_layer_an_offline_repository_also_holds_is_still_served_for_a_public_image(
+    client, everything, root, registry, db
+):
+    # An image built on a public base has the base's layers in its own repository.
+    shared = layer("base")
+    await push_image(client, root, "team/app", "1.0", "base", "mine", repository="ours")
+    manifest = registry.add_image("library/alpine", "3", shared)
+    await take_offline(db, "ours")
+    address = f"{ALL}/library/alpine/blobs/{digest_of(shared)}"
+
+    pulled = await client.get(f"{ALL}/library/alpine/manifests/3", headers=root)
+    blob = await client.get(address, headers=root)
+    asked = await client.head(address, headers=root)
+
+    assert pulled.content == manifest
+    assert (blob.status_code, blob.content) == (200, shared)
+    assert asked.status_code == 200
+
+
+async def test_a_name_stays_protected_until_nothing_of_the_image_is_left(
+    client, everything, root, registry
+):
+    pushed = await push_image(client, root, "team/app", "1.0", "ours", repository="ours")
+    theirs = registry.add_image("team/app", "1.0", PUBLIC_LAYER)
+    # A release is withdrawn by deleting its tag. Its manifest stays, for whoever pinned it.
+    await client.delete("/v2/ours/team/app/manifests/1.0", headers=root)
+
+    same_tag = await client.get(f"{ALL}/team/app/manifests/1.0", headers=root)
+    tags = await client.get(f"{ALL}/team/app/tags/list", headers=root)
+    pinned = await client.get(f"{ALL}/team/app/manifests/{digest_of(pushed)}", headers=root)
+    asked_meanwhile = list(registry.requests)
+    gone = await client.delete(f"/v2/ours/team/app/manifests/{digest_of(pushed)}", headers=root)
+    afterwards = await client.get(f"{ALL}/team/app/manifests/1.0", headers=root)
+
+    assert (same_tag.status_code, error_code(same_tag)) == (404, "MANIFEST_UNKNOWN")
+    assert (tags.status_code, error_code(tags)) == (404, "NAME_UNKNOWN")
+    assert pinned.content == pushed
+    assert asked_meanwhile == []  # the public image of that name was not even asked about
+    assert gone.status_code == 202
+    assert afterwards.content == theirs  # the name is the public registry's again
+
+
+async def test_an_image_pushed_by_its_digest_alone_has_its_name_protected(
+    client, everything, root, registry
+):
+    config, data = config_for("ours"), layer("ours")
+    for blob in (config, data):
+        await push_blob(client, root, "team/app", blob, repository="ours")
+    manifest = image_manifest(config, data)
+    await push_manifest(client, root, "team/app", digest_of(manifest), manifest, "ours")
+    registry.add_image("team/app", "1.0", PUBLIC_LAYER)
+
+    their_tag = await client.get(f"{ALL}/team/app/manifests/1.0", headers=root)
+    ours_pinned = await client.get(f"{ALL}/team/app/manifests/{digest_of(manifest)}", headers=root)
+
+    assert (their_tag.status_code, error_code(their_tag)) == (404, "MANIFEST_UNKNOWN")
+    assert ours_pinned.content == manifest
+    assert registry.requests == []
