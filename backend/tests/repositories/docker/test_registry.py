@@ -253,11 +253,10 @@ async def test_the_challenge_names_the_host_only_if_it_is_one(client, images):
     assert challenge.endswith('/v2/token",service="registry"')
 
 
-async def test_a_format_can_only_be_hosted_for_now(admin_client):
-    for kind, extra in (
-        ("proxy", {"proxy": {"remote_url": "https://registry-1.docker.io"}}),
-        ("group", {"group": {"members": []}}),
-    ):
+async def test_a_repository_is_hosted_or_a_proxy_for_now(admin_client):
+    proxy = {"proxy": {"remote_url": "https://registry-1.docker.io"}}
+    group = {"group": {"members": []}}
+    for kind, extra, status in (("proxy", proxy, 201), ("group", group, 422)):
         body = {"name": f"docker-{kind}", "format": "docker", "type": kind, **extra}
         response = await admin_client.post("/api/v1/repositories", json=body)
-        assert response.status_code == 422, kind
+        assert response.status_code == status, kind

@@ -11,16 +11,19 @@ from tests.accounts import PASSWORD, basic
 V2 = "/v2/images"
 
 
-async def create(db, name: str, *, hosted: dict | None = None) -> Repository:
-    """A hosted Docker repository, committed."""
+async def create(
+    db, name: str, *, hosted: dict | None = None, proxy: dict | None = None
+) -> Repository:
+    """A Docker repository, committed: hosted, or a proxy if its settings are given."""
     repository = await service.create_repository(
         db,
         name=name,
         format="docker",
-        type="hosted",
+        type="hosted" if proxy is None else "proxy",
         online=True,
         blob_store="default",
         hosted=hosted,
+        proxy=proxy,
         format_config={},
     )
     await db.commit()

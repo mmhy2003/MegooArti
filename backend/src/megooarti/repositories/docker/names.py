@@ -62,6 +62,11 @@ def tag_path(image: str, tag: str) -> str:
     return f"tags/{image}/{tag}"
 
 
+def list_path(image: str) -> str:
+    """Where a proxy keeps the list of an image's tags, as its remote gave it."""
+    return f"lists/{image}"
+
+
 def tag_of(path: str) -> tuple[str, str] | None:
     """The image and the tag a stored path is for, or None if it is not a tag's."""
     kind, _, rest = path.partition("/")
