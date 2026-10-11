@@ -16,6 +16,7 @@ from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
+from megooarti.repositories import upkeep
 from megooarti.repositories.api import router as repositories_router
 from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
@@ -64,6 +65,8 @@ async def _compact(app: FastAPI) -> None:
     settings = app.state.settings
 
     async def job() -> None:
+        # First, so that what upkeep removes starts its wait for compaction now.
+        await upkeep.run(app.state.sessionmaker, settings, utcnow())
         removed = await blobs.compact(
             app.state.sessionmaker,
             settings,

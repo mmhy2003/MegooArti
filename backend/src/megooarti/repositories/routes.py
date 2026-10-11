@@ -49,6 +49,10 @@ async def repository_content(
     principal = None if in_body else await credentials.principal()
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
+    if handler is not None and handler.served_at != "repository":
+        raise ApiError(
+            404, "not_found", "This repository is not served here: its format has its own address."
+        )
     context = await build_context(
         db,
         request.app.state.settings,

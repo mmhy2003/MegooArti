@@ -7,6 +7,7 @@ they work through the repository context they are handed.
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -54,6 +55,9 @@ def _declared_hashes(request: Request) -> dict[str, str]:
 class Format:
     name: str = ""
     types: frozenset[str] = frozenset({"hosted", "proxy", "group"})
+    # Where clients reach repositories of this format: under /repository/<name>/, or
+    # through a protocol with an address of its own, which then has its own routes.
+    served_at: str = "repository"
 
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
@@ -104,6 +108,13 @@ class Format:
         the principal, and must check the credentials through the context.
         """
         return False
+
+    async def maintain(self, context: "RepositoryContext", now: datetime) -> None:
+        """Do what one repository needs done from time to time. The generic format: nothing.
+
+        Called by the maintenance job, not for a request: nobody is calling, so the
+        context has no principal, and only what needs none can be used. Does not commit.
+        """
 
     async def handle_hosted(
         self, context: "RepositoryContext", request: Request, path: str
