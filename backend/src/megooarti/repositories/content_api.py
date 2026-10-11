@@ -19,6 +19,7 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import browse, service
+from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.formats import Format, get_format
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
@@ -258,3 +259,97 @@ async def get_component(
     return ComponentDetail.model_validate(
         {**vars(summary), "files": [_entry(child) for child in files]}, from_attributes=True
     )
+
+
+# --- Deleting -------------------------------------------------------------------------
+
+# How many files one request to delete a folder goes through. The caller repeats.
+_FOLDER_AT_ONCE = 1000
+
+
+class FolderDeleted(BaseModel):
+    deleted: int
+    skipped: int  # files the format keeps itself: they go with what they describe
+    next: str | None  # give it as `after` to go on; null once the folder has been gone through
+
+
+async def _deletable(
+    request: Request, db: AsyncSession, name: str, caller: Principal
+) -> RepositoryContext:
+    """A context for deleting from a repository that holds files. Raises as `_holding` does."""
+    repository = await _holding(db, name, caller)
+    authorize(caller, _permission(repository, "delete"))
+    return await build_context(db, request.app.state.settings, repository, caller)
+
+
+async def _delete_file(context: RepositoryContext, path: str) -> bool:
+    """Delete one stored file as its format would. False if there is none."""
+    if context.repository.type == "proxy":
+        # Only ever a cached copy. It is fetched again when it is next asked for.
+        return await context.delete(path)
+    return await _handler(context.repository).delete_asset(context, path)
+
+
+@router.delete("/{repository}/asset", status_code=204)
+async def delete_asset(
+    repository: str,
+    path: str,
+    request: Request,
+    caller: Principal = Depends(require_caller),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a file, as deleting it with its format's own client would."""
+    context = await _deletable(request, db, repository, caller)
+    if not await _delete_file(context, normalise_path(path)):
+        raise ApiError(404, "not_found", "No such file.")
+    await db.commit()
+
+
+@router.delete("/{repository}/tree", response_model=FolderDeleted)
+async def delete_folder(
+    repository: str,
+    path: str,
+    request: Request,
+    after: str = "",
+    caller: Principal = Depends(require_caller),
+    db: AsyncSession = Depends(get_session),
+) -> FolderDeleted:
+    """Delete what is under a folder, a bounded number of files at a time.
+
+    While `next` is not null there may be more: repeat the request with it as `after`.
+    """
+    context = await _deletable(request, db, repository, caller)
+    folder = normalise_path(path.strip("/"))
+    found = await browse.paths_under(
+        db, context.repository, folder, after=after, limit=_FOLDER_AT_ONCE
+    )
+    deleted = skipped = 0
+    for held in found:
+        try:
+            deleted += await _delete_file(context, held)  # 0 if it went with an earlier one
+        except ApiError as error:
+            if error.code != "managed_by_format":
+                raise
+            skipped += 1
+    await db.commit()
+    following = found[-1] if len(found) == _FOLDER_AT_ONCE else None
+    return FolderDeleted(deleted=deleted, skipped=skipped, next=following)
+
+
+@router.delete("/{repository}/components/{component_id}", status_code=204)
+async def delete_component(
+    repository: str,
+    component_id: uuid.UUID,
+    request: Request,
+    caller: Principal = Depends(require_caller),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a component: every file of it, each as its format would delete it."""
+    context = await _deletable(request, db, repository, caller)
+    unlisted = _handler(context.repository).unlisted_namespaces
+    held = await browse.component(db, context.repository, component_id, unlisted=unlisted)
+    if held is None:
+        raise ApiError(404, "not_found", "No such component.")
+    for file in held[1]:
+        await _delete_file(context, file.path)
+    await db.commit()

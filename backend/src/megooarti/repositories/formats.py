@@ -52,6 +52,11 @@ def _declared_hashes(request: Request) -> dict[str, str]:
     }
 
 
+def managed_by_format(reason: str) -> ApiError:
+    """The refusal to delete, on its own, a file that a format keeps itself."""
+    return ApiError(409, "managed_by_format", reason)
+
+
 class Format:
     name: str = ""
     types: frozenset[str] = frozenset({"hosted", "proxy", "group"})
@@ -92,6 +97,15 @@ class Format:
         """
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    async def delete_asset(self, context: "RepositoryContext", path: str) -> bool:
+        """Delete a stored file of a hosted repository as this format's own client would.
+
+        False if there is nothing at the path. Raises `managed_by_format` for a file
+        the format keeps itself, which goes with what it describes. The generic format
+        removes the file and nothing else. The caller has checked `delete`, and commits.
+        """
+        return await context.delete(path)
 
     def download_path(self, repository: str, path: str) -> str | None:
         """Where a stored file is fetched, from the root of the site.

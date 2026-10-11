@@ -43,7 +43,13 @@ from megooarti.repositories import group, proxy, uploads
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.docker import manifests, names
 from megooarti.repositories.docker.errors import RegistryError, unknown
-from megooarti.repositories.formats import ComponentKey, Format, Serve, register
+from megooarti.repositories.formats import (
+    ComponentKey,
+    Format,
+    Serve,
+    managed_by_format,
+    register,
+)
 from megooarti.storage.backends import StagedBlob
 
 FORMAT = "docker"
@@ -740,6 +746,22 @@ class DockerFormat(Format):
     served_at = "registry"
     remote_signs_in = True
     unlisted_namespaces = frozenset({names.MANIFESTS})
+
+    async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
+        """A tag goes alone. A manifest goes as by its digest in the registry API.
+
+        A blob goes only if no manifest refers to it: otherwise it is part of an image.
+        """
+        held = names.manifest_of(path)
+        if held is None and not path.startswith("blobs/"):
+            return await context.delete(path)
+        await context.lock(_REFERENCES)
+        if held is not None:
+            return await _drop(context, *held)
+        if await context.referenced([path]):
+            reason = "An image uses this layer. It goes when the images that use it are deleted."
+            raise managed_by_format(reason)
+        return await context.delete(path)
 
     def download_path(self, repository: str, path: str) -> str | None:
         """A tag and a manifest are fetched through the registry. A blob is an image's part."""

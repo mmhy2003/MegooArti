@@ -32,7 +32,13 @@ from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.repositories import group, proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
-from megooarti.repositories.formats import ComponentKey, Format, Serve, register
+from megooarti.repositories.formats import (
+    ComponentKey,
+    Format,
+    Serve,
+    managed_by_format,
+    register,
+)
 from megooarti.repositories.npm import documents, paths, semver
 from megooarti.repositories.npm.rewrite import TarballLinks
 from megooarti.repositories.paths import normalise_path
@@ -693,6 +699,23 @@ async def _group_search(context: RepositoryContext, request: Request) -> Respons
 
 class NpmFormat(Format):
     name = "npm"
+
+    async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
+        """A tarball goes as `npm unpublish <name>@<version>` removes it.
+
+        Nothing else is deleted by itself.
+        """
+        parsed = paths.classify(path)
+        if parsed.kind != "tarball":
+            if await context.stat(path) is None:
+                return False
+            reason = "A package's dist-tags are the registry's. They go with its last version."
+            raise managed_by_format(reason)
+        if not await context.delete(path):
+            return False
+        # A tag that named the version moves to what is left, or goes with the last one.
+        await _change_tags(context, parsed.package, documents.effective_tags)
+        return True
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""
