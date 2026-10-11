@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import delete, func, insert, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
@@ -22,7 +23,7 @@ from megooarti.config import Settings
 from megooarti.errors import ApiError
 from megooarti.repositories import serving
 from megooarti.repositories.formats import ComponentKey, Format, get_format
-from megooarti.repositories.models import Asset, Component, Repository
+from megooarti.repositories.models import Asset, AssetReference, Component, Repository
 from megooarti.repositories.paths import normalise_path
 from megooarti.security import client_login
 from megooarti.security.authentication import Principal, authorize, unauthorized
@@ -191,6 +192,14 @@ class RepositoryContext:
         number = int.from_bytes(digest[:4], "big", signed=True)
         await self.db.execute(text(f"SELECT pg_advisory_xact_lock({_LOCK_NAMESPACE}, {number})"))
 
+    async def lock(self, name: str) -> None:
+        """Serialise work on something a format names, until this transaction ends.
+
+        For a change that is only right if nothing else of its kind happens meanwhile,
+        such as deciding that a file is no longer referred to and removing it.
+        """
+        await self._lock("format", name)
+
     async def get(self, path: str, *, fresh: bool = False) -> Asset | None:
         statement = select(Asset).where(
             Asset.repository_id == self.repository.id, Asset.path == path
@@ -232,6 +241,68 @@ class RepositoryContext:
             content_type=row.content_type,
             modified=row.updated_at,
         )
+
+    async def present(self, paths: Collection[str]) -> set[str]:
+        """Which of these paths have a file."""
+        if not paths:
+            return set()
+        rows = await self.db.scalars(
+            select(Asset.path).where(
+                Asset.repository_id == self.repository.id, Asset.path.in_(paths)
+            )
+        )
+        return set(rows)
+
+    async def references(self, path: str) -> list[str]:
+        """The paths the file at `path` refers to, in order."""
+        rows = await self.db.scalars(
+            select(AssetReference.target)
+            .join(Asset, Asset.id == AssetReference.asset_id)
+            .where(Asset.repository_id == self.repository.id, Asset.path == path)
+            .order_by(AssetReference.target)
+        )
+        return list(rows)
+
+    async def referenced(self, paths: Collection[str]) -> set[str]:
+        """Which of these paths some file in this repository refers to."""
+        if not paths:
+            return set()
+        rows = await self.db.scalars(
+            select(AssetReference.target)
+            .join(Asset, Asset.id == AssetReference.asset_id)
+            .where(Asset.repository_id == self.repository.id, AssetReference.target.in_(paths))
+            .distinct()
+        )
+        return set(rows)
+
+    async def unreferenced(self, prefix: str, *, before: datetime, limit: int) -> list[str]:
+        """Files under `prefix` that nothing refers to and that have not changed since `before`.
+
+        For maintenance: what a format stored for the sake of other files, and no file
+        ended up using.
+        """
+        referrer = aliased(Asset)
+        used = (
+            select(AssetReference.asset_id)
+            .join(referrer, referrer.id == AssetReference.asset_id)
+            .where(
+                referrer.repository_id == self.repository.id,
+                AssetReference.target == Asset.path,
+            )
+            .exists()
+        )
+        rows = await self.db.scalars(
+            select(Asset.path)
+            .where(
+                Asset.repository_id == self.repository.id,
+                Asset.path.startswith(prefix, autoescape=True),
+                Asset.updated_at < before,
+                ~used,
+            )
+            .order_by(Asset.path)
+            .limit(limit)
+        )
+        return list(rows)
 
     async def versions(self, namespace: str, name: str) -> dict[str, datetime]:
         """Each version of a package that has a file, with when its files last changed."""
@@ -646,15 +717,18 @@ class RepositoryContext:
         kind: str = "asset",
         attributes: dict[str, Any] | None = None,
         component_attributes: dict[str, Any] | None = None,
+        references: Collection[str] | None = None,
     ) -> tuple[Asset, bool]:
         """Record staged content at a path, in the caller's transaction.
 
         Checks permission and policy under the path lock. Never commits: the caller
         does, and a rollback undoes everything recorded here. `attributes`, when given,
         become what is recorded about the file itself, and `component_attributes` the
-        attributes of the component it belongs to.
+        attributes of the component it belongs to. `references`, when given, are the
+        paths of the files in this repository that this one refers to, replacing any
+        recorded before.
         """
-        return await self._record(
+        asset, created = await self._record(
             path,
             staged,
             content_type=content_type,
@@ -663,6 +737,15 @@ class RepositoryContext:
             attributes=attributes,
             component_attributes=component_attributes,
         )
+        if references is not None:
+            await self.db.execute(delete(AssetReference).where(AssetReference.asset_id == asset.id))
+            targets = sorted(set(references))
+            if targets:
+                await self.db.execute(
+                    insert(AssetReference),
+                    [{"asset_id": asset.id, "target": target} for target in targets],
+                )
+        return asset, created
 
     async def cache(
         self,
@@ -774,6 +857,17 @@ class RepositoryContext:
         path = normalise_path(path)
         authorize(self.principal, self.permission("delete"), scheme="Basic")
         self._check_policy(replacing=False)
+        return await self._remove(path)
+
+    async def sweep(self, path: str) -> bool:
+        """Remove what is at a path as maintenance does. False if there was nothing.
+
+        Nobody asked for this, so no permission is checked and a read-only repository
+        does not stop it. Never call it for a request.
+        """
+        return await self._remove(normalise_path(path))
+
+    async def _remove(self, path: str) -> bool:
         await self._lock("path", path)
         asset = await self.get(path, fresh=True)
         if asset is None:

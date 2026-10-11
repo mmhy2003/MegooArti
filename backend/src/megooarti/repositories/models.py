@@ -78,6 +78,37 @@ class Asset(Base):
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class AssetReference(Base):
+    """A file refers to another file of its repository, by path.
+
+    For formats in which one file is only usable with others: a container image's
+    manifest refers to its layers. A file nothing refers to can be told apart.
+    """
+
+    __tablename__ = "asset_references"
+
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True
+    )
+    target: Mapped[str] = mapped_column(String(1024), primary_key=True, index=True)
+
+
+class Upload(Base):
+    """An upload that arrives over several requests. Its bytes are with the blob store."""
+
+    __tablename__ = "uploads"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE")
+    )
+    # What it is an upload for, in the format's own terms.
+    key: Mapped[str] = mapped_column(String(1024))
+    created_by: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class RepositoryMember(Base):
     """`group_id` presents `member_id`, at `position` in its order."""
 
