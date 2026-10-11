@@ -7,6 +7,7 @@ cannot bypass them, and it is the only code that ties assets to blobs.
 import hashlib
 import mimetypes
 import re
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -919,6 +920,66 @@ class RepositoryContext:
                 await self.db.execute(delete(Component).where(Component.id == component_id))
         await blobs.dereference(self.db, [blob_id], utcnow())
         return True
+
+    async def reindex(self, *, after: str = "", limit: int = 500) -> tuple[int, int, str | None]:
+        """Give a piece of this repository's files to the components their paths name.
+
+        For rebuilding an index: what an older version stored may belong to no
+        component, or to another than it would now. Returns how many files were looked
+        at, how many changed hands, and the path to go on after, or None at the end.
+        Nobody's permission is involved. The caller commits.
+        """
+        rows = list(
+            await self.db.scalars(
+                select(Asset)
+                .where(Asset.repository_id == self.repository.id, Asset.path > after)
+                .order_by(Asset.path)
+                .limit(limit)
+            )
+        )
+        moved = 0
+        for asset in rows:
+            # What a format keeps for itself was stored as belonging to nothing.
+            kept = asset.kind == _MAINTAINED
+            key = None if kept else self.format.describe_component(asset.path)
+            component = None if key is None else await self._component(key)
+            wanted = None if component is None else component.id
+            if asset.component_id != wanted:
+                asset.component_id = wanted
+                moved += 1
+        await self.db.flush()
+        return len(rows), moved, rows[-1].path if len(rows) == limit else None
+
+    async def redescribe(
+        self, *, after: uuid.UUID | None = None, limit: int = 500
+    ) -> tuple[int, int, uuid.UUID | None]:
+        """Write again what a piece of this repository's components are found by.
+
+        A component that has no file left is removed. Returns how many components were
+        looked at, how many were removed, and the ID to go on after, or None at the
+        end. Nobody's permission is involved. The caller commits.
+        """
+        wanted = select(Component).where(Component.repository_id == self.repository.id)
+        if after is not None:
+            wanted = wanted.where(Component.id > after)
+        rows = list(await self.db.scalars(wanted.order_by(Component.id).limit(limit)))
+        removed = 0
+        for component in rows:
+            # The lock an upload into the component holds, so that one being added to
+            # is not taken for empty.
+            await self._lock_component(
+                ComponentKey(component.namespace, component.name, component.version)
+            )
+            has_file = await self.db.scalar(
+                select(Asset.id).where(Asset.component_id == component.id).limit(1)
+            )
+            if has_file is None:
+                await self.db.delete(component)
+                removed += 1
+            else:
+                self._describe(component)
+        await self.db.flush()
+        return len(rows), removed, rows[-1].id if len(rows) == limit else None
 
     async def respond(self, path: str, request: Request) -> Response:
         """The response to a GET or HEAD for a path. The caller has checked `read`."""

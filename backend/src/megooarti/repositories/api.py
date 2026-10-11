@@ -14,6 +14,7 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import service
+from megooarti.repositories.content import build_context
 from megooarti.repositories.models import Repository
 from megooarti.repositories.service import RepositoryView
 from megooarti.secrets_box import seal
@@ -247,3 +248,47 @@ async def invalidate_cache(
     await service.invalidate_cache(db, repository)
     await db.commit()
     log.info("repository_cache_invalidated", repository=name, by=principal.user.username)
+
+
+class IndexRebuilt(BaseModel):
+    files: int  # looked at
+    moved: int  # given to another component than they had, or to one at all
+    components: int  # looked at
+    removed: int  # that had no file left
+
+
+@router.post("/{name}/rebuild-index", response_model=IndexRebuilt)
+async def rebuild_index(
+    name: str,
+    request: Request,
+    principal: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> IndexRebuilt:
+    """Go through a repository again: every file to its component, every component its words.
+
+    It repairs what an older version stored differently. The work is done in this
+    request, a piece at a time, each piece committed: it can be repeated or interrupted.
+    """
+    repository = await _load(db, name)
+    done = IndexRebuilt(files=0, moved=0, components=0, removed=0)
+    if repository.type != "group":  # a group holds nothing of its own
+        # Nobody's permission on the content is involved: this is the administrator's.
+        context = await build_context(db, request.app.state.settings, repository, None)
+        after: str | None = ""
+        while after is not None:
+            seen, moved, after = await context.reindex(after=after)
+            await db.commit()
+            done.files, done.moved = done.files + seen, done.moved + moved
+        following, first = None, True
+        while first or following is not None:
+            seen, removed, following = await context.redescribe(after=following)
+            await db.commit()
+            done.components, done.removed = done.components + seen, done.removed + removed
+            first = False
+    log.info(
+        "repository_index_rebuilt",
+        repository=name,
+        by=principal.user.username,
+        **done.model_dump(),
+    )
+    return done
