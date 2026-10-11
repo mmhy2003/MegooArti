@@ -12,18 +12,25 @@ V2 = "/v2/images"
 
 
 async def create(
-    db, name: str, *, hosted: dict | None = None, proxy: dict | None = None
+    db,
+    name: str,
+    *,
+    hosted: dict | None = None,
+    proxy: dict | None = None,
+    group: list[str] | None = None,
 ) -> Repository:
-    """A Docker repository, committed: hosted, or a proxy if its settings are given."""
+    """A Docker repository, committed: hosted, or a proxy or a group if that is given."""
+    kind = "proxy" if proxy is not None else "hosted" if group is None else "group"
     repository = await service.create_repository(
         db,
         name=name,
         format="docker",
-        type="hosted" if proxy is None else "proxy",
+        type=kind,
         online=True,
         blob_store="default",
         hosted=hosted,
         proxy=proxy,
+        group=None if group is None else {"members": group},
         format_config={},
     )
     await db.commit()

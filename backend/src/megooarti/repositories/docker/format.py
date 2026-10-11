@@ -21,6 +21,10 @@ A proxy keeps what it fetches in the same layout. A manifest is read before it i
 so what is stored is a manifest, is the one that was asked for, and records what it
 refers to. A tag is asked about again when it is old, and only asked about: the remote
 says which manifest the tag names, and that is fetched only if it is another one.
+
+A group answers for an image from the hosted repositories behind it if one of them has
+the image, and only otherwise from its proxies: an image on a public registry must not
+stand in for one that was pushed here, nor add tags to it.
 """
 
 import json
@@ -33,11 +37,11 @@ from starlette.responses import JSONResponse, Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import proxy, uploads
+from megooarti.repositories import group, proxy, uploads
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.docker import manifests, names
 from megooarti.repositories.docker.errors import RegistryError, unknown
-from megooarti.repositories.formats import ComponentKey, Format, register
+from megooarti.repositories.formats import ComponentKey, Format, Serve, register
 from megooarti.storage.backends import StagedBlob
 
 FORMAT = "docker"
@@ -367,7 +371,16 @@ def _tag_page(
 
 
 async def images(context: RepositoryContext) -> list[str]:
-    """The images of a repository that have a tag, in order."""
+    """The images of a repository that have a tag, in order.
+
+    A group has those of the repositories behind it that are online, each once.
+    """
+    if context.repository.type == "group":
+        behind: set[str] = set()
+        for leaf in await group.leaves(context):
+            if leaf.online:
+                behind.update(await images(leaf.context))
+        return sorted(behind)[:_CATALOG_MOST]
     found, _ = await context.package_names("", limit=_CATALOG_MOST, offset=0)
     return [name for _, name in found]
 
@@ -625,23 +638,119 @@ async def _refresh_list(context: RepositoryContext, image: str, *, held: bool) -
     )
 
 
+async def _remote_tags(context: RepositoryContext, image: str) -> list[str]:
+    """The tags of an image as a proxy's remote lists them, renewed if the list is old."""
+    path = names.list_path(image)
+    asset = await context.get(path)
+    if _is_stale(context, asset, path):
+        await _refresh_list(context, image, held=asset is not None)
+    raw = await context.read(path, limit=_LIST_BYTES_MOST)
+    return json.loads(raw)["tags"] if raw is not None else []
+
+
 async def _proxied_tags(
     context: RepositoryContext, request: Request, parsed: names.DockerPath
 ) -> Response:
-    path = names.list_path(parsed.image)
-    asset = await context.get(path)
-    if _is_stale(context, asset, path):
-        await _refresh_list(context, parsed.image, held=asset is not None)
-    raw = await context.read(path, limit=_LIST_BYTES_MOST)
-    held = json.loads(raw)["tags"] if raw is not None else []
+    held = await _remote_tags(context, parsed.image)
     return _tag_page(context, request, parsed.image, held)
+
+
+# --- A group: the repositories behind it, as one --------------------------------------
+
+
+async def _answering(
+    context: RepositoryContext, image: str, wanted: str | None = None
+) -> list[RepositoryContext]:
+    """The repositories behind a group that answer for an image, in the order to try them.
+
+    If a hosted repository has the image, hosted ones alone answer for it, whatever a
+    proxy's remote has under the same name. A hosted repository has an image if it has
+    a tag of it. It also answers if it holds `wanted`, the stored path of what is asked
+    for by its digest: an image that lost its last tag is still pulled by its digest,
+    and content named by its digest cannot be anything else.
+
+    If the only hosted repositories that have the image are offline, the answer is
+    `503`: while they are away, nothing else may answer in their place.
+    """
+    leaves = await group.leaves(context)
+    holders, away = [], False
+    for leaf in leaves:
+        member = leaf.context
+        if member.repository.type != "hosted":
+            continue
+        has = bool(await member.names("", [image]))
+        if not has and wanted is not None:
+            has = await member.stat(wanted) is not None
+        if has and leaf.online:
+            holders.append(member)
+        elif has:
+            away = True
+    if holders:
+        return holders
+    if away:
+        message = "The repository that holds this image is offline."
+        raise ApiError(503, "repository_offline", message)
+    return group.proxies(leaves)
+
+
+async def _grouped(
+    context: RepositoryContext,
+    request: Request,
+    parsed: names.DockerPath,
+    path: str,
+    serve: Serve,
+) -> Response:
+    """A manifest or a blob, from the first repository that has it among those that answer."""
+    wanted = None
+    if parsed.kind == "blob":
+        wanted = names.blob_path(parsed.reference)
+    elif names.is_digest(parsed.reference):
+        wanted = names.manifest_path(parsed.image, parsed.reference)
+    unavailable = None
+    for member in await _answering(context, parsed.image, wanted):
+        try:
+            return await serve(member, request, path)
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+            if error.status_code != 404 and unavailable is None:
+                unavailable = error
+    if unavailable is not None:
+        # Nobody had it, and somebody could not say. That is not "there is no such thing".
+        raise unavailable
+    if parsed.kind == "blob":
+        raise unknown("BLOB_UNKNOWN", "No such blob.")
+    raise unknown("MANIFEST_UNKNOWN", "No such manifest.")
+
+
+async def _grouped_tags(
+    context: RepositoryContext, request: Request, parsed: names.DockerPath
+) -> Response:
+    """The tags of an image in every repository that answers for it, each once."""
+    image = parsed.image
+    tags: set[str] = set()
+    known, unavailable = False, None
+    for member in await _answering(context, image):
+        try:
+            if member.repository.type == "hosted":
+                tags.update(await member.versions("", image))
+            else:
+                tags.update(await _remote_tags(member, image))
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+            if error.status_code != 404 and unavailable is None:
+                unavailable = error
+            continue
+        known = True
+    if not known:
+        raise unavailable or unknown("NAME_UNKNOWN", "No such image.")
+    return _tag_page(context, request, image, sorted(tags))
 
 
 class DockerFormat(Format):
     name = FORMAT
     served_at = "registry"
-    # A group needs the registry's own handling, which is not written yet.
-    types = frozenset({"hosted", "proxy"})
     remote_signs_in = True
 
     def content_type(self, path: str, declared: str | None) -> str | None:
@@ -705,6 +814,20 @@ class DockerFormat(Format):
             return await _proxied_manifest(context, request, parsed)
         if parsed.kind == "tags":
             return await _proxied_tags(context, request, parsed)
+        if parsed.kind == "referrers":
+            raise RegistryError(404, "UNSUPPORTED", "The referrers API is not available.")
+        raise RegistryError(404, "NAME_UNKNOWN", "Nothing is served at this address.")
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        if not _is_read(request):
+            raise _not_allowed("GET, HEAD")
+        parsed = names.classify(path)
+        if parsed.kind in ("blob", "manifest"):
+            return await _grouped(context, request, parsed, path, serve)
+        if parsed.kind == "tags":
+            return await _grouped_tags(context, request, parsed)
         if parsed.kind == "referrers":
             raise RegistryError(404, "UNSUPPORTED", "The referrers API is not available.")
         raise RegistryError(404, "NAME_UNKNOWN", "Nothing is served at this address.")
