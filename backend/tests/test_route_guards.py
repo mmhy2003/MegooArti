@@ -70,6 +70,7 @@ def test_the_walk_finds_the_routes_of_included_routers(app):
     assert {"/api/v1/users/{user_id}", "/repository/{name}/{path:path}"} <= paths
     assert {"/v2/", "/v2/token", "/v2/_catalog", "/v2/{name}/{path:path}"} <= paths
     assert {"/api/v1/content", "/api/v1/content/{repository}/tree"} <= paths
+    assert "/api/v1/search" in paths
 
 
 def test_a_route_that_only_opens_a_database_session_is_reported(app):

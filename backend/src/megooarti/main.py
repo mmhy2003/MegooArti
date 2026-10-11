@@ -24,6 +24,7 @@ from megooarti.repositories.maven import format as _maven_format  # noqa: F401  
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
 from megooarti.repositories.pypi import format as _pypi_format  # noqa: F401  (registers it)
 from megooarti.repositories.routes import router as content_router
+from megooarti.repositories.search_api import router as search_router
 from megooarti.request_id import RequestIdMiddleware
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
     app.include_router(content_api_router, prefix=API_PREFIX)
+    app.include_router(search_router, prefix=API_PREFIX)
     app.include_router(content_router)  # /repository/..., outside the JSON API
     app.include_router(registry_router)  # /v2/..., the container registry API
 
