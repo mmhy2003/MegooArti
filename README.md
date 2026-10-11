@@ -125,9 +125,10 @@ curl -u admin -O http://localhost:8000/repository/files/releases/app.tar.gz
 In place of a password, use an API token as the password, or send it as
 `Authorization: Bearer <token>`.
 
-- **Permissions** are `repository:<format>:<name>:<action>`, where the action is `read`,
-  `add` (a new path), `edit` (replace a path) or `delete`. For example
-  `repository:raw:files:read`, or `repository:raw` for everything on every Raw repository.
+- **Permissions** are `repository:<format>:<name>:<action>`, where the action is `browse`
+  (see what is there), `read` (download), `add` (a new path), `edit` (replace a path) or
+  `delete`. For example `repository:raw:files:read`, or `repository:raw` for everything
+  on every Raw repository.
 - **Deployment policy** per repository: `allow_redeploy` (default), `disable_redeploy`
   (a path can be written once) or `read_only`.
 - **Uploads are verified.** If the client sends `Content-Length`, or an
@@ -663,6 +664,57 @@ docker pull repo.example.com/docker-all/alpine:3
 
 Reading through a group needs `read` on the group only, for example
 `repository:docker:docker-all:read`.
+
+## Browsing and deleting
+
+What the repositories hold can be looked at and removed without a package client,
+through `/api/v1/content`. It is what the web UI will use.
+
+```bash
+# The repositories you may browse, and one of them
+curl -u alice https://repo.example.com/api/v1/content
+curl -u alice https://repo.example.com/api/v1/content/maven-releases
+
+# A folder, a file, and the components (packages and their versions)
+curl -u alice 'https://repo.example.com/api/v1/content/maven-releases/tree?path=com/acme'
+curl -u alice 'https://repo.example.com/api/v1/content/maven-releases/asset?path=com/acme/app/1.0/app-1.0.jar'
+curl -u alice 'https://repo.example.com/api/v1/content/maven-releases/components?namespace=com.acme&name=app'
+
+# Delete a file, a component, or everything under a folder
+curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/asset?path=com/acme/app/1.0/app-1.0-sources.jar'
+curl -u alice -X DELETE https://repo.example.com/api/v1/content/maven-releases/components/<id>
+curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/tree?path=com/acme/app'
+```
+
+- **Seeing needs `browse`** on the repository; downloading needs `read`, and deleting
+  `delete`. The list leaves out what you may not browse.
+- **A folder** (`tree`) lists what is directly in it, in the byte order of the names,
+  each entry a `folder` or a `file`. It is read a page at a time: give the `next` of
+  one answer as `after` in the following request. There is no total, because a
+  folder can hold millions of entries and counting them would mean reading them. An
+  empty `path` is the root.
+- **A file** (`asset`) is described with its size, content type, four checksums, blob
+  store, who stored it and when, when it was last downloaded, the component it
+  belongs to, and the address to download it from.
+- **A component** is a package version: a Maven artifact version, an npm package
+  version, a PyPI release, a Docker tag. In a Raw repository every file is one.
+  `components/<id>` lists its files.
+- **Deleting goes through the format**, so the repository is left as the format's own
+  client would leave it. A deleted npm tarball is an unpublished version, and
+  dist-tags that named it move. A deleted Docker manifest takes its tags and the
+  layers nothing else uses with it; a deleted tag goes alone. Maven's metadata and
+  checksums and PyPI's pages are computed from the files, so they follow by
+  themselves.
+- **What a format keeps for itself cannot be deleted on its own** (`409
+  managed_by_format`): an npm package's dist-tags, a Docker layer that an image uses.
+- **Deleting a folder** removes the files under it through the same rules, at most
+  1,000 in one request. The answer says how many were `deleted`, how many were
+  `skipped` because the format keeps them, and gives a `next` to repeat the request
+  with while there may be more.
+- **A proxy** is browsed for what it has cached, and deleting from it removes the
+  cached copy: it is fetched again when it is next asked for.
+- **A group** holds nothing of its own. It lists its `members`, which are browsed one
+  by one.
 
 ## Health endpoints
 

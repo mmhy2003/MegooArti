@@ -52,8 +52,8 @@ One design, delivered as three plans.
 | D6 | Deleting a folder deletes every file under it through the same hook, at most 1,000 in one request. The answer says how many went and whether any are left, so the caller repeats. | No request runs without bound, and no task system is needed yet. |
 | D7 | Deleting from a proxy removes the cached copy. It is fetched again when it is next asked for. | The known gap of the storage design: a cached file its remote has dropped could not be removed. |
 | D8 | Search matches text as people type it: each word must be contained in the component's group, name, version or the format's own words for it (a description, keywords), with `*` for anything. Fields (`format`, `repository`, `namespace`, `name`, `version`) match a whole value, with `*`. A checksum matches a file exactly. Results are components, in the order of their names. | Chosen by the product owner: predictable, and close to Nexus. |
-| D9 | Each component carries its search text in a column, written when the component is stored and indexed with trigrams (`pg_trgm`). A component with no search text is not listed and not found. | "Contains" needs a trigram index to stay fast. One column also gives one place to say that something is not for listing. |
-| D10 | A Docker manifest without a tag is seen in the folder tree only. Tags are what is listed as components and found by search. | Chosen by the product owner. Plan 7c made every manifest a component so that a repository knows which images it has; those components have no search text (D9). |
+| D9 | Each component carries its search text in a column, written when the component is stored and indexed with trigrams (`pg_trgm`). | "Contains" needs a trigram index to stay fast. |
+| D10 | A Docker manifest without a tag is seen in the folder tree only. Tags are what is listed as components and found by search. A format names the namespaces whose components are its own bookkeeping; they are neither listed nor found. | Chosen by the product owner. Plan 7c made every manifest a component, in a namespace of its own, so that a repository knows which images it has. |
 | D11 | Rebuilding a repository's index goes through every file again: it is given to the component its path says it belongs to, and every component's search text is written again. | REP-13. It repairs what an older version stored differently, such as Docker manifests kept before they were components. |
 | D12 | Uploading is one `multipart/form-data` request to `/api/v1/content/<repository>/upload`, with the fields its format needs. The format turns it into the same stores its own client's upload makes. | CMP-7. One path into a repository for each format, so the deployment policy, permissions and metadata are those of any upload. |
 | D13 | A Maven upload without a POM gets a minimal one generated from its group, artifact, version and packaging, unless the caller says not to. | Chosen by the product owner. Without a POM, builds that depend on the artifact warn or fail. |
@@ -66,8 +66,9 @@ One design, delivered as three plans.
 - **Paths in byte order.** A migration changes `assets.path` to the `C` collation. Everything that orders by path now orders by bytes, which is what the tests and the formats already assume.
 - **Walking a folder.** A query that returns the children of a folder: for each, its name, whether it is a folder or a file, and for a file its size and when it changed.
 - **Details.** Queries for one file with everything CMP-3 names, for the components of a repository, and for one component with its files.
-- **Deleting through the format.** Two hooks on a format, `delete_asset` and `delete_component`. The generic format deletes the file, or every file of the component.
-- **Which repositories a caller may browse.** The security package answers this for a principal and a list of repositories, so that no route reads permission patterns.
+- **Deleting through the format.** A hook on a format, `delete_asset`. The generic format deletes the file. A component is deleted by deleting each of its files this way.
+- **Somebody is calling.** A dependency for a route whose answer depends on what the caller may do: it needs a caller, signed in or anonymous, and leaves what they may do to the route, which asks the principal.
+- **What a format keeps for itself, and where a file is fetched.** A format names the namespaces of components that are not for listing, and says at which address a stored file is downloaded.
 
 ### 4.2 For search (plan 8b)
 
@@ -86,10 +87,10 @@ All under `/api/v1/content`. Lists use the paging of every other list, except th
 | --- | --- |
 | `GET /content` | The repositories the caller may browse: `name`, `format`, `type`, `online`, `url` (the address a client is given), and for a group its `members` |
 | `GET /content/{repository}` | One of them |
-| `GET /content/{repository}/tree?path=&after=&limit=` | The children of a folder, folders first: `name`, `path`, `kind` (`folder` or `file`), and for a file `size`, `modified` and the `component` it belongs to. `next` is the cursor for the following page, or null. An empty `path` is the root. A group has no tree (`409`) |
+| `GET /content/{repository}/tree?path=&after=&limit=` | The children of a folder, in the byte order of their names: `name`, `path`, `kind` (`folder` or `file`), and for a file `size`, `modified` and the `component` it belongs to. A name that is both a file and a folder is listed as each. `next` is the cursor for the following page, or null. An empty `path` is the root. A group has no tree (`409`) |
 | `GET /content/{repository}/asset?path=` | One file: `path`, `size`, `content_type`, `md5`, `sha1`, `sha256`, `sha512`, `blob_store`, `created_by`, `created`, `modified`, `last_downloaded`, `last_verified` (a proxy's), its `component`, and `download`, its address on the content route or the registry |
 | `DELETE /content/{repository}/asset?path=` | Delete the file through the format (D5). `204` |
-| `DELETE /content/{repository}/tree?path=` | Delete what is under a folder (D6). `200` with `deleted` and `more` |
+| `DELETE /content/{repository}/tree?path=&after=` | Delete what is under a folder (D6). `200` with `deleted`, `skipped` (files the format keeps itself) and `next`, which is given as `after` to go on, or is null. The root cannot be deleted this way |
 | `GET /content/{repository}/components?namespace=&name=` | The components that are listed (D9): `id`, `namespace`, `name`, `version`, `created`, `modified`, in the order of namespace, name and newest first |
 | `GET /content/{repository}/components/{id}` | One component, with its `files` and, from plan 8c, its `usage` |
 | `DELETE /content/{repository}/components/{id}` | Delete the component through the format. `204` |
@@ -98,10 +99,10 @@ All under `/api/v1/content`. Lists use the paging of every other list, except th
 
 | Format | A file | A component |
 | --- | --- | --- |
-| Raw | Nothing more | A file is not a component |
-| Maven | Its checksum files go with it; the artifact's and the version's metadata are written again. Metadata and checksum files cannot be deleted by themselves | Every file of the version, then the same |
-| npm | A tarball is unpublished as `npm unpublish <name>@<version>` does. The package document cannot be deleted by itself | The same, for that version |
-| PyPI | Nothing more: pages are written from the files | Every file of the version |
+| Raw | Nothing more | Its one file: in a Raw repository every file is a component, its folder the namespace |
+| Maven | Nothing more: checksums and metadata are computed from the files when they are asked for, so they follow by themselves | Every file of the version |
+| npm | A tarball is unpublished as `npm unpublish <name>@<version>` does, and dist-tags that named it move. A package's dist-tags cannot be deleted by themselves | The same, for that version |
+| PyPI | Nothing more: pages are written from the files | Every file of the release |
 | Docker | A tag is removed. A manifest is removed with its tags and what only it used, as by its digest in the registry API. A blob that a manifest refers to cannot be deleted | A tag is removed |
 
 On a proxy, every format removes the cached file and nothing else (D7). A group has nothing to delete (`409`).
@@ -127,7 +128,7 @@ The answer is a page of components, each with its repository and format, in the 
 | npm | The scope and name as `@scope/name`; the description and keywords of its `package.json` |
 | PyPI | The summary and keywords the upload declared |
 | Docker | `image:tag`. A manifest's component has none (D10) |
-| Raw | Has no components. Its files are found by browsing |
+| Raw | Nothing: a file's component is its folder and its name |
 
 `POST /api/v1/repositories/{name}/rebuild-index` (an administrator's) does D11 and answers with what it changed.
 
