@@ -7,6 +7,7 @@ format code runs, as on the content route. What differs is the shape of an error
 the way a client is asked to sign in.
 """
 
+import re
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -28,8 +29,8 @@ from megooarti.security.authentication import (
     Credentials,
     Principal,
     authorize,
-    client_credentials,
     issue_registry_token,
+    registry_credentials,
 )
 from megooarti.system.settings_store import get_setting
 
@@ -40,6 +41,8 @@ router = APIRouter()
 _METHODS = ["GET", "HEAD", "PUT", "POST", "PATCH", "DELETE"]
 _CATALOG_DEFAULT = 100
 _CATALOG_MOST = 1000
+# A host, with a port if it has one. Anything else in `Host` is not repeated to anyone.
+_HOST = re.compile(r"[A-Za-z0-9._\-\[\]:]{1,255}")
 
 
 def _unauthorized(message: str = "Authentication is required.") -> RegistryError:
@@ -47,10 +50,21 @@ def _unauthorized(message: str = "Authentication is required.") -> RegistryError
 
 
 async def _challenge(request: Request, db: AsyncSession, scope: str | None) -> str:
-    """How a client is told to sign in: where to fetch a registry token, and for what."""
-    base = await get_setting(db, "base_url") or str(request.base_url)
+    """How a client is told to sign in: where to fetch a registry token, and for what.
+
+    Nothing the client wrote is put in the header unless it is a host or a name: the
+    values are quoted, and a header cannot carry every character.
+    """
+    host = request.headers.get("Host", "")
+    named = _HOST.fullmatch(host) is not None
+    base = await get_setting(db, "base_url")
+    if not base and named:
+        base = str(request.base_url)
+    if not base:
+        address, port = request.scope.get("server") or ("localhost", 80)
+        base = f"{request.url.scheme}://{address}" + (f":{port}" if port else "")
     realm = f"{base.rstrip('/')}/v2/token"
-    service_name = request.headers.get("Host", "registry")
+    service_name = host if named else "registry"
     challenge = f'Bearer realm="{realm}",service="{service_name}"'
     return challenge if scope is None else f'{challenge},scope="{scope}"'
 
@@ -97,7 +111,7 @@ async def _caller(request: Request, credentials: Credentials) -> Principal:
 @router.get("/v2/", include_in_schema=False)
 async def base(
     request: Request,
-    credentials: Credentials = Depends(client_credentials),
+    credentials: Credentials = Depends(registry_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     """Is this a registry, and am I signed in?"""
@@ -112,7 +126,7 @@ async def base(
 @router.get("/v2/token", include_in_schema=False)
 async def token(
     request: Request,
-    credentials: Credentials = Depends(client_credentials),
+    credentials: Credentials = Depends(registry_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     """Sign in: a user name and a password or API token in, a registry token out.
@@ -150,7 +164,7 @@ def _paging(request: Request) -> tuple[int, str]:
 @router.get("/v2/_catalog", include_in_schema=False)
 async def catalog(
     request: Request,
-    credentials: Credentials = Depends(client_credentials),
+    credentials: Credentials = Depends(registry_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     """The images the caller may read, in every Docker repository."""
@@ -178,8 +192,8 @@ async def catalog(
 def _scope(name: str, path: str, method: str) -> str | None:
     """What a client should ask a token for, so that this request would be allowed."""
     image = names.classify(path).image
-    if not image:
-        return None
+    if not image or not names.is_valid_name(f"{name}/{image}"):
+        return None  # nothing by that name can exist, so there is nothing to ask for
     actions = "pull" if method in ("GET", "HEAD") else "pull,push"
     return f"repository:{name}/{image}:{actions}"
 
@@ -189,7 +203,7 @@ async def repository_request(
     name: str,
     path: str,
     request: Request,
-    credentials: Credentials = Depends(client_credentials),
+    credentials: Credentials = Depends(registry_credentials),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     async def work() -> Response:

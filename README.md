@@ -87,8 +87,10 @@ anything must send it in an `X-CSRF-Token` header.
   with your user name or with the name `__token__`, which is how Python's tools send
   a token. A token can be limited to a list of patterns and can expire.
 - **Anonymous access** is off by default. When turned on under `/api/v1/settings`,
-  requests without credentials act as the built-in `anonymous` user; change what they
-  may do by editing that user's roles.
+  requests without credentials act as the built-in `anonymous` user. That user starts
+  with the built-in `anonymous` role, which allows reading **every** repository. To
+  make only some repositories public, replace that role on the `anonymous` user with
+  one of your own.
 - A request from a web page on another site that would change something is refused
   with `403 cross_site_request`. If the server sits behind a reverse proxy on plain
   HTTP, set the base URL under `/api/v1/settings` so its own pages are recognised.
@@ -517,6 +519,8 @@ Reading through a group needs `read` on the group only, for example
 MegooArti is a container registry for Docker, Podman and containerd. A Docker
 repository is not used under `/repository/`: container clients speak to `/v2/` at the
 root of a host, and the first part of an image's name says which repository it is in.
+A Docker repository's name therefore has to be one a container client can write:
+lower-case letters and digits, with single `.`, `_` or `-` between them.
 
 ```bash
 curl -u admin -H 'Content-Type: application/json' -d '{
@@ -538,12 +542,17 @@ docker pull repo.example.com/docker-hosted/team/my-app:1.0
   token. The client is then given a registry token that lasts five minutes, and
   fetches a new one by itself. Disabling a user or revoking an API token takes effect
   at once; a changed password within five minutes. Tools that send HTTP Basic
-  credentials or an API token with every request are accepted too.
-- **Permissions.** Pulling needs `read`, pushing `add`, moving a tag `edit`, and
-  deleting `delete`, for example `repository:docker:docker-hosted:read`.
-- **Public images.** Turn on anonymous access and give the `anonymous` user a role
-  with `read` on the repositories that are to be public. `docker pull` then works
-  without `docker login`, for those repositories only.
+  credentials or an API token with every request are accepted too. A registry token
+  is taken under `/v2/` only: it cannot be used on the rest of the API.
+- **Permissions.** Pulling needs `read`. Pushing needs `read` and `add`, because a
+  client first asks which layers are already there; moving a tag needs `edit` as
+  well, and deleting needs `delete`. For example
+  `repository:docker:docker-hosted:read`.
+- **Public images.** With anonymous access on, `docker pull` works without
+  `docker login` wherever the `anonymous` user may read. Out of the box that is every
+  repository, Docker ones included. To make only some public, take the built-in
+  `anonymous` role away from the `anonymous` user and give it a role with `read` on
+  those repositories, such as `repository:docker:docker-public:read`.
 - **Tags that cannot be moved.** With the deployment policy `disable_redeploy`, a tag
   that exists cannot be given to another image (`409`). Pushing the image it already
   names again changes nothing and is accepted.
@@ -553,7 +562,10 @@ docker pull repo.example.com/docker-hosted/team/my-app:1.0
   is not uploaded again. Whoever may read a repository may fetch any layer in it by
   its digest.
 - **Uploads are streamed to disk** in the chunks the client sends, whatever the size
-  of the layer, and can be resumed. A layer must match its digest or it is not kept.
+  of the layer, and can be resumed. A layer sent in one request, as Docker, containerd
+  and Podman send it, is written once; one sent in several is joined when the upload
+  completes, and may have at most 10,000 chunks. A layer must match its digest or it
+  is not kept.
 - **Deleting an image** is done by its digest, and removes the tags that name it and
   the layers nothing else in the repository uses. Deleting a tag removes the tag
   alone: the image can still be pulled by its digest. Docker has no command for

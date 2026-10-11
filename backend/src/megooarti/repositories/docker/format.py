@@ -181,6 +181,10 @@ async def _upload(
             return _created(context, image, digest)
     except uploads.UnknownUpload:
         raise unknown("BLOB_UPLOAD_UNKNOWN", "No such upload in progress.") from None
+    except uploads.TooManyChunks:
+        raise RegistryError(
+            400, "BLOB_UPLOAD_INVALID", "The upload is in too many chunks. Send larger ones."
+        ) from None
     except uploads.OutOfOrder as error:
         raise RegistryError(
             416,
@@ -357,6 +361,16 @@ class DockerFormat(Format):
     served_at = "registry"
     # Proxy and group repositories need the registry's own handling.
     types = frozenset({"hosted"})
+
+    def validate_name(self, name: str) -> None:
+        """The repository is the first part of every image's name, so it is named like one."""
+        if "/" in name or not names.is_valid_name(name):
+            message = (
+                "A Docker repository's name is the first part of its images' names: lower-case "
+                "letters and digits, with single '.', '_', '__' or '-' between them."
+            )
+            details = [{"field": "name", "message": message}]
+            raise ApiError(422, "validation_error", "The request is not valid.", details)
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tag is a component: the image, and the tag as its version. Nothing else is."""

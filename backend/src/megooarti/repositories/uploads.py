@@ -2,11 +2,16 @@
 
 A container client sends a layer in chunks: one request begins the upload, others
 append to it, and a last one completes it. Any container may receive any of them, so
-the upload is a row in the database and a file in the blob store's temporary area. On
-completion the file is hashed where it lies and becomes staged content, without being
-copied.
+the upload is a row in the database and its chunks are files in the blob store's
+temporary area. A chunk joins the upload only when all of it has arrived, and is never
+written again. On completion the chunks become staged content: one chunk, which is
+how clients usually send a layer, is hashed where it lies; several are joined.
 
-No database connection is held while a chunk arrives or the file is hashed.
+An upload is completed by one request only. That request takes the upload's row
+before it reads a byte, so every other request for the upload finds none, and what is
+hashed is what is stored whatever else arrives meanwhile.
+
+No database connection is held while a chunk arrives or the content is hashed.
 """
 
 import uuid
@@ -19,16 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from megooarti.clock import utcnow
 from megooarti.config import Settings
-from megooarti.keyed_locks import KeyedLocks
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.models import Repository, Upload
-from megooarti.storage.backends import StagedBlob
+from megooarti.storage.backends import StagedBlob, UploadFull
 from megooarti.storage.blob_stores import backend_for
 from megooarti.storage.models import BlobStore
-
-# Within this process, chunks for one upload are taken one at a time. A client sends
-# them in order; this only keeps two that arrive together from interleaving.
-_appending = KeyedLocks()
 
 
 class UnknownUpload(Exception):
@@ -43,6 +43,10 @@ class OutOfOrder(Exception):
         self.size = size
 
 
+class TooManyChunks(Exception):
+    """The upload has as many chunks as one may have. Its sender should send larger ones."""
+
+
 @dataclass(frozen=True)
 class Progress:
     id: str
@@ -50,7 +54,7 @@ class Progress:
 
 
 def _identifier(upload_id: str) -> uuid.UUID:
-    """The ID as it is stored. It also names a file, so nothing else is accepted."""
+    """The ID as it is stored. It also names files, so nothing else is accepted."""
     try:
         parsed = uuid.UUID(hex=upload_id)
     except ValueError:
@@ -86,7 +90,6 @@ async def begin(context: RepositoryContext, key: str) -> str:
     )
     context.db.add(row)
     await context.db.flush()
-    await context.backend.create_upload(row.id.hex)
     return row.id.hex
 
 
@@ -94,10 +97,7 @@ async def progress(context: RepositoryContext, upload_id: str, key: str) -> Prog
     """How much of an upload has arrived. Raises UnknownUpload."""
     context.require_write()
     await _row(context, upload_id, key)
-    size = await context.backend.upload_size(upload_id)
-    if size is None:
-        raise UnknownUpload
-    return Progress(upload_id, size)
+    return Progress(upload_id, await context.backend.upload_size(upload_id))
 
 
 async def append(
@@ -112,39 +112,47 @@ async def append(
 
     `at` is where the client says the chunk starts. If the upload does not end
     there, nothing is appended and OutOfOrder says where it does end. A chunk that
-    stops arriving half-way is taken back, so the size is always that of whole chunks.
+    stops arriving half-way leaves nothing, so the size is always that of whole
+    chunks. Raises UnknownUpload, also for an upload that was completed or abandoned
+    while the chunk arrived, and TooManyChunks.
     """
     context.require_write()
     await _row(context, upload_id, key)
     await context.release()  # the chunk needs no connection
-    async with _appending.hold(upload_id):
-        size = await context.backend.upload_size(upload_id)
-        if size is None:
-            raise UnknownUpload
-        if at is not None and at != size:
-            raise OutOfOrder(size)
-        size = await context.backend.append(upload_id, chunks)
-    await context.db.execute(
+    try:
+        size = await context.backend.append(upload_id, chunks, at=at)
+    except UploadFull:
+        raise TooManyChunks from None
+    if size is None:
+        raise OutOfOrder(await context.backend.upload_size(upload_id))
+    touched = await context.db.execute(
         update(Upload).where(Upload.id == _identifier(upload_id)).values(updated_at=utcnow())
     )
+    if touched.rowcount == 0:
+        # Over since the chunk began to arrive. The chunk is nobody's; the sweep takes it.
+        raise UnknownUpload
     return size
 
 
 async def complete(context: RepositoryContext, upload_id: str, key: str) -> StagedBlob:
-    """Turn an upload into staged content, ready for `context.store`. The caller commits.
+    """Turn an upload into staged content, ready for `context.store`.
 
-    The upload is over whatever the caller then does with the content: store it, or
-    `context.discard` it.
+    The upload is over from here on, whatever the caller then does with the content:
+    store it, or `context.discard` it. To make that so for every other request, the
+    upload's row is removed and that is committed, before the content is read. Nothing
+    else may be pending in the caller's transaction.
     """
     context.require_write()
     await _row(context, upload_id, key)
-    await context.release()  # hashing the file needs no connection
-    async with _appending.hold(upload_id):
-        if await context.backend.upload_size(upload_id) is None:
-            raise UnknownUpload
-        staged = await context.backend.adopt(upload_id)
-    await context.db.execute(delete(Upload).where(Upload.id == _identifier(upload_id)))
-    return staged
+    taken = await context.db.execute(delete(Upload).where(Upload.id == _identifier(upload_id)))
+    # This also gives the connection back: hashing the content needs none.
+    await context.db.commit()
+    if taken.rowcount == 0:
+        raise UnknownUpload  # another request completed it first
+    try:
+        return await context.backend.adopt(upload_id)
+    except FileNotFoundError:
+        raise UnknownUpload from None  # its chunks were swept from under it
 
 
 async def abandon(context: RepositoryContext, upload_id: str, key: str) -> None:
@@ -152,6 +160,7 @@ async def abandon(context: RepositoryContext, upload_id: str, key: str) -> None:
     context.require_write()
     row = await _row(context, upload_id, key)
     await context.db.delete(row)
+    await context.db.flush()
     await context.backend.abandon(upload_id)
 
 
@@ -162,7 +171,10 @@ async def sweep(
     now: datetime,
     max_age_seconds: int,
 ) -> int:
-    """Remove uploads nothing was appended to for `max_age_seconds`. Returns how many."""
+    """Remove uploads nothing was appended to for `max_age_seconds`. Returns how many.
+
+    Chunks that no upload owns any more, and that are as old, go too.
+    """
     cutoff = now - timedelta(seconds=max_age_seconds)
     async with sessionmaker() as db:
         stale = (
@@ -174,8 +186,13 @@ async def sweep(
         ).all()
         stores = {store.id: store for store in await db.scalars(select(BlobStore))}
         for upload_id, store_id in stale:
+            await db.execute(delete(Upload).where(Upload.id == upload_id))
             if store_id in stores:
                 await backend_for(settings, stores[store_id]).abandon(upload_id.hex)
-            await db.execute(delete(Upload).where(Upload.id == upload_id))
         await db.commit()
+        # IDs are unique across stores, so one list of what is in progress serves them all.
+        in_progress = {upload_id.hex for upload_id in await db.scalars(select(Upload.id))}
+        await db.commit()
+    for store in stores.values():
+        await backend_for(settings, store).sweep_uploads(in_progress, max_age_seconds)
     return len(stale)

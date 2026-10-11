@@ -205,6 +205,54 @@ async def test_the_referrers_api_is_not_there(client, images, root):
     assert (response.status_code, error_code(response)) == (404, "UNSUPPORTED")
 
 
+@pytest.mark.parametrize(
+    "name", ["Images", "my_.repo", "-edge", "a..b", "x--y.", "_catalog", "a___b"]
+)
+async def test_a_repository_is_named_as_the_first_part_of_an_image_name(admin_client, name):
+    body = {"name": name, "format": "docker", "type": "hosted"}
+
+    response = await admin_client.post("/api/v1/repositories", json=body)
+    elsewhere = await admin_client.post("/api/v1/repositories", json={**body, "format": "raw"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "name"
+    assert elsewhere.status_code == 201  # fine where no container client has to write it
+
+
+async def test_names_a_container_client_can_write_are_taken(admin_client):
+    for name in ("images", "team-1", "docker.hosted", "a__b", "x--y", "0"):
+        body = {"name": name, "format": "docker", "type": "hosted"}
+        response = await admin_client.post("/api/v1/repositories", json=body)
+        assert response.status_code == 201, name
+
+
+@pytest.mark.parametrize("name", ["a%22b", "a%0D%0Ab", "%E2%82%AC", "Images", "a%20b"])
+async def test_the_challenge_carries_nothing_a_client_wrote_unless_it_is_a_name(
+    client, images, name
+):
+    response = await client.get(f"/v2/{name}/img/manifests/latest")
+    odd_image = await client.get(f"/v2/images/{name}/manifests/latest")
+
+    for refused in (response, odd_image):
+        if refused.status_code == 404:
+            assert "%0A" in name  # no route takes a line break in an image's name
+            continue
+        assert refused.status_code == 401
+        challenge = refused.headers["WWW-Authenticate"]
+        assert challenge == 'Bearer realm="https://test/v2/token",service="test"'
+    assert response.status_code == 401
+
+
+async def test_the_challenge_names_the_host_only_if_it_is_one(client, images):
+    response = await client.get("/v2/", headers={"Host": 'evil",realm="https://elsewhere'})
+
+    challenge = response.headers["WWW-Authenticate"]
+    assert response.status_code == 401
+    assert "elsewhere" not in challenge
+    assert challenge.count('"') == 4  # a realm and a service, and nothing else
+    assert challenge.endswith('/v2/token",service="registry"')
+
+
 async def test_a_format_can_only_be_hosted_for_now(admin_client):
     for kind, extra in (
         ("proxy", {"proxy": {"remote_url": "https://registry-1.docker.io"}}),

@@ -242,10 +242,16 @@ def _decode_basic(credentials: str) -> tuple[str, str]:
     return username, secret
 
 
-async def _from_header(db: AsyncSession, request: Request, header: str) -> Principal:
+async def _from_header(
+    db: AsyncSession, request: Request, header: str, *, registry: bool = False
+) -> Principal:
     scheme, _, credentials = header.partition(" ")
     scheme = scheme.lower()
     if scheme == "bearer" and credentials.strip().startswith(registry_tokens.PREFIX):
+        if not registry:
+            # It stands for a password for five minutes. Anywhere else it could be used
+            # to outlast them: to make an API token, or to change the password.
+            raise unauthorized("A registry token is taken by the registry API only.")
         return await _from_registry_token(db, request, credentials.strip())
     if scheme == "bearer":
         user, token = await _authenticate_token(db, request, credentials.strip())
@@ -313,15 +319,18 @@ async def issue_registry_token(
     return registry_tokens.issue(request.app.state.settings, claims, utcnow())
 
 
-async def resolve_principal(request: Request, db: AsyncSession) -> Principal | None:
+async def resolve_principal(
+    request: Request, db: AsyncSession, *, registry: bool = False
+) -> Principal | None:
     """The principal for this request, or None when there are no credentials.
 
     Invalid credentials in an Authorization header are an error, never a fall-through
-    to the cookie or to anonymous access.
+    to the cookie or to anonymous access. `registry` says that the request is to the
+    container registry API, where a registry token is a credential.
     """
     header = request.headers.get("Authorization")
     if header:
-        return await _from_header(db, request, header)
+        return await _from_header(db, request, header, registry=registry)
 
     settings = request.app.state.settings
     cookie = request.cookies.get(SESSION_COOKIE)
@@ -376,10 +385,12 @@ async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
         raise refusal
 
 
-async def _identify(request: Request, db: AsyncSession, scheme: Scheme) -> Principal | None:
+async def _identify(
+    request: Request, db: AsyncSession, scheme: Scheme, *, registry: bool = False
+) -> Principal | None:
     """Check what the request presents. Raises 401 with a challenge, 403 or 429."""
     try:
-        principal = await resolve_principal(request, db)
+        principal = await resolve_principal(request, db, registry=registry)
     except ApiError as error:
         if error.status_code != 401:
             raise
@@ -417,12 +428,14 @@ class Credentials:
     calls `principal()`, which is the check every other route gets.
     """
 
-    def __init__(self, request: Request, db: AsyncSession, scheme: Scheme) -> None:
-        self._request, self._db, self._scheme = request, db, scheme
+    def __init__(
+        self, request: Request, db: AsyncSession, scheme: Scheme, *, registry: bool = False
+    ) -> None:
+        self._request, self._db, self._scheme, self._registry = request, db, scheme, registry
 
     async def principal(self) -> Principal | None:
         """Who is calling, if anyone. Raises 401 with a challenge, 403 or 429."""
-        return await _identify(self._request, self._db, self._scheme)
+        return await _identify(self._request, self._db, self._scheme, registry=self._registry)
 
 
 async def client_credentials(
@@ -433,11 +446,21 @@ async def client_credentials(
     return Credentials(request, db, "Basic")
 
 
+async def registry_credentials(
+    request: Request, db: AsyncSession = Depends(get_session)
+) -> Credentials:
+    """For the container registry API: as `client_credentials`, and a registry token counts."""
+    await _refuse_cross_site(request, db)
+    return Credentials(request, db, "Basic", registry=True)
+
+
 # Who is calling, if anyone. Both enforce CSRF for cookie requests; they differ only in
 # the challenge a 401 carries.
 current_principal = _principal_dependency("Bearer")  # the JSON API
 client_principal = _principal_dependency("Basic")  # for package clients
-AUTHENTICATION_DEPENDENCIES = frozenset({current_principal, client_principal, client_credentials})
+AUTHENTICATION_DEPENDENCIES = frozenset(
+    {current_principal, client_principal, client_credentials, registry_credentials}
+)
 
 
 def _refuse_pending_password_change(principal: Principal) -> None:

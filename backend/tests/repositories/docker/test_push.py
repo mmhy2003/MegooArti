@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 
 from megooarti.repositories.models import Asset, Upload
 from megooarti.security import roles
+from megooarti.storage import backends
 from tests.accounts import PASSWORD, basic
 from tests.repositories.docker.conftest import V2, create, digest_of, error_code, layer, push_blob
 
@@ -131,6 +132,7 @@ async def test_content_that_is_not_what_its_digest_says_is_refused(
         assert (response.status_code, error_code(response)) == (400, "DIGEST_INVALID")
     assert (after.status_code, error_code(after)) == (404, "BLOB_UPLOAD_UNKNOWN")  # it is over
     assert await count(db, Asset) == 0
+    assert await count(db, Upload) == 0
     assert temporary_files(settings) == []
 
 
@@ -149,6 +151,19 @@ async def test_only_a_sha256_digest_completes_an_upload(client, images, root, di
         assert (refused.status_code, error_code(refused)) == (400, "DIGEST_INVALID")
     still = await client.get(begun.headers["Location"], headers=root)
     assert still.headers["Range"] == f"0-{len(LAYER) - 1}"  # the upload can still be completed
+
+
+async def test_an_upload_in_too_many_chunks_is_refused(client, images, root, monkeypatch):
+    monkeypatch.setattr(backends, "MAX_UPLOAD_PARTS", 2)
+    begun = await client.post(UPLOADS, headers=root)
+    location = begun.headers["Location"]
+    for chunk in (b"one", b"two"):
+        await client.patch(location, content=chunk, headers=root)
+
+    response = await client.patch(location, content=b"three", headers=root)
+
+    assert (response.status_code, error_code(response)) == (400, "BLOB_UPLOAD_INVALID")
+    assert (await client.get(location, headers=root)).headers["Range"] == "0-5"
 
 
 async def test_an_abandoned_upload_is_gone(client, images, root, db, settings):

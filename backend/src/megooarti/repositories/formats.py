@@ -59,6 +59,12 @@ class Format:
     # through a protocol with an address of its own, which then has its own routes.
     served_at: str = "repository"
 
+    def validate_name(self, name: str) -> None:
+        """Refuse a repository name this format cannot be used under. The generic format: none.
+
+        The name has passed the check every repository's name gets. Raises a 422.
+        """
+
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
     ) -> dict[str, Any]:

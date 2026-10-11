@@ -13,9 +13,9 @@ from megooarti.security import registry_tokens, roles, users
 from megooarti.security.authentication import (
     Credentials,
     Principal,
-    client_credentials,
+    authorize,
     issue_registry_token,
-    require,
+    registry_credentials,
 )
 from megooarti.security.models import ApiToken, LoginFailure
 from megooarti.security.registry_tokens import Claims
@@ -31,23 +31,23 @@ SIGN_IN = "/_test/registry-token"
 def app(app: FastAPI) -> FastAPI:
     router = APIRouter(prefix="/_test")
 
-    def who(principal: Principal) -> dict:
+    # Routes as the registry API has them: they take a registry token.
+    async def who(credentials: Credentials, permission: str) -> dict:
+        principal: Principal = authorize(await credentials.principal(), permission)
         return {"user": principal.user.username, "method": principal.method}
 
     @router.get("/maven-read")
-    async def maven_read(
-        principal: Principal = Depends(require("repository:maven:releases:read")),
-    ) -> dict:
-        return who(principal)
+    async def maven_read(credentials: Credentials = Depends(registry_credentials)) -> dict:
+        return await who(credentials, "repository:maven:releases:read")
 
     @router.get("/users-read")
-    async def users_read(principal: Principal = Depends(require("admin:users:read"))) -> dict:
-        return who(principal)
+    async def users_read(credentials: Credentials = Depends(registry_credentials)) -> dict:
+        return await who(credentials, "admin:users:read")
 
     @router.get("/registry-token")
     async def registry_token(
         request: Request,
-        credentials: Credentials = Depends(client_credentials),
+        credentials: Credentials = Depends(registry_credentials),
         db: AsyncSession = Depends(get_session),
     ) -> dict:
         signed_in = "Authorization" in request.headers
@@ -234,6 +234,31 @@ async def test_a_token_for_nobody_stops_working_when_anonymous_access_is_switche
     response = await client.get(READ, headers=bearer(token))
 
     assert response.status_code == 401
+
+
+async def test_a_registry_token_is_taken_by_the_registry_api_and_nothing_else(
+    client, make_user, db
+):
+    # It was obtained with a password, and lasts five minutes. If the rest of the API
+    # took it, whoever held one could make an API token that lasts for ever.
+    await make_user("root", roles=["admin"])
+    token = await sign_in(client, basic("root", PASSWORD))
+    with_token = bearer(token)
+
+    attempts = [
+        await client.post("/api/v1/me/tokens", json={"name": "kept"}, headers=with_token),
+        await client.get("/api/v1/me/tokens", headers=with_token),
+        await client.get("/api/v1/users", headers=with_token),
+        await client.get("/api/v1/auth/session", headers=with_token),
+        await client.get("/repository/files/a.txt", headers=with_token),
+        await client.put("/repository/files/a.txt", content=b"x", headers=with_token),
+    ]
+
+    for response in attempts:
+        assert (response.status_code, error_code(response)) == (401, "unauthorized")
+    assert await db.scalar(select(ApiToken.id)) is None
+    assert list(await db.scalars(select(LoginFailure))) == []  # nor is it a failed sign-in
+    assert (await client.get(ADMIN, headers=with_token)).json()["user"] == "root"
 
 
 async def test_a_registry_token_cannot_be_exchanged_for_another(client, make_user, db):

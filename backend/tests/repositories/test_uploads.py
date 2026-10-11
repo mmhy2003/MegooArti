@@ -1,5 +1,7 @@
 import asyncio
 import hashlib
+import os
+import time
 from collections.abc import AsyncIterator
 from datetime import timedelta
 
@@ -12,7 +14,8 @@ from megooarti.errors import ApiError
 from megooarti.repositories import service, uploads
 from megooarti.repositories.content import build_context
 from megooarti.repositories.models import Asset, Upload
-from megooarti.repositories.uploads import OutOfOrder, Progress, UnknownUpload
+from megooarti.repositories.uploads import OutOfOrder, Progress, TooManyChunks, UnknownUpload
+from megooarti.storage import backends
 from tests.repositories.conftest import body, someone
 from tests.storage.test_races import Factory, create_files, run
 
@@ -233,6 +236,104 @@ def test_two_chunks_that_arrive_together_do_not_mix(empty_database, tmp_path, st
     run(empty_database, tmp_path, scenario)
 
 
+def test_a_chunk_that_arrives_while_an_upload_completes_cannot_reach_the_content(
+    empty_database, tmp_path
+):
+    async def scenario(factory: Factory, settings: Settings) -> None:
+        repository, _ = await create_files(factory)
+        async with factory() as db:
+            context = await build_context(db, settings, repository, EVERYTHING)
+            upload = await uploads.begin(context, "app")
+            await db.commit()
+            await uploads.append(context, upload, "app", body(LAYER))
+            await db.commit()
+
+        async with factory() as completing, factory() as late:
+            context = await build_context(completing, settings, repository, EVERYTHING)
+            staged = await uploads.complete(context, upload, "app")  # hashed, not yet stored
+            other = await build_context(late, settings, repository, EVERYTHING)
+            # The upload is over for every other request, in this process or another.
+            for attempt in (
+                uploads.append(other, upload, "app", body(b"never hashed")),
+                uploads.progress(other, upload, "app"),
+                uploads.complete(other, upload, "app"),
+                uploads.abandon(other, upload, "app"),
+            ):
+                with pytest.raises(UnknownUpload):
+                    await asyncio.wait_for(attempt, 5)
+                await late.rollback()
+            await context.store("layers/one", staged)
+            await completing.commit()
+
+        async with factory() as db:
+            context = await build_context(db, settings, repository, EVERYTHING)
+            assert await context.read("layers/one", limit=len(LAYER) + 100) == LAYER
+            assert await db.scalar(select(func.count()).select_from(Upload)) == 0
+
+    run(empty_database, tmp_path, scenario)
+
+
+def test_an_upload_is_completed_by_one_request_only(empty_database, tmp_path):
+    async def scenario(factory: Factory, settings: Settings) -> None:
+        repository, _ = await create_files(factory)
+        async with factory() as db:
+            context = await build_context(db, settings, repository, EVERYTHING)
+            upload = await uploads.begin(context, "app")
+            await db.commit()
+            await uploads.append(context, upload, "app", body(LAYER))
+            await db.commit()
+
+        async def complete() -> str:
+            async with factory() as db:
+                context = await build_context(db, settings, repository, EVERYTHING)
+                try:
+                    staged = await uploads.complete(context, upload, "app")
+                except UnknownUpload:
+                    return "unknown"
+                await context.discard(staged)
+                await db.commit()
+                return staged.sha256
+
+        outcomes = await asyncio.gather(complete(), complete(), complete())
+
+        assert sorted(outcomes) == sorted([hashlib.sha256(LAYER).hexdigest(), "unknown", "unknown"])
+
+    run(empty_database, tmp_path, scenario)
+
+
+async def test_an_upload_takes_only_so_many_chunks(context, db, monkeypatch):
+    monkeypatch.setattr(backends, "MAX_UPLOAD_PARTS", 2)
+    upload = await uploads.begin(context, "app")
+    await uploads.append(context, upload, "app", body(b"one"))
+    await uploads.append(context, upload, "app", body(b"two"))
+
+    with pytest.raises(TooManyChunks):
+        await uploads.append(context, upload, "app", body(b"three"))
+
+    assert (await uploads.progress(context, upload, "app")).size == 6
+
+
+async def test_chunks_left_without_an_upload_are_swept(context, db, sessionmaker, settings):
+    # A chunk that joined just as its upload was completed, or whose repository was deleted.
+    kept = await uploads.begin(context, "app")
+    await uploads.append(context, kept, "app", body(LAYER))
+    await db.commit()
+    backend = context.backend
+    await backend.append("0" * 32, body(b"nobody's"))
+    await backend.append("1" * 32, body(b"nobody's, but recent"))
+    directory = settings.data_dir / "blobs" / "default" / "tmp"
+    long_ago = time.time() - 3 * 86400
+    for path in directory.iterdir():
+        if "0" * 32 in path.name or kept in path.name:
+            os.utime(path, (long_ago, long_ago))
+
+    await uploads.sweep(sessionmaker, settings, now=utcnow(), max_age_seconds=86400)
+
+    assert await backend.upload_size("0" * 32) == 0
+    assert await backend.upload_size("1" * 32) == len(b"nobody's, but recent")
+    assert (await uploads.progress(context, kept, "app")).size == len(LAYER)
+
+
 async def test_uploads_nobody_adds_to_are_swept(context, db, sessionmaker, settings):
     old = await uploads.begin(context, "app")
     recent = await uploads.begin(context, "app")
@@ -247,7 +348,7 @@ async def test_uploads_nobody_adds_to_are_swept(context, db, sessionmaker, setti
     removed = await uploads.sweep(sessionmaker, settings, now=utcnow(), max_age_seconds=86400)
 
     assert removed == 1
-    assert [path for path in temporary_files(settings) if path.endswith(old)] == []
+    assert temporary_files(settings) == []  # the recent one has no chunk yet
     with pytest.raises(UnknownUpload):
         await uploads.progress(context, old, "app")
     assert (await uploads.progress(context, recent, "app")).size == 0

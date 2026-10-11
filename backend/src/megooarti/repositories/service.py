@@ -309,6 +309,7 @@ async def create_repository(
         raise _invalid("format", f"Unknown format. Known formats: {known}.")
     if type not in handler.types:
         raise _invalid("type", f"{type} repositories are not available for this format.")
+    handler.validate_name(name)
     settings = {
         **_type_settings(type, hosted, proxy, None),
         "format_config": handler.validate_config(type, format_config or {}),
