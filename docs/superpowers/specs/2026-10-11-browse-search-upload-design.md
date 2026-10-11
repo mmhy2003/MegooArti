@@ -72,7 +72,7 @@ One design, delivered as three plans.
 
 ### 4.2 For search (plan 8b)
 
-- **Search text.** A migration adds `components.search`, the `pg_trgm` extension and a trigram index. A format hook says what a component's search text is, from its key and attributes; the generic format joins the namespace, name and version. The facade writes it when it creates or updates a component.
+- **Search text.** A migration adds `components.search`, the `pg_trgm` extension, trigram indexes on the search text, the name and the namespace, and a hash index on each checksum of a blob. A format hook says what a component's search text is, from its key and attributes; the generic format joins the namespace, name and version. The facade writes it when it creates or updates a component.
 - **Rebuilding.** A service that walks a repository's files in order, in pieces, and does what D11 says.
 
 ### 4.3 For upload and snippets (plan 8c)
@@ -115,22 +115,24 @@ On a proxy, every format removes the cached file and nothing else (D7). A group 
 | --- | --- |
 | `q` | Each word of it is contained in the component's search text. `*` matches anything |
 | `format`, `repository` | Exactly |
-| `namespace`, `name`, `version` | The whole value, with `*` |
+| `namespace`, `name`, `version` | The whole value, whatever the case, with `*` |
 | `md5`, `sha1`, `sha256`, `sha512` | A file of the component has exactly this checksum |
 
-The answer is a page of components, each with its repository and format, in the order of name, namespace, repository and newest first, from the repositories the caller may browse (D2). A request with nothing to search for lists everything the caller may browse. A word shorter than three characters is matched all the same, more slowly.
+The answer is a page of components, each with its repository and format, in the order of name, namespace (both by their bytes), repository and newest first, from the repositories the caller may browse (D2). A group is not searched: what is behind it is. At most ten words of `q` are looked at. A request with nothing to search for lists everything the caller may browse. A word shorter than three characters is matched all the same, more slowly.
 
 **Search text** of a component, lower case:
 
 | Format | Besides namespace, name and version |
 | --- | --- |
-| Maven | `group:artifact:version` as one word; the POM's name and description, read when the POM is stored |
+| Maven | `group:artifact:version` as one word. The POM's name and description are not read yet |
 | npm | The scope and name as `@scope/name`; the description and keywords of its `package.json` |
-| PyPI | The summary and keywords the upload declared |
+| PyPI | The summary the upload declared |
 | Docker | `image:tag`. A manifest's component has none (D10) |
 | Raw | Nothing: a file's component is its folder and its name |
 
-`POST /api/v1/repositories/{name}/rebuild-index` (an administrator's) does D11 and answers with what it changed.
+A component's search text is cut at 4,000 characters.
+
+`POST /api/v1/repositories/{name}/rebuild-index` (an administrator's) does D11, a piece at a time, each piece committed, and answers with `files` and `components` (looked at), `moved` (files given to another component than they had) and `removed` (components that had no file left).
 
 ## 7. Upload and usage (plan 8c)
 

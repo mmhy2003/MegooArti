@@ -723,6 +723,44 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
 - **A group** holds nothing of its own. It lists its `members`, which are browsed one
   by one.
 
+## Search
+
+`/api/v1/search` finds components in every repository you may browse.
+
+```bash
+curl -u alice 'https://repo.example.com/api/v1/search?q=commons+lang'
+curl -u alice 'https://repo.example.com/api/v1/search?format=maven&namespace=com.acme&name=app*'
+curl -u alice 'https://repo.example.com/api/v1/search?sha1=2ef7bde608ce5404e97d5f042f95f89f1c232871'
+```
+
+- **`q`** is matched as it reads: each word must be contained in the component's
+  group, name or version, or in the words its format adds, whatever the case. `*`
+  stands for anything; every other character is itself. Results are in the order of
+  their names, not ranked.
+- **What a format adds:** for Maven `group:artifact:version` as one word; for npm
+  `@scope/name` and the description and keywords of `package.json`; for PyPI the
+  summary; for Docker `image:tag`. In a Raw repository a file is found by its folder
+  and name.
+- **`namespace`, `name` and `version`** match a whole value, whatever the case, with
+  `*` for anything: `name=commons*`. The namespace is a Maven group, an npm scope
+  (without the `@`), a Raw file's folder.
+- **`md5`, `sha1`, `sha256`, `sha512`** find the components that have a file with
+  exactly that checksum.
+- **`format` and `repository`** narrow where to look. With nothing given, everything
+  you may browse is listed, a page at a time (`limit`, `offset`).
+- Each result names its `repository` and has an `id`, which opens at
+  `/api/v1/content/<repository>/components/<id>`.
+- A Docker manifest without a tag is not found: tags are. A group is not searched;
+  what is behind it is.
+- **Rebuilding an index.** `POST /api/v1/repositories/<name>/rebuild-index` (for an
+  administrator) goes through a repository again: every file is given to the
+  component its path says it belongs to, and every component's words are written
+  again. Use it after an upgrade that changes what components are found by. It
+  answers with how many files and components it looked at and changed.
+- Search uses PostgreSQL's `pg_trgm` extension, which the migrations create. Where
+  the application's database role may not create extensions, have a database
+  administrator run `CREATE EXTENSION pg_trgm` in the database before upgrading.
+
 ## Health endpoints
 
 | Endpoint | Meaning |
