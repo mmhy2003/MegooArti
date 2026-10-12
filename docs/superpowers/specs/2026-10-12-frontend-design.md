@@ -1,0 +1,196 @@
+# Web UI design
+
+**Date:** 2026-10-12
+**Status:** Sections 1 to 11 are settled and are what plan 9 builds. Section 12 is an outline of plan 10, to be settled when that plan starts.
+**Requirements:** [docs/BRD.md](../../BRD.md) UI-1 to UI-15, NFR-9, NFR-10, NFR-17, TC-2, TC-4, API-1, and the screens of every Phase 1 function.
+
+## 1. Purpose
+
+Give MegooArti a web UI: the place where a developer finds a package and copies how to use it, and where an administrator configures repositories, storage and access. It is written with Next.js and uses only the public REST API.
+
+Success means:
+
+- One address serves the UI, the API and the package clients, so one base URL setting is true for all of them.
+- The UI works with no access to any other host: every font, icon and script is served by MegooArti.
+- Both modes, light and dark, are complete, meet WCAG 2.1 AA contrast, and never flash the wrong one on load.
+- Every screen can be used with the keyboard alone and names its parts to a screen reader.
+- A browser that is handed hostile content from a repository cannot be made to run it: the UI has a strict content security policy.
+
+## 2. Scope
+
+One design, delivered as two plans.
+
+| Plan | Contents |
+| --- | --- |
+| **9, the foundation** | The frontend project and its tooling; the design tokens and the cyberpunk theme in both modes; the component set every screen is made of; translation resources; the API client and the session; the application shell and its navigation; sign-in, sign-out and changing a password; the home screen (the repositories a caller may browse); the frontend image, the gateway and Compose; tests in a real browser |
+| **10, the screens** | Browsing a repository as folders, files and components; search; upload; deleting; API tokens; and administration: repositories, blob stores, users, roles, anonymous access and system settings |
+
+**Out of scope:**
+
+| Item | Where it goes |
+| --- | --- |
+| A second language | Not planned. Text is in translation resources (UI-4), so one can be added |
+| Server-side rendering of data | Not planned. The Next.js server renders the shell; the browser asks the API |
+| TLS, HSTS, compression at the edge | The operator's reverse proxy (NFR-8) |
+| Phase 2 screens (LDAP, OIDC, cleanup, tasks, webhooks, audit) | With their features |
+
+## 3. Decisions
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D1 | The UI, the API and the repositories share one origin. In Compose a gateway (nginx) is the one published port: `/api/`, `/repository/` and `/v2/` go to the backend, everything else to the frontend. In production the operator's own reverse proxy does the same; the README gives the rules. | Chosen by the product owner. The session cookie and the base URL need one origin, and artifacts must not pass through Node. |
+| D2 | The Next.js server renders the shell and nothing else. It never calls the backend, holds no secret and reads no cookie. All data is fetched by the browser from `/api/v1`. | One way to call the API, one place that enforces access (the backend), and a frontend container that can be restarted or scaled without care. |
+| D3 | The UI starts from `GET /auth/session`. A session is the backend's cookie; the CSRF token it returns is kept in memory and sent with every request that changes something. | The identity design. Nothing about the session is stored by the UI. |
+| D4 | A visitor who is not signed in sees the browsing area if anonymous access is on, with a "Sign in" action; otherwise the sign-in screen. A user who must change their password sees only that screen until they have. | SEC-6. The API refuses everything else for such a user anyway. |
+| D5 | Components are written in this repository, styled with Tailwind CSS from the design tokens, on Radix primitives for behaviour. | Chosen by the product owner. The look is ours; keyboard and screen-reader behaviour comes tested. |
+| D6 | Colours, type, spacing, radii, glows and motion are CSS custom properties, one set for each mode. Components use only the utilities made from them. A test fails on a literal colour in a component, and another computes the contrast of every text and surface pair in both modes. | UI-11, UI-12. A rule that is only written down is broken by the third screen. |
+| D7 | Typefaces: Oxanium for headings and navigation, Inter for text and tables, JetBrains Mono for coordinates, paths, checksums and code. Their files (variable fonts, Latin) are in the repository with their licences. | Chosen by the product owner. UI-8, UI-14: nothing is fetched at build time or at run time. |
+| D8 | The mode is light, dark, or as the system says, chosen in the user menu and kept in the browser's local storage. A short script in the page's head sets it before anything is painted. | UI-9, UI-10. The server cannot know the system's mode, and a cookie would make every page depend on the request. |
+| D9 | A strict content security policy with a nonce for each request, set by the Next.js proxy file. Every page is therefore rendered for its request, and the framework's cached components are left off. | NFR-9. Next.js cannot put a nonce into a page it built ahead of time. The shell is small, so rendering it each time costs little. |
+| D10 | Text is in `messages/en.json`, read with `next-intl`. A lint rule refuses literal text in markup. | UI-4. |
+| D11 | Navigation comes from one registry of areas and items. An item names the permission it needs, and is hidden from a caller whose permission patterns do not grant it, matched as the backend matches them. Hiding is a courtesy: the API decides. | UI-2. |
+| D12 | Angular shapes are bevelled corners (`corner-shape: bevel`), with square corners where a browser does not have it. Glow is a shadow in an accent colour, and goes, with all motion, when the system asks for reduced motion. | UI-7, UI-13. A bevel made with `clip-path` cuts off the focus ring and the glow. |
+| D13 | A neon accent is used for borders, glows and icons. Text in an accent colour uses a second, compliant tone of it. Status always has an icon and a word. | UI-11, UI-15. |
+| D14 | The API's types are generated from the backend's OpenAPI document. A copy of that document is in the repository, and a backend test fails when it is out of date. | API-2. The UI and the API cannot drift apart unnoticed. |
+| D15 | An error from the API is shown with its message, its code and the request's ID. | UI-5, NFR-14. Whoever reports a fault can say which request it was. |
+| D16 | Unit and component tests run with Vitest and Testing Library. Tests in a real browser (Playwright) run against the Compose stack, through the gateway, as part of the `docker` suite, in both modes, with an accessibility scan and a check that no request leaves the origin. | NFR-17, UI-6, UI-11, UI-14. Contrast and focus are only real in a browser. |
+| D17 | In Compose the backend is no longer published. The existing real-client tests reach it through the gateway. | The gateway's rules are then proven by Maven, npm, pip and Docker themselves, and are the rules an operator copies. |
+
+## 4. Structure
+
+```text
+frontend/
+  src/app/            routes: the shell's layout, sign-in, change password, home
+  src/components/ui/  the component set: button, field, panel, alert, dialog, menu, table, states
+  src/components/     the shell: header, navigation, user menu, theme
+  src/lib/api/        the client, the error type, the generated types
+  src/lib/session/    the session, permission matching, the guard
+  src/lib/            navigation registry, theme, formatting
+  src/styles/         tokens.css (both modes), globals.css
+  src/fonts/          the three typefaces and their licences
+  src/proxy.ts        the content security policy
+  messages/en.json    every text of the UI
+  e2e/                tests in a real browser
+  Dockerfile
+gateway/nginx.conf    the routing rules, for Compose
+```
+
+## 5. Design tokens
+
+Each token has a value for the dark mode and one for the light mode. Surfaces, lines and text:
+
+| Token | Dark | Light | Use |
+| --- | --- | --- | --- |
+| `bg` | `#07080d` | `#f2f4f9` | The page |
+| `panel` | `#0d1018` | `#ffffff` | Panels, the header |
+| `raised` | `#151a26` | `#e8ecf5` | Hover, selected rows, menus |
+| `field` | `#10141e` | `#ffffff` | Inputs |
+| `line` | `#2a3348` | `#c3cbde` | Borders |
+| `line-strong` | `#475474` | `#7f8baa` | Borders of inputs and of what can be pressed |
+| `text` | `#e6ebf5` | `#10131c` | Text |
+| `text-muted` | `#a3aec4` | `#465069` | Secondary text |
+| `text-subtle` | `#8591ab` | `#5a6684` | Hints, placeholders |
+
+Accents, each as a neon tone for borders, glows and icons, and an ink tone for text:
+
+| Accent | Neon, dark | Ink, dark | Neon, light | Ink, light |
+| --- | --- | --- | --- | --- |
+| Cyan (primary) | `#00e5ff` | `#5cefff` | `#00a3c4` | `#00647d` |
+| Magenta | `#ff2bd6` | `#ff7ae5` | `#d400ab` | `#a30085` |
+| Acid | `#c6ff00` | `#d4ff4d` | `#7ea800` | `#4a6400` |
+
+Status (success, warning, danger, information) follows the same pair of tones, and always comes with an icon and a word. A filled primary button is `primary` with `on-primary` text: cyan with near-black text in the dark mode, deep cyan with white text in the light mode. The focus ring is the acid tone in the dark mode and the ink magenta in the light mode: a colour nothing else in a control has.
+
+Type: a scale from 12 to 30 pixels in rem; Oxanium in capitals with wide tracking for navigation and small headings. Spacing is Tailwind's 4-pixel scale. Radii are 2 pixels where corners are square and an 8-pixel bevel on panels, buttons and tags. Glow has two strengths. Motion has two durations, both zero under reduced motion.
+
+The values above are the starting point. The contrast test (D6) is the authority: a pair that fails it is changed, here and in the code.
+
+## 6. The shell
+
+- **Header:** the wordmark, the navigation, and at its end the mode switch and the user menu (or "Sign in").
+- **Navigation:** two areas, browsing and administration, each a list of items from the registry (D11). An area with no visible item is not shown. Below 1024 pixels the navigation is behind a menu button.
+- **A skip link** is the first thing focus reaches, and leads to the main content.
+- **The user menu:** the user's name, "Change password", and "Sign out".
+- **States:** a screen that is loading shows a skeleton of itself; one with nothing to show says so and what to do; one that failed shows the error (D15) and a way to try again.
+
+Plan 9 registers one item, the home screen. Plan 10 registers the rest.
+
+## 7. The session
+
+1. The shell asks `GET /auth/session`.
+2. Signed in, and the password must be changed: the change-password screen, and nothing else.
+3. Signed in: the screen that was asked for.
+4. Not signed in, anonymous access on (the answer has a `method`): the browsing area.
+5. Not signed in otherwise: the sign-in screen, which returns to the screen that was asked for. Only a path within the UI is returned to.
+
+Signing in posts the name and password, keeps the CSRF token, and fills the session from the answer. If the answer is a success and the session then says nobody is signed in, the browser did not keep the cookie, and the screen says why: the cookie is `Secure`, and the address is plain HTTP on a host that is not `localhost`.
+
+A `401` from any later request means the session has ended: the session is asked for again, and the rules above apply. A `403` with the code `password_change_required` leads to the change-password screen.
+
+## 8. The gateway
+
+```text
+/api/         -> backend     the REST API and its documentation
+/repository/  -> backend     Maven, npm, PyPI and Raw repositories
+/v2/          -> backend     the Docker registry
+everything else -> frontend
+```
+
+Towards the backend the gateway must: pass the request path exactly as it was sent (an npm scope is an encoded slash); put no limit on the size of a body; pass a body on as it arrives and an answer as it is produced, without buffering either; wait as long as a proxy repository may need for its remote; and send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`. The backend trusts those headers only from addresses named in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
+
+## 9. Security
+
+- **Content security policy:** `default-src 'self'`; scripts only with the request's nonce; styles from the origin, with the nonce, or as attributes (Radix positions menus with them); images from the origin and `data:`; fonts and connections from the origin only; no frames, no objects, no base, forms to the origin only.
+- **Other headers:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`, and a `Permissions-Policy` that grants nothing.
+- **What a repository holds is text:** a name, a path or a description is never put into the page as markup.
+- **The return path after sign-in** must begin with one `/` and no second one, or the home screen is used.
+- **The frontend container** runs as a user that is not root and has no secret in its environment.
+
+## 10. Testing
+
+- **Tokens:** every text tone on every surface it is used on, in both modes, at 4.5 to 1; neon tones against their surfaces at 3 to 1; the two modes define the same tokens; no component holds a literal colour.
+- **Components:** each is rendered and used by keyboard, and scanned with axe.
+- **The session:** each branch of section 7, with the API answered by the test.
+- **Permission matching:** the same cases as the backend's own tests.
+- **The API client:** the error envelope, the CSRF header on what changes something and not on what reads, the request ID, an answer that is not JSON.
+- **In a real browser, against the stack:** the first sign-in with the generated password, the forced change, the home screen, signing out; the mode set before the first paint and kept after a reload; the whole flow by keyboard; an axe scan of each screen in each mode; a narrow window; the policy's header and no violation of it; and no request to another origin.
+- **The gateway:** the existing real-client suites, which now pass through it (D17).
+
+## 11. Risks
+
+| Risk | Response |
+| --- | --- |
+| Next.js 16 differs from earlier versions in ways that are easy to get wrong. | Its own documentation, shipped in the package, was read for every point this design depends on. The project's `AGENTS.md` tells whoever works on it next to do the same. |
+| Rendering every page for its request (D9) costs the frontend container work a static page would not. | The shell has no data in it. If it ever matters, the framework's experimental hash-based policy keeps pages static. |
+| `corner-shape` is not in every browser. | Square corners there (D12). Nothing depends on the bevel. |
+| The gateway changes what every existing real-client test passes through. | That is the point (D17), and the first thing the plan runs after adding it. |
+| A session cookie marked `Secure` is not kept over plain HTTP on a host that is not `localhost`. | The sign-in screen says so (section 7), and the README names the setting. |
+
+## 12. The screens of plan 10 (outline)
+
+| Area | Screens |
+| --- | --- |
+| Browsing | A repository as folders and files, with file and component details and usage snippets; search; upload; delete, with confirmation |
+| Account | API tokens |
+| Administration | Repositories (create, edit, delete, rebuild index); blob stores; users; roles; anonymous access; base URL; system information |
+
+## 13. Requirement coverage
+
+| Requirement | Where |
+| --- | --- |
+| UI-1 | Sections 2, 12 |
+| UI-2 | D11, section 6 |
+| UI-3 | Section 6 |
+| UI-4 | D10 |
+| UI-5 | Section 6, D15 |
+| UI-6 | D5, D16 |
+| UI-7, UI-8 | D7, D12, section 5 |
+| UI-9, UI-10 | D8 |
+| UI-11, UI-15 | D6, D13 |
+| UI-12 | D6 |
+| UI-13 | D12 |
+| UI-14 | D7, D16 |
+| NFR-9, NFR-10 | Section 9 |
+| NFR-17 | D16 |
+| TC-2, TC-4 | D1, D2, D17 |
+| API-1, API-2 | D2, D14 |
