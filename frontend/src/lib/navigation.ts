@@ -2,14 +2,15 @@
  * The navigation, as data. A screen is put into the navigation by adding an item here,
  * with the permission its API needs: the item is then shown only to those who hold it.
  */
-import { Boxes, Search, Upload, type LucideIcon } from "lucide-react";
+import { Boxes, Search, ShieldCheck, Unlock, Upload, Users, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 
 import type { SessionInfo } from "@/lib/api/types";
+import { ANONYMOUS_ACCESS, ROLES, USERS } from "@/lib/paths";
 import { allows, allowsSome } from "@/lib/session/rules";
 
 export type AreaKey = "browse" | "administration";
-export type ItemKey = "repositories" | "search" | "upload";
+export type ItemKey = "repositories" | "search" | "upload" | "users" | "roles" | "anonymousAccess";
 
 export type NavItem = {
   /** Its name is the message `nav.items.<key>`. */
@@ -49,7 +50,19 @@ export const NAVIGATION: readonly NavArea[] = [
       },
     ],
   },
-  { key: "administration", items: [] },
+  {
+    key: "administration",
+    items: [
+      { key: "users", href: USERS, icon: Users, permission: "admin:users:read" },
+      { key: "roles", href: ROLES, icon: ShieldCheck, permission: "admin:roles:read" },
+      {
+        key: "anonymousAccess",
+        href: ANONYMOUS_ACCESS,
+        icon: Unlock,
+        permission: "admin:settings:read",
+      },
+    ],
+  },
 ];
 
 /** The areas and items to show this caller. An area with nothing in it is left out. */

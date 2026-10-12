@@ -49,7 +49,8 @@ describe("the shell", () => {
 
   test("leads to the repositories, to search and to upload", () => {
     navigation.at("/browse/releases/com");
-    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const uploader: SessionInfo = { ...ADMIN, permissions: ["repository:*:*:*"] };
+    renderUi(<AppShell session={uploader}>Content</AppShell>, { session: uploader });
     const [wide] = screen.getAllByRole("navigation", { name: "Main" });
     const links = within(wide as HTMLElement).getAllByRole("link");
 
@@ -60,6 +61,34 @@ describe("the shell", () => {
     ]);
     // Browsing a repository is being among the repositories.
     expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
+  });
+
+  test("leads an administrator to the users, the roles and anonymous access", () => {
+    navigation.at("/admin/users/0190-aa");
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const [wide] = screen.getAllByRole("navigation", { name: "Main" });
+    const links = within(wide as HTMLElement)
+      .getAllByRole("link")
+      .slice(3);
+
+    expect(within(wide as HTMLElement).getByText("Administration")).toBeVisible();
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Users", "/admin/users"],
+      ["Roles", "/admin/roles"],
+      ["Anonymous access", "/admin/anonymous-access"],
+    ]);
+    // One user's page is among the users.
+    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
+  });
+
+  test("has the navigation in a row of its own, which wraps where it does not fit", () => {
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const [wide] = screen.getAllByRole("navigation", { name: "Main" });
+
+    // Not beside the search box, where an administrator's items ran under it.
+    expect(wide?.querySelector('[role="search"]')).toBeNull();
+    expect(wide?.closest("header > div")).toBeNull();
+    expect(within(wide as HTMLElement).getAllByRole("list")[0]).toHaveClass("lg:flex-wrap");
   });
 
   test("has the search box in its header, and in the navigation of a narrow window", async () => {
@@ -80,10 +109,11 @@ describe("the shell", () => {
   });
 
   test("shows no area that has nothing in it", () => {
-    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    renderUi(<AppShell session={VISITOR}>Content</AppShell>, { session: VISITOR });
 
-    // Plan 9 has no administration screen yet, so the area is not there to be empty.
+    // A visitor administers nothing, so the area is not there to be empty.
     expect(screen.queryByText("Administration")).toBeNull();
+    expect(screen.getAllByText("Browse")[0]).toBeVisible();
   });
 
   test("opens its navigation from a button where the window is narrow (UI-3)", async () => {
@@ -125,7 +155,7 @@ describe("the shell", () => {
 });
 
 describe("the user menu", () => {
-  test("says who is signed in, and leads to changing the password", async () => {
+  test("says who is signed in, and leads to their account", async () => {
     const user = userEvent.setup();
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
 
@@ -136,9 +166,9 @@ describe("the user menu", () => {
     expect(menu).toHaveTextContent("admin");
     await expectAccessible();
 
-    await user.click(within(menu).getByRole("menuitem", { name: "Change password" }));
+    await user.click(within(menu).getByRole("menuitem", { name: "Account" }));
 
-    expect(navigation.router.push).toHaveBeenCalledWith("/account/password");
+    expect(navigation.router.push).toHaveBeenCalledWith("/account/tokens");
   });
 
   test("signs out, forgets what was fetched for that person, and starts afresh at home", async () => {
@@ -207,7 +237,7 @@ describe("the user menu", () => {
     expect(screen.queryByRole("button", { name: /Account of/ })).toBeNull();
   });
 
-  test("offers no change of password to whoever is already made to change it", async () => {
+  test("offers no way to the account to whoever must choose a password first", async () => {
     const user = userEvent.setup();
     const pending: SessionInfo = { ...ADMIN, must_change_password: true };
     renderUi(
@@ -219,8 +249,25 @@ describe("the user menu", () => {
 
     await user.click(screen.getByRole("button", { name: "Account of Ada Admin" }));
 
-    expect(screen.queryByRole("menuitem", { name: "Change password" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Account" })).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
+    // Nor to the preferences, from the mode menu: no other screen can be reached.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /^Mode:/ }));
+    expect(screen.getByRole("menuitemradio", { name: "Dark" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "More preferences" })).toBeNull();
+  });
+});
+
+describe("the mode menu", () => {
+  test("leads to the other preferences, for a visitor as for anybody (A11)", async () => {
+    const user = userEvent.setup();
+    renderUi(<AppShell session={VISITOR}>Content</AppShell>, { session: VISITOR });
+
+    await user.click(screen.getByRole("button", { name: /^Mode:/ }));
+    await user.click(screen.getByRole("menuitem", { name: "More preferences" }));
+
+    expect(navigation.router.push).toHaveBeenCalledWith("/account/preferences");
   });
 });
 

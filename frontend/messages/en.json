@@ -17,7 +17,10 @@
     "items": {
       "repositories": "Repositories",
       "search": "Search",
-      "upload": "Upload"
+      "upload": "Upload",
+      "users": "Users",
+      "roles": "Roles",
+      "anonymousAccess": "Anonymous access"
     }
   },
   "theme": {
@@ -25,15 +28,16 @@
     "current": "Mode: {choice}",
     "light": "Light",
     "dark": "Dark",
-    "system": "As the system"
+    "system": "As the system",
+    "more": "More preferences"
   },
   "account": {
     "menu": "Account of {name}",
     "signedInAs": "Signed in as",
-    "changePassword": "Change password",
     "signOut": "Sign out",
     "signOutFailed": "You are still signed in",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "account": "Account"
   },
   "signIn": {
     "title": "Sign in",
@@ -135,7 +139,8 @@
   },
   "searchBox": {
     "label": "Search components",
-    "placeholder": "Search  ( / )"
+    "placeholder": "Search  ( / )",
+    "placeholderPlain": "Search"
   },
   "browse": {
     "kind": "{format} repository, {type}",
@@ -307,5 +312,295 @@
     "notHosted": "Only a hosted repository takes an upload. A proxy holds what its remote has, and a group holds nothing of its own.",
     "notDocker": "An image is pushed with a container client, not uploaded.",
     "notAllowed": "You do not have permission to add to this repository."
+  },
+  "accountArea": {
+    "label": "Account",
+    "pages": {
+      "tokens": "API tokens",
+      "password": "Password",
+      "preferences": "Preferences"
+    }
+  },
+  "preferences": {
+    "title": "Preferences",
+    "intro": "How this UI behaves for you. They are kept in this browser, and take effect as you choose them.",
+    "keys": "Keyboard",
+    "searchKey": "Go to the search box with the / key",
+    "searchKeyHint": "From anywhere that is not a place to type. Turn it off if the key gets in your way, as it can when you dictate."
+  },
+  "newPassword": {
+    "generate": "Generate one",
+    "show": "Show it"
+  },
+  "permissions": {
+    "none": "No permission yet.",
+    "row": "Permission {number}",
+    "about": "About",
+    "kinds": {
+      "repository": "A repository",
+      "admin": "Administration",
+      "all": "Everything",
+      "typed": "Typed by hand"
+    },
+    "any": "Any",
+    "format": "Format",
+    "repository": "Repository",
+    "action": "Action",
+    "area": "Area",
+    "pattern": "Pattern",
+    "actions": {
+      "browse": "Browse",
+      "read": "Read",
+      "add": "Add",
+      "edit": "Edit",
+      "delete": "Delete",
+      "write": "Write"
+    },
+    "areas": {
+      "users": "Users",
+      "roles": "Roles",
+      "tokens": "API tokens",
+      "settings": "Settings",
+      "blobstores": "Blob stores",
+      "repositories": "Repositories"
+    },
+    "add": "Add a permission",
+    "remove": "Remove permission {number}",
+    "notAPattern": "A pattern is words joined by a colon, with * for any one word: repository:maven:*:read.",
+    "grants": {
+      "all": "Everything: every repository, and all of the administration.",
+      "repository": "{action} in {where}.",
+      "doing": {
+        "any": "Everything",
+        "browse": "Browse",
+        "read": "Read",
+        "add": "Add",
+        "edit": "Edit",
+        "delete": "Delete"
+      },
+      "everyRepository": "every repository",
+      "everyOfFormat": "every {format} repository",
+      "everyNamed": "every repository named {name}",
+      "oneRepository": "the {format} repository {name}",
+      "admin": "{action} {area}.",
+      "administering": {
+        "any": "See and change",
+        "read": "See",
+        "write": "Change"
+      },
+      "areas": {
+        "any": "everything an administrator keeps",
+        "users": "the users",
+        "roles": "the roles",
+        "tokens": "everybody's API tokens",
+        "settings": "the settings",
+        "blobstores": "the blob stores",
+        "repositories": "the repositories"
+      },
+      "other": "Whatever this pattern matches."
+    }
+  },
+  "tokens": {
+    "title": "API tokens",
+    "intro": "A token signs in for you where a password should not be: in a build, a script, a package client's settings.",
+    "createTitle": "Create a token",
+    "listTitle": "Your tokens",
+    "none": "You have no token.",
+    "fields": {
+      "name": "Name",
+      "lasts": "Lasts",
+      "day": "Until the end of",
+      "limit": "What it may do",
+      "custom": "Its permissions"
+    },
+    "hints": {
+      "name": "What it is for: you will know it by this name."
+    },
+    "lasts": {
+      "never": "Until it is revoked",
+      "30": "30 days",
+      "90": "90 days",
+      "365": "A year",
+      "date": "Until a day I choose"
+    },
+    "limits": {
+      "everything": "Everything I may do",
+      "read": "Only read",
+      "custom": "Only what I choose"
+    },
+    "limitHints": {
+      "everything": "It can do what you can, now and as your roles change.",
+      "read": "Browse and download from the repositories you may read. Nothing else.",
+      "custom": "Whatever you choose here, it never does more than you may do yourself."
+    },
+    "nameNeeded": "Give it a name.",
+    "dayNeeded": "Choose the day.",
+    "customNeeded": "Add at least one permission, or choose another limit.",
+    "create": "Create token",
+    "madeTitle": "The token {name} is made",
+    "madeOnce": "This is the only time it is shown. Copy it now: it cannot be shown again, only replaced.",
+    "theToken": "the token",
+    "madeUse": "Use it as a bearer token, or as the password with your user name (or the name __token__) where a client asks for one.",
+    "madeDone": "I have copied it",
+    "columns": {
+      "name": "Name",
+      "begins": "Begins with",
+      "mayDo": "May do",
+      "expires": "Expires",
+      "lastUsed": "Last used",
+      "created": "Created",
+      "actions": "Revoke"
+    },
+    "begins": "{prefix}…",
+    "everything": "Everything its owner may",
+    "never": "Never",
+    "expired": "Expired",
+    "revoke": "Revoke",
+    "revokeNamed": "Revoke {name}",
+    "revokeTitle": "Revoke the token {name}?",
+    "revokeBody": "Whatever uses it is refused from then on. It cannot be brought back, only replaced by a new one.",
+    "revoked": "Revoked the token {name}."
+  },
+  "users": {
+    "title": "Users",
+    "newTitle": "New user",
+    "oneTitle": "User",
+    "intro": "Who can sign in, and what roles they hold.",
+    "path": "Path",
+    "new": "New user",
+    "columns": {
+      "username": "User name",
+      "displayName": "Name",
+      "roles": "Roles",
+      "state": "State",
+      "lastSignIn": "Last sign-in"
+    },
+    "active": "Active",
+    "disabled": "Disabled",
+    "builtin": "Built in",
+    "mustChange": "Must change password",
+    "details": "Who they are",
+    "fields": {
+      "username": "User name",
+      "displayName": "Name",
+      "email": "Email",
+      "password": "Password",
+      "newPassword": "New password",
+      "mustChange": "Must choose a new password at the next sign-in",
+      "roles": "Roles",
+      "state": "State"
+    },
+    "hints": {
+      "username": "Letters, digits and . _ @ - , up to 64. It cannot be changed later.",
+      "email": "Optional.",
+      "password": "At least {min} characters. Type one, or have one made.",
+      "newPassword": "At least {min} characters. Their sessions end when it is set.",
+      "mustChange": "They sign in with this one once, and then choose their own.",
+      "active": "Can sign in.",
+      "disabled": "Cannot sign in, and their tokens are refused. Nothing of theirs is deleted."
+    },
+    "facts": {
+      "created": "Created",
+      "lastSignIn": "Last sign-in"
+    },
+    "usernameRule": "A user name is 1 to 64 letters, digits or . _ @ -",
+    "displayNameNeeded": "Give their name.",
+    "emailRule": "This is not an email address.",
+    "passwordRule": "The password must be at least {min} characters long.",
+    "noRoles": "There is no role to give.",
+    "noRolesHeld": "None",
+    "rolesNotReadable": "You may not see the roles, so none can be given here.",
+    "create": "Create user",
+    "createdTitle": "The user {username} is created",
+    "createdMustChange": "Pass this password on to them. They sign in with it once, and then choose their own.",
+    "createdKeeps": "Pass this password on to them. It stays their password until they change it.",
+    "thePassword": "the password",
+    "createdOnce": "It is not shown again once you leave this page.",
+    "open": "Open {username}",
+    "another": "Create another",
+    "save": "Save",
+    "saved": "Saved {username}.",
+    "builtinNote": "This user is built in. It can be changed, and not deleted.",
+    "selfState": "This is your own account: you cannot disable it.",
+    "passwordTitle": "Set a new password",
+    "setPassword": "Set password",
+    "passwordSet": "The password of {username} is set",
+    "passwordSetOnce": "Pass it on to them. It is not shown again once you leave this page.",
+    "tokensTitle": "API tokens",
+    "tokensOf": "API tokens of {username}",
+    "noTokens": "This user has no token.",
+    "tokenRevoked": "Revoked the token {name} of {username}.",
+    "deleteTitle": "Delete this user",
+    "deleteIntro": "Their tokens and sessions go with them. What they stored stays.",
+    "delete": "Delete user",
+    "deleteAsk": "Delete the user {username}?",
+    "deleteBody": "They can no longer sign in, and every token of theirs is refused. This cannot be undone.",
+    "deleted": "Deleted the user {username}.",
+    "selfDelete": "This is your own account: you cannot delete it.",
+    "builtinDelete": "A built-in user cannot be deleted. It can be disabled."
+  },
+  "roles": {
+    "title": "Roles",
+    "newTitle": "New role",
+    "oneTitle": "Role",
+    "intro": "What a user may do is what their roles grant.",
+    "path": "Path",
+    "new": "New role",
+    "columns": {
+      "name": "Name",
+      "description": "Description",
+      "permissions": "Permissions",
+      "contains": "Contains"
+    },
+    "builtin": "Built in",
+    "fields": {
+      "name": "Name",
+      "description": "Description",
+      "permissions": "Permissions",
+      "contains": "Roles it contains"
+    },
+    "hints": {
+      "name": "Letters, digits and . _ - , up to 64. It cannot be changed later."
+    },
+    "nameRule": "A role's name is 1 to 64 letters, digits or . _ -",
+    "noOtherRoles": "There is no other role.",
+    "noPermissions": "It grants nothing of its own.",
+    "containsNone": "None",
+    "create": "Create role",
+    "created": "Created the role {name}.",
+    "save": "Save",
+    "saved": "Saved the role {name}.",
+    "adminFixed": "This is the role that makes an administrator. It grants everything, and cannot be changed.",
+    "builtinNote": "This role is built in. It can be changed, and not deleted.",
+    "deleteTitle": "Delete this role",
+    "deleteIntro": "Users who hold it, and roles that contain it, lose what it grants.",
+    "delete": "Delete role",
+    "deleteAsk": "Delete the role {name}?",
+    "deleteBody": "Everyone who holds it loses what it grants, at once. This cannot be undone.",
+    "deleted": "Deleted the role {name}."
+  },
+  "anonymous": {
+    "title": "Anonymous access",
+    "intro": "Whether someone who is not signed in may use this server at all.",
+    "state": "Anonymous access is",
+    "on": "On",
+    "off": "Off",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off",
+    "onMeans": "Anyone who can reach this server may do what is listed below, without signing in.",
+    "offMeans": "Nothing is given without signing in. Package clients need credentials.",
+    "ask": "Turn anonymous access on?",
+    "askBody": "Anyone who can reach this server will then be able to do what the anonymous user may do, without signing in. Look at what that is before you go on.",
+    "turnedOn": "Anonymous access is on.",
+    "turnedOff": "Anonymous access is off.",
+    "allowedTitle": "What a visitor may do",
+    "notReadable": "You may not see users and roles, so what a visitor may do cannot be shown here.",
+    "userNotFound": "The anonymous user was not found among the first users.",
+    "toUsers": "Look for it among the users",
+    "rolesIntro": "A visitor acts as the built-in user anonymous, with the roles it holds.",
+    "toUser": "Change its roles",
+    "noRoles": "It holds no role.",
+    "grantsNothing": "Its roles grant nothing in any repository.",
+    "onlyRepositories": "Whatever its roles say, a visitor is never allowed anything but what concerns repositories."
   }
 }

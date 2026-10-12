@@ -72,6 +72,41 @@ describe("the navigation as it is", () => {
     expect(NAVIGATION[0]?.items[0]).toMatchObject({ key: "repositories", href: "/", icon: Boxes });
   });
 
+  test("shows each part of the administration to whoever may read it (UI-2)", () => {
+    const administration = (session: SessionInfo) =>
+      visible(NAVIGATION, session)
+        .filter((area) => area.key === "administration")
+        .flatMap((area) => area.items.map((entry) => [entry.key, entry.href]));
+
+    expect(administration(ADMIN)).toEqual([
+      ["users", "/admin/users"],
+      ["roles", "/admin/roles"],
+      ["anonymousAccess", "/admin/anonymous-access"],
+    ]);
+    expect(administration({ ...ADMIN, permissions: ["admin:roles:read"] })).toEqual([
+      ["roles", "/admin/roles"],
+    ]);
+    expect(administration({ ...ADMIN, permissions: ["admin:settings"] })).toEqual([
+      ["anonymousAccess", "/admin/anonymous-access"],
+    ]);
+    expect(administration({ ...ADMIN, permissions: ["repository:*:*:*"] })).toEqual([]);
+    // Whatever the anonymous user holds, nobody administers without signing in.
+    expect(administration({ ...VISITOR, permissions: ["*"] })).toEqual([]);
+  });
+
+  test("marks an administration item for everything under it", () => {
+    const current = (pathname: string) =>
+      NAVIGATION.flatMap((area) => area.items)
+        .filter((entry) => isCurrent(entry, pathname))
+        .map((entry) => entry.key);
+
+    expect(current("/admin/users")).toEqual(["users"]);
+    expect(current("/admin/users/new")).toEqual(["users"]);
+    expect(current("/admin/roles/deployers")).toEqual(["roles"]);
+    expect(current("/admin/anonymous-access")).toEqual(["anonymousAccess"]);
+    expect(current("/account/tokens")).toEqual([]);
+  });
+
   test("leads to the repositories, to search and to upload", () => {
     const [browse] = visible(NAVIGATION, ADMIN);
 

@@ -249,6 +249,25 @@ describe("the search box of every screen", () => {
     expect(screen.getByLabelText("Elsewhere")).toHaveValue("a/b");
   });
 
+  test("does not take the key when it is not on the screen to go to (A12)", () => {
+    // As in a narrow window, where the box is in a navigation that is closed.
+    renderUi(
+      <div hidden>
+        <SearchBox />
+      </div>,
+    );
+
+    // `fireEvent` says whether the key was left to do what it does anyway.
+    expect(fireEvent.keyDown(document.body, { key: "/" })).toBe(true);
+  });
+
+  test("takes the key when it is", () => {
+    renderUi(<SearchBox />);
+
+    expect(fireEvent.keyDown(document.body, { key: "/" })).toBe(false);
+    expect(screen.getByRole("searchbox", { name: "Search components" })).toHaveFocus();
+  });
+
   test("leaves the browser's own shortcuts alone", () => {
     renderUi(<SearchBox />);
 

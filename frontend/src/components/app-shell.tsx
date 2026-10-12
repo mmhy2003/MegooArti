@@ -30,11 +30,11 @@ function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () =
   const t = useTranslations("nav");
   const pathname = usePathname();
   return (
-    <ul className="flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-6">
+    <ul className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-8 lg:gap-y-1">
       {areas.map((area) => (
         <li key={area.key} className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
           <span className="label-caps text-fg-subtle">{t(`areas.${area.key}`)}</span>
-          <ul className="flex flex-col gap-1 lg:flex-row">
+          <ul className="flex flex-col gap-1 lg:flex-row lg:flex-wrap">
             {area.items.map((item) => {
               const current = isCurrent(item, pathname);
               return (
@@ -66,6 +66,10 @@ function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () =
 /**
  * What every screen is inside: the header with the navigation, and the content. With
  * `bare`, there is no navigation: for whoever must change their password first.
+ *
+ * In a wide window the navigation is a row of its own under the wordmark: an
+ * administrator has more items than fit beside the search box, and the row wraps
+ * where they do not fit in one.
  */
 export function AppShell({
   session,
@@ -88,18 +92,13 @@ export function AppShell({
         {t("skipToContent")}
       </a>
       <header className="relative border-b border-line-strong bg-panel">
-        <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-4 px-4 lg:gap-8">
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-4 px-4">
           <AppLink href="/" className="shrink-0 rounded-sm">
             <Wordmark />
           </AppLink>
-          {areas.length > 0 ? (
-            <nav aria-label={t("mainNavigation")} className="hidden min-w-0 flex-1 lg:block">
-              <Navigation areas={areas} />
-            </nav>
-          ) : null}
           <div className="ml-auto flex items-center gap-2">
-            {bare ? null : <SearchBox className="hidden w-56 md:block xl:w-72" />}
-            <ThemeSwitch />
+            {bare ? null : <SearchBox className="hidden w-56 md:block lg:w-80" />}
+            <ThemeSwitch bare={bare} />
             <UserMenu session={session} />
             {areas.length > 0 ? (
               <button
@@ -119,6 +118,13 @@ export function AppShell({
             ) : null}
           </div>
         </div>
+        {areas.length > 0 ? (
+          <nav aria-label={t("mainNavigation")} className="hidden border-t border-line lg:block">
+            <div className="mx-auto max-w-7xl px-4 py-1.5">
+              <Navigation areas={areas} />
+            </div>
+          </nav>
+        ) : null}
         {areas.length > 0 ? (
           <nav
             id="narrow-navigation"

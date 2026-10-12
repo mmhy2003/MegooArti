@@ -195,3 +195,109 @@ export function FilePicker({
     </div>
   );
 }
+
+export type Option = Choice & { hint?: string };
+
+const GROUP = "flex min-w-0 flex-col gap-2 border-0 p-0";
+const LEGEND = "label-caps mb-1 p-0 text-fg-muted";
+
+function OptionText({ id, option }: { id: string; option: Option }) {
+  return (
+    <div className="min-w-0">
+      <label htmlFor={id} className="break-words text-fg">
+        {option.label}
+      </label>
+      {option.hint ? (
+        <p id={`${id}-hint`} className="text-sm text-fg-subtle">
+          {option.hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One of a few, all in view, each with what it means: the browser's own radio buttons. */
+export function ChoiceGroup({
+  legend,
+  options,
+  value,
+  onChange,
+  disabled = false,
+  className,
+}: {
+  legend: string;
+  options: Option[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <fieldset className={cn(GROUP, className)} disabled={disabled}>
+      <legend className={LEGEND}>{legend}</legend>
+      {options.map((option, index) => (
+        <div key={option.value} className="flex items-start gap-3">
+          <input
+            id={`${id}-${index}`}
+            type="radio"
+            name={id}
+            value={option.value}
+            checked={option.value === value}
+            aria-describedby={option.hint ? `${id}-${index}-hint` : undefined}
+            onChange={() => onChange(option.value)}
+            className="mt-1 size-4 shrink-0 accent-primary"
+          />
+          <OptionText id={`${id}-${index}`} option={option} />
+        </div>
+      ))}
+    </fieldset>
+  );
+}
+
+/** Any number of a list, each ticked or not: the roles of a user, the roles in a role. */
+export function CheckList({
+  legend,
+  options,
+  value,
+  onChange,
+  disabled = false,
+  empty,
+  className,
+}: {
+  legend: string;
+  options: Option[];
+  value: string[];
+  onChange: (value: string[]) => void;
+  disabled?: boolean;
+  /** What to say when there is nothing to tick. */
+  empty?: string;
+  className?: string;
+}) {
+  const id = useId();
+  return (
+    <fieldset className={cn(GROUP, className)} disabled={disabled}>
+      <legend className={LEGEND}>{legend}</legend>
+      {options.length === 0 && empty ? <p className="text-sm text-fg-subtle">{empty}</p> : null}
+      {options.map((option, index) => (
+        <div key={option.value} className="flex items-start gap-3">
+          <input
+            id={`${id}-${index}`}
+            type="checkbox"
+            checked={value.includes(option.value)}
+            aria-describedby={option.hint ? `${id}-${index}-hint` : undefined}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...value, option.value]
+                  : value.filter((held) => held !== option.value),
+              )
+            }
+            className="mt-1 size-4 shrink-0 accent-primary"
+          />
+          <OptionText id={`${id}-${index}`} option={option} />
+        </div>
+      ))}
+    </fieldset>
+  );
+}

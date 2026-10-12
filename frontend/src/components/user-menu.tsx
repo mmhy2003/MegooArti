@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, LogIn, LogOut, UserRound } from "lucide-react";
+import { LogIn, LogOut, UserCog, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 
@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/menu";
 import type { SessionInfo } from "@/lib/api/types";
 import { useErrorText } from "@/lib/errors";
-import { CHANGE_PASSWORD, SIGN_IN } from "@/lib/session/rules";
+import { ACCOUNT_TOKENS } from "@/lib/paths";
+import { SIGN_IN } from "@/lib/session/rules";
 import { useSignOut } from "@/lib/session/session";
 
 /** Who is signed in, and what they can do about it. For a visitor, the way to sign in. */
@@ -68,9 +69,9 @@ export function UserMenu({ session }: { session: SessionInfo }) {
           <p className="px-3 pb-2 font-mono text-sm break-all text-fg">{session.user.username}</p>
           <MenuSeparator />
           {session.must_change_password ? null : (
-            <MenuItem onSelect={() => router.push(CHANGE_PASSWORD)}>
-              <KeyRound aria-hidden="true" className="size-4" />
-              {t("changePassword")}
+            <MenuItem onSelect={() => router.push(ACCOUNT_TOKENS)}>
+              <UserCog aria-hidden="true" className="size-4" />
+              {t("account")}
             </MenuItem>
           )}
           <MenuItem disabled={signOut.isPending} onSelect={() => signOut.mutate()}>
