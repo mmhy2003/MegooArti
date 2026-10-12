@@ -302,7 +302,7 @@ A person's own account, and what an administrator does about people: users, role
 | `/admin/users/new` | A new user. | `admin:users:write` |
 | `/admin/users/<id>` | One user: details and roles, state, a new password, API tokens, delete. | `admin:users:read`; tokens need `admin:tokens:read` |
 | `/admin/roles` | The roles: name, what they hold. | `admin:roles:read` |
-| `/admin/roles/new`, `/admin/roles/<name>` | A role: description, permissions as rows, the roles it contains, delete. | `admin:roles:read`, `write` to change |
+| `/admin/roles/~new`, `/admin/roles/<name>` | A role: description, permissions as rows, the roles it contains, delete. The form for a new one is where no role's name can be (A25). | `admin:roles:read`, `write` to change |
 | `/admin/anonymous-access` | The switch, and what the anonymous user may do. | `admin:settings:read`, `write` to change |
 
 - **The navigation** gets its Administration area: Users, Roles, Anonymous access, each shown to whoever holds the permission to read it.
@@ -320,6 +320,20 @@ A person's own account, and what an administrator does about people: users, role
 | A18 | A new user's password is shown once more after the user is made, with a button that copies it, until the page is left. A password set for an existing user stays in its field for the same reason. | The administrator has to pass it on, and may not have copied it before pressing the button. |
 | A19 | What a visitor may do is shown as the patterns of the anonymous user's roles and of the roles they contain, and of those only what concerns repositories. | The server allows a request without credentials nothing else, whatever the roles say. |
 | A20 | A token's secret is not kept by the store of what was fetched: the request that makes it is forgotten as soon as its answer is handed over. | A5. |
+| A21 | A role that may be read and not changed, and the `admin` role, are shown as what they hold (description, the roles contained, each permission with what it grants in words) and not as a form with its fields disabled. | Rows of disabled lists say less than the words do. It departs from "shown with its fields and without the button that saves", which the user's page keeps to. |
+
+#### Settled by the review of plan 10b
+
+| # | What | Why |
+| --- | --- | --- |
+| A22 | One's own password is not set from one's own user page: the page says so and leads to Account, Password, where the present one is asked for. | Set there with "must choose a new one", the server ended the page and asked for the password that had been on it. A sole administrator was locked out, and the way back was through the database. |
+| A23 | The form of a user or a role opens only on an answer that came after the page was opened. | It is filled once, when it opens. Filled from what was fetched before, it showed a role that had since been deleted, which then could not be unticked, and a saved role brought back a permission that had been taken away. |
+| A24 | Three rules are kept in one place (`lib/focus.ts`) and by every form and list: every press of a form's button puts the keyboard at the first field that is still wrong; a list that turns a page puts the keyboard at itself; a page past the last leads to the last page there is. | The second press did nothing that could be seen. The lists of users, roles and tokens dropped the keyboard as search no longer did. After the only token of a last page was revoked, the page said "You have no token." |
+| A25 | The form for a new role is at `/admin/roles/~new`. A role cannot be named `.` or `..` in the form, and one that is so named (through the API) is listed without a link. | A role may be called `new`, and its page was the form. A browser takes `.` and `..` for folders, however they are written. |
+| A26 | The request that creates a user is forgotten by the store as soon as it is answered, as the one that sets a password is. | Its password stayed in the store for five minutes after the page was left (A20 said tokens; the constraint says every secret). |
+| A27 | When anonymous access is on and the `anonymous` user is disabled, the page says that nothing is given, in place of saying that anyone may do what is listed. | The server gives a visitor nothing then, and the user's own page offers to disable it. |
+| A28 | Changing the format of a row keeps the repository it names. | Set to "any", the row granted its action in every repository of the new format, by a side effect of choosing a list. The row then names a repository that may not exist, grants nothing, and says so in its words. |
+| A29 | A day that is no day (a year of five digits, which a date field lets through) is said to be none. The `/` key can be turned off for the life of the page where the browser keeps nothing. The forms for a new user and a new role are not shown to whoever may not create one. | Each was a button that did nothing, or a promise the page could not keep. |
 
 ### 12.4 Repositories and the system (plan 10c, outline)
 

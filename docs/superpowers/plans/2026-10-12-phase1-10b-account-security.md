@@ -25,6 +25,20 @@
 | A20 | The request that makes a token is forgotten by the store as soon as its answer is handed over (`gcTime: 0`). | A5: the secret is kept nowhere. |
 | A21 | The texts of every screen of this plan are added to `messages/en.json` in Task 2, with the shell's own changes. | One file, typed as a whole; the user menu's "Change password" goes when "Account" comes. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first, and the spec's section 12.3 records what they settle as A22 to A29.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| R1 | On one's own user page there is no "Set a new password": a line says why, with a link to `/account/password` (`users.selfPassword`, `users.toOwnPassword`). | The review locked an administrator out through it (Critical). |
+| R2 | `UserScreen` and `RoleScreen` show their form only once the query `isFetchedAfterMount`. | The review: a form filled from the cache sent a deleted role, and a role saved from the cache widened what had been narrowed. |
+| R3 | `lib/focus.ts` has `useAttempts(refused)`, `usePageFocus(page, arrived)` and `useWithinPages(page, pages, hrefFor)`. The forms of `user.tsx`, `roles.tsx` and `tokens.tsx` use the first in place of their own `checked` state; the lists of users, roles, tokens and search use the other two. | The review: a second press with a field still wrong did nothing; the new lists dropped the keyboard on "Next"; a page past the last said there was nothing at all. |
+| R4 | `NEW_ROLE` is `/admin/roles/~new`, and the route's folder is `~new`. `isAddressable(name)` in `lib/paths.ts` is false for `.` and `..`: the role form refuses them (`roles.nameDots`) and the list shows such a role without a link. | The review made a role called `new` and could not open it. |
+| R5 | `useCreateUser` has `gcTime: 0`. | The review found the new user's password in the mutation store after the page was left. |
+| R6 | `AnonymousAccessScreen` says `anonymous.userDisabled` when the switch is on and the anonymous user is not active. | The review: "On", and a visitor was sent to sign in. |
+| R7 | `PermissionRows` keeps the repository when the format of a row is changed. | The review graded it minor; it is a wider grant made by a side effect, in the one form where that matters most. |
+| R8 | `endOfDay(day)` in `lib/format.ts` is null for what is no day, and the token form says "Choose a day."; the field has `max="9999-12-31"`. `lib/preferences.ts` keeps the choice in memory where storage cannot be written. `NewUserScreen` and `NewRoleScreen` show `mayNotCreate` in place of the form to whoever may not create. | The review: a year of five digits made the button do nothing; with storage blocked the key could not be turned off; the forms were shown to whoever may only read. |
+| R9 | The browser tests are 54: the `/` key in a narrow window, and a role called `new`; one's own user page has no "Set password". `test_ui_client.py` expects all 54. | The review: the real check of what is on the screen was run by no test, and the count allowed one test fewer than there are. |
+
 ## Global Constraints
 
 - **A colour is written in `src/styles/tokens.css` and nowhere else.**

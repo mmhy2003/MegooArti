@@ -910,8 +910,9 @@ and blob stores are created through the API for now, and their screens follow.
   - **Users.** Create a user with a password you type or have generated, and tick
     the roles they hold. A user's page changes their name, email, roles and state,
     sets a new password, lists and revokes their API tokens, and deletes them after
-    you type their name. Your own account cannot be disabled or deleted there, and a
-    built-in user cannot be deleted.
+    you type their name. Your own account cannot be disabled or deleted there, and
+    your own password is changed under your account, where you are asked for the one
+    you have. A built-in user cannot be deleted.
   - **Roles.** A role's permissions are rows: choose what a row is about (a
     repository, or an area of administration), then the format, repository and
     action from lists. The pattern the row makes is shown with what it grants in
@@ -919,7 +920,8 @@ and blob stores are created through the API for now, and their screens follow.
     written through the API opens with nothing lost. The `admin` role is shown and
     cannot be changed.
   - **Anonymous access** is one switch, which asks before it is turned on, and shows
-    what someone who is not signed in may then do.
+    what someone who is not signed in may then do. If the `anonymous` user is
+    disabled, nothing is given though the switch is on, and the page says so.
 - **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
   browser keeps it over HTTPS, and over plain HTTP only on the machine itself
   (`localhost`). If you reach the UI over plain HTTP at another name or address,
