@@ -24,8 +24,15 @@ from starlette.responses import Response
 from megooarti.errors import ApiError
 from megooarti.repositories import group, proxy
 from megooarti.repositories.content import RepositoryContext, TooLarge
-from megooarti.repositories.formats import ComponentKey, Format, Serve, register
-from megooarti.repositories.maven import checksums, metadata, paths
+from megooarti.repositories.formats import (
+    ComponentKey,
+    Format,
+    Serve,
+    invalid_upload,
+    register,
+)
+from megooarti.repositories.forms import UploadForm
+from megooarti.repositories.maven import checksums, metadata, paths, upload
 from megooarti.repositories.paths import normalise_path
 
 log = structlog.get_logger(__name__)
@@ -406,6 +413,32 @@ class MavenFormat(Format):
     def content_type(self, path: str, declared: str | None) -> str | None:
         # Maven clients rarely declare a type, and never a useful one.
         return paths.content_type(path) or declared
+
+    async def upload(self, context: RepositoryContext, form: UploadForm) -> list[str]:
+        """Store an artifact's files where its coordinates say, as a deploy would.
+
+        Checksums and metadata are generated from what is stored, so there is nothing
+        to write for them. A POM is written when the version would have none.
+        """
+        sent = [(file.field, file.filename) for file in form.files]
+        try:
+            planned = upload.plan(form.fields, sent)
+        except upload.InvalidUpload as error:
+            raise invalid_upload(error.field, str(error)) from None
+        settings = context.repository.config["format_config"]
+        for path in planned.paths:
+            refusal = _excluded(settings, paths.classify(path))
+            if refusal is not None:
+                raise refusal
+        stored = []
+        for path, file in zip(planned.paths, form.files, strict=True):
+            await context.store(path, file.staged, content_type=self.content_type(path, None))
+            stored.append(path)
+        if planned.pom is not None and await context.stat(planned.pom_path) is None:
+            written = await context.stage_bytes(planned.pom)
+            await context.store(planned.pom_path, written, content_type=_XML)
+            stored.append(planned.pom_path)
+        return stored
 
     def is_metadata(self, path: str) -> bool:
         """What changes at a remote: metadata, the catalog, and old-style snapshot files.
