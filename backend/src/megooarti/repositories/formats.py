@@ -50,14 +50,15 @@ class Usage:
     text: str
 
 
-_PLAIN = re.compile(r"[A-Za-z0-9_.+~/-]*")
+_PLAIN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.+~/-]*")
 
 
 def plain(*parts: str) -> bool:
     """Whether text can stand between other words in a command or a build file.
 
     A name comes from whoever deployed it, or from a remote. Put into something a
-    person pastes and runs, a quote or a `;` in it would be theirs to run as well.
+    person pastes and runs, a quote or a `;` in it would be theirs to run as well, and
+    one that begins with a hyphen would be read as an option. Empty text is not plain.
     """
     return all(_PLAIN.fullmatch(part) is not None for part in parts)
 

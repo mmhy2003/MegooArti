@@ -136,3 +136,32 @@ async def test_an_upload_is_all_or_nothing_where_nothing_is_replaced(client, db,
     assert first.status_code == 201, first.text
     assert (again.status_code, error_code(again)) == (409, "redeploy_disabled")
     assert [text for _, text in links(page)] == [WHEEL]
+
+
+async def found_by(client, root, words: str) -> list[str]:
+    response = await client.get("/api/v1/search", params={"q": words}, headers=root)
+    return [item["name"] for item in response.json()["items"]]
+
+
+async def test_a_form_that_says_nothing_leaves_what_the_release_declares(client, index, root):
+    sent = await upload(
+        client, root, WHEEL, name="Greeter", summary="Says hello politely", keywords="manners"
+    )
+    assert sent.status_code == 200, sent.text
+
+    response = await send(client, root, SDIST)
+
+    assert response.status_code == 201, response.text
+    assert await found_by(client, root, "politely") == ["greeter"]
+    assert await found_by(client, root, "manners") == ["greeter"]
+
+
+async def test_what_a_form_does_say_replaces_what_the_release_declared(client, index, root):
+    await upload(client, root, WHEEL, summary="Says hello politely", keywords="manners")
+
+    response = await send(client, root, SDIST, summary="Greets warmly")
+
+    assert response.status_code == 201, response.text
+    assert await found_by(client, root, "warmly") == ["greeter"]
+    assert await found_by(client, root, "politely") == []
+    assert await found_by(client, root, "manners") == ["greeter"]  # not said, so it stands

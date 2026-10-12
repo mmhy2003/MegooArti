@@ -431,7 +431,7 @@ class MavenFormat(Format):
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         """A dependency, as Maven and Gradle write one. The repository is named elsewhere."""
         kind = _kind(files)
-        if not plain(key.namespace, key.name, key.version, kind):
+        if not plain(key.namespace, key.name, key.version) or (kind and not plain(kind)):
             return []
         lines = [
             f"  <groupId>{escape(key.namespace)}</groupId>",

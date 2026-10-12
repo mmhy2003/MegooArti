@@ -88,10 +88,11 @@ def test_the_pom_says_the_packaging_that_was_given():
     assert planned.paths == ("com/acme/app/1.0/app-1.0.war",)
 
 
-def test_a_snapshot_is_stored_under_its_plain_name():
-    planned = upload.plan({**APP, "version": "1.0-SNAPSHOT"}, [("file.sources", "s.jar")])
+def test_a_snapshot_is_for_a_build_to_deploy():
+    with pytest.raises(InvalidUpload, match="deployed by a build") as refused:
+        upload.plan({**APP, "version": "1.0-SNAPSHOT"}, [("file.sources", "s.jar")])
 
-    assert planned.paths == ("com/acme/app/1.0-SNAPSHOT/app-1.0-SNAPSHOT-sources.jar",)
+    assert refused.value.field == "version"
 
 
 def test_what_is_given_is_trimmed():
@@ -120,7 +121,7 @@ def test_what_is_given_is_trimmed():
         ({"artifact": "<app>"}, [("file", "a.jar")], "artifact"),
         ({"version": ".."}, [("file", "a.jar")], "version"),
         ({"version": "1/0"}, [("file", "a.jar")], "version"),
-        ({"version": "-SNAPSHOT"}, [("file", "a.jar")], "file"),
+        ({"version": "-SNAPSHOT"}, [("file", "a.jar")], "version"),
         ({"version": "1" * 256}, [("file", "a.jar")], "file"),
         ({"packaging": "a b"}, [("file", "a.jar")], "packaging"),
         ({"generate_pom": "maybe"}, [("file", "a.jar")], "generate_pom"),

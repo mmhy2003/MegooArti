@@ -710,8 +710,9 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
   `docker pull <host>/<repository>/<image>:<tag>`. The address is the repository's
   public one (the `base_url` setting, if it is set). A Raw file has no snippet: it has
   its `download` address. Nor has a component whose name or version holds anything
-  but letters, digits and `. _ + ~ / -`: the text is there to be pasted into a shell
-  or a build file, and a name is chosen by whoever deployed it.
+  but letters, digits and `. _ + ~ / -`, or does not begin with a letter, a digit or
+  `_`: the text is there to be pasted into a shell or a build file, and a name is
+  chosen by whoever deployed it.
 - **Deleting goes through the format**, so the repository is left as the format's own
   client would leave it. A deleted npm tarball is an unpublished version, and
   dist-tags that named it move. A deleted Docker manifest takes its tags and the
@@ -766,7 +767,8 @@ curl -u alice -F file=@greeter-1.0-py3-none-any.whl -F file=@greeter-1.0.tar.gz 
 
 - **The answer** is `201` with the `files` that were stored, each described as `asset`
   describes a file, and the `components` they belong to.
-- **All or nothing.** If one file of a form is refused, none of them is stored.
+- **All or nothing.** If one file of a form is refused, none of them is stored, in
+  the repository or in the blob store.
 - **Permissions and policy are those of any upload:** `add` for a new file, `edit` to
   replace one, and the repository's deployment policy. Uploading needs no right to
   browse or to read.
@@ -779,19 +781,21 @@ curl -u alice -F file=@greeter-1.0-py3-none-any.whl -F file=@greeter-1.0.tar.gz 
   matter. Without a POM, one is written that says the group, artifact, version and
   packaging: enough for a build that depends on the artifact. None is written if the
   form sends one, if the version already has one, or with `generate_pom=false`. The
-  repository's version policy applies. In a snapshot repository an uploaded file is
-  stored under its plain name (`app-1.0-SNAPSHOT.jar`), and a timestamped build that
-  a build tool deploys ranks above it. A checksum file (`.sha1`, `.md5`) is refused:
-  checksums are computed from the files.
+  repository's version policy applies. A snapshot (`1.0-SNAPSHOT`) is not uploaded: a
+  build deploys it, and numbers it as it does. A checksum file (`.sha1`, `.md5`) is
+  refused: checksums are computed from the files.
 - **npm.** What is stored is what `npm publish` would store: the tarball, and the
   `package.json` inside it as the version's manifest. A package whose `package.json`
   says `"private": true` is refused, as npm refuses to publish it. The tarball may be
   as large as a publish may be (`MEGOOARTI_NPM_MAX_PUBLISH_BYTES`), and is read into
-  memory to find its `package.json`. Every other upload goes to the blob store as it
-  arrives.
+  memory to find its `package.json`, which must be among its first 100,000 files and
+  256 MiB. Every other upload goes to the blob store as it arrives.
 - **PyPI.** A file's name says its project and version. A source distribution's is
   read as the project, a hyphen and the version, so its version must be written
-  without a hyphen (`1.0.post1`, not `1.0-1`), as current build tools write it.
+  without a hyphen (`1.0.post1`, not `1.0-1`), as current build tools write it. What
+  the form does not say of a release that exists, its summary and keywords, stays as
+  it was. `requires_python` is kept with each file and is not read out of it: give it
+  for a package that needs a certain Python, or installers will offer the file to all.
 - **Docker images are pushed** with a container client. A Docker repository, a proxy
   and a group answer `409 upload_not_supported`.
 - **A form that cannot be used** answers `422 validation_error`, and its `details`

@@ -62,6 +62,25 @@ async def record(
     return blob
 
 
+async def forget(
+    db: AsyncSession, backend: BlobBackend, blob_store_id: uuid.UUID, hashes: Iterable[str]
+) -> None:
+    """Remove content that was put in place for a transaction that did not commit.
+
+    Recording puts a file in place before its row is committed, so a rollback leaves
+    a file that no row knows of, and compaction works from rows: it would stay for
+    ever. Content that has a row, whoever recorded it, is left alone. Call in a
+    transaction of its own; the caller commits.
+    """
+    for sha256 in sorted(set(hashes)):
+        await lock_blob(db, sha256)
+        known = await db.scalar(
+            select(Blob.id).where(Blob.blob_store_id == blob_store_id, Blob.sha256 == sha256)
+        )
+        if known is None:
+            await backend.delete(sha256)
+
+
 async def dereference(db: AsyncSession, blob_ids: Iterable[uuid.UUID], now: datetime) -> None:
     """Mark as unreferenced those of these blobs that no asset uses any more.
 

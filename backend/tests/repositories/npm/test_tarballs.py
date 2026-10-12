@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import tarfile
 
 import pytest
 
@@ -85,3 +86,55 @@ def test_a_link_named_as_the_manifest_is_not_read():
 
     with pytest.raises(InvalidPackage, match="has no package.json"):
         tarballs.manifest(data)
+
+
+def test_a_tarball_of_very_many_files_is_not_walked_to_its_end():
+    """Half a million empty files are three megabytes to send."""
+    members = {f"package/empty-{number}": b"" for number in range(300)}
+    data = packed({**members, "package/package.json": TOOL})
+
+    assert tarballs.manifest(data) == TOOL
+    with pytest.raises(InvalidPackage, match="more than 100 files"):
+        tarballs.manifest(data, max_members=100)
+
+
+def test_a_header_larger_than_any_name_is_not_read():
+    """An extended header says how long it is, and what reads it whole holds all of it."""
+    data = packed({"package/package.json": TOOL}, pax={"comment": "x" * 2_000_000})
+
+    assert len(data) < 20_000
+    with pytest.raises(InvalidPackage, match="header"):
+        tarballs.manifest(data)
+
+
+@pytest.mark.parametrize(
+    ("folder", "format"),
+    [
+        ("pâckage", tarfile.PAX_FORMAT),  # its name is in an extended header
+        ("f" * 120, tarfile.PAX_FORMAT),
+        ("f" * 120, tarfile.GNU_FORMAT),  # in a member of its own, before it
+        ("f" * 120, tarfile.USTAR_FORMAT),  # in two fields of the header
+        ("package", tarfile.USTAR_FORMAT),
+        ("package", tarfile.GNU_FORMAT),
+    ],
+    ids=["pax", "pax-long", "gnu-long", "ustar-prefix", "ustar", "gnu"],
+)
+def test_a_name_is_read_however_the_archive_writes_it(folder, format):
+    data = packed({f"{folder}/README.md": b"# Tool", f"{folder}/package.json": TOOL}, format=format)
+
+    assert tarballs.manifest(data) == TOOL
+
+
+def test_a_small_extended_header_is_passed_over():
+    data = packed({"package/package.json": TOOL}, pax={"comment": "built on a Tuesday"})
+
+    assert tarballs.manifest(data) == TOOL
+
+
+def test_a_header_that_is_not_one_ends_the_reading():
+    whole = gzip.decompress(packed({"package/a.txt": b"a", "package/package.json": TOOL}))
+    broken = bytearray(whole)
+    broken[512 * 2 + 10] ^= 0xFF  # a byte of the second header: its checksum is now wrong
+
+    with pytest.raises(InvalidPackage, match="not a package tarball"):
+        tarballs.manifest(gzip.compress(bytes(broken)))

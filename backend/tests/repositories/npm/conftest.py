@@ -122,15 +122,22 @@ async def root(make_user) -> dict[str, str]:
     return basic("root", PASSWORD)
 
 
-def packed(members: dict[str, dict | bytes | str]) -> bytes:
+def packed(
+    members: dict[str, dict | bytes | str],
+    *,
+    format: int = tarfile.PAX_FORMAT,
+    pax: dict[str, str] | None = None,
+) -> bytes:
     """A real tarball, as `npm pack` writes one: gzip over tar.
 
     A member is JSON for a dict, a file for bytes, and for text `-> target` a symbolic link.
+    `pax` are extended headers written before every member.
     """
     buffer = io.BytesIO()
-    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=format) as archive:
         for name, content in members.items():
             member = tarfile.TarInfo(name)
+            member.pax_headers = dict(pax or {})
             if isinstance(content, str):
                 member.type, member.linkname = tarfile.SYMTYPE, content.removeprefix("-> ")
                 archive.addfile(member)

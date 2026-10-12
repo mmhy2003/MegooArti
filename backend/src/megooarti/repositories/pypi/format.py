@@ -176,11 +176,24 @@ async def _upload(context: RepositoryContext, request: Request) -> Response:
     return Response(status_code=200, headers=_PROTECTIVE)
 
 
-async def _keep(context: RepositoryContext, sent: upload.Declared, staged: StagedBlob) -> str:
-    """Store a file with what was said about it. Returns where it is."""
+async def _keep(
+    context: RepositoryContext,
+    sent: upload.Declared,
+    staged: StagedBlob,
+    *,
+    standing: dict[str, Any] | None = None,
+) -> str:
+    """Store a file with what was said about it. Returns where it is.
+
+    `standing` is what the release already declares, for an upload that may say nothing:
+    what it does not say then stays as it was.
+    """
     release = {"name": sent.name, "version": sent.version, "summary": sent.summary}
     if sent.keywords:
         release["keywords"] = sent.keywords
+    if standing:
+        said = {key: release[key] for key in ("summary", "keywords") if release.get(key)}
+        release = {**release, **standing, **said}
     # The path has the version in the file's name, not the one declared: a file name
     # then has one address in its project, and declaring another version cannot put a
     # second file of that name beside the first.
@@ -420,6 +433,7 @@ class PypiFormat(Format):
         if not form.files:
             raise invalid_upload("file", "At least one wheel or source distribution is needed.")
         declared: list[upload.Declared] = []
+        standing: list[dict[str, Any] | None] = []
         for file in form.files:
             if file.field != "file":
                 raise invalid_upload(file.field, "A file is sent as `file`.")
@@ -436,9 +450,14 @@ class PypiFormat(Format):
             if any(sent.filename == other.filename for other in declared):
                 raise invalid_upload("file", f"Two files are named {file.filename}.")
             declared.append(sent)
+            # twine repeats the summary and the keywords with every file. A form
+            # mostly says neither, and must not erase them for a release that exists.
+            held = await context.component("", sent.project, sent.file_version)
+            known = None if held is None else held.attributes.get(_DECLARED)
+            standing.append(known if isinstance(known, dict) else None)
         return [
-            await _keep(context, sent, file.staged)
-            for sent, file in zip(declared, form.files, strict=True)
+            await _keep(context, sent, file.staged, standing=known)
+            for sent, file, known in zip(declared, form.files, standing, strict=True)
         ]
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:

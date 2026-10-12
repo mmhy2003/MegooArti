@@ -176,3 +176,23 @@ async def test_staged_content_is_read_into_memory_only_up_to_a_limit(files, cont
     assert await context.read_staged(staged, limit=5) == b"small"
     assert await context.read_staged(staged, limit=4) is None
     await context.discard(staged)
+
+
+async def test_unfilled_file_inputs_are_counted_and_never_staged(backend, tmp_path):
+    staged = []
+
+    async def stage(chunks):
+        staged.append(await backend.stage(chunks))
+        return staged[-1]
+
+    few = form_of(
+        *(part("file", b"", "") for _ in range(forms.MAX_FILES - 1)), part("f", b"x", "a")
+    )
+    many = form_of(*(part("file", b"ignored", "") for _ in range(forms.MAX_FILES + 1)))
+
+    form = await forms.read(pieces(few), TYPE, stage=stage, discard=backend.discard)
+    with pytest.raises(InvalidForm, match="more than 100 files"):
+        await forms.read(pieces(many), TYPE, stage=stage, discard=backend.discard)
+
+    assert [file.filename for file in form.files] == ["a"]
+    assert len(staged) == 1  # only the file that is one

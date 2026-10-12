@@ -785,7 +785,7 @@ class NpmFormat(Format):
         return " ".join([super().search_text(key, attributes), *words])
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
-        if not plain(key.namespace, key.name, key.version):
+        if not plain(key.name, key.version) or (key.namespace and not plain(key.namespace)):
             return []
         package = f"@{key.namespace}/{key.name}" if key.namespace else key.name
         command = f"npm install {package}@{key.version} --registry={address}"

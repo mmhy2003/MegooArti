@@ -100,6 +100,12 @@ def plan(fields: Mapping[str, str], files: Sequence[tuple[str, str]]) -> Plan:
     group = _coordinate(fields, "group", _ID)
     artifact = _coordinate(fields, "artifact", _ID)
     version = _coordinate(fields, "version", _VERSION)
+    if version.endswith(paths.SNAPSHOT):
+        # Stored under its plain name it would rank below every build a build tool
+        # deployed, and be given to nobody.
+        raise InvalidUpload(
+            "version", "A snapshot is deployed by a build, which numbers it. It is not uploaded."
+        )
     packaging = fields.get("packaging", "").strip() or "jar"
     if not _ID.fullmatch(packaging):
         raise InvalidUpload("packaging", "This is not a packaging.")

@@ -111,21 +111,18 @@ async def test_a_repository_takes_the_versions_its_policy_says(client, releases,
     wrong = await send(
         client, root, APP, ("file", "app.jar", JAR), to="/api/v1/content/snapshots/upload"
     )
-    taken = await send(
+    snapshots_own = await send(
         client, root, snapshot, ("file", "app.jar", JAR), to="/api/v1/content/snapshots/upload"
     )
-    listed = await client.get(
-        "/repository/snapshots/com/acme/app/1.0-SNAPSHOT/maven-metadata.xml", headers=root
-    )
-    jar = await client.get(
-        "/repository/snapshots/com/acme/app/1.0-SNAPSHOT/app-1.0-SNAPSHOT.jar", headers=root
-    )
+    tree = await client.get("/api/v1/content/snapshots/tree", headers=root)
 
-    for response in (refused, wrong):
-        assert (response.status_code, error_code(response)) == (400, "version_policy_violation")
-    assert taken.status_code == 201, taken.text
-    assert "<version>1.0-SNAPSHOT</version>" in listed.text
-    assert jar.content == JAR
+    assert (wrong.status_code, error_code(wrong)) == (400, "version_policy_violation")
+    # A snapshot is numbered by the build that deploys it. One stored under its plain
+    # name would rank below every such build, and never be given to anyone.
+    for response in (refused, snapshots_own):
+        assert (response.status_code, error_code(response)) == (422, "validation_error")
+        assert response.json()["error"]["details"][0]["field"] == "version"
+    assert tree.json()["items"] == []
 
 
 async def test_a_form_that_does_not_say_what_to_store_is_refused(client, releases, root):

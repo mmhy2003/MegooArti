@@ -396,3 +396,42 @@ async def test_the_api_document_says_an_upload_is_a_form(client):
     assert list(described["requestBody"]["content"]) == ["multipart/form-data"]
     assert described["requestBody"]["required"] is True
     assert "201" in described["responses"]
+
+
+def content_files(settings) -> list[str]:
+    """What the blob store holds for good, by the names of the files: their hashes."""
+    directory = settings.data_dir / "blobs" / "default" / "content"
+    return sorted(path.name for path in directory.rglob("*") if path.is_file())
+
+
+async def test_a_refused_form_leaves_none_of_its_files_in_the_blob_store(
+    client, files, root, db, settings
+):
+    await service.create_repository(
+        db,
+        name="once",
+        format="raw",
+        type="hosted",
+        online=True,
+        blob_store="default",
+        hosted={"deployment_policy": "disable_redeploy"},
+        format_config={},
+    )
+    await db.commit()
+    await client.post("/api/v1/content/once/upload", files=parts(("b.txt", b"held")), headers=root)
+    await client.post(UPLOAD, files=parts(("elsewhere.txt", b"shared")), headers=root)
+    before = content_files(settings)
+
+    refused = await client.post(
+        "/api/v1/content/once/upload",
+        files=parts(("a.bin", BIG), ("same.txt", b"shared"), ("b.txt", b"other")),
+        headers=root,
+    )
+    elsewhere = await client.get("/repository/files/elsewhere.txt", headers=root)
+
+    assert (refused.status_code, error_code(refused)) == (409, "redeploy_disabled")
+    assert before == sorted(hashlib.sha256(data).hexdigest() for data in (b"held", b"shared"))
+    # Not the megabytes of a.bin, which no record knows of. And what another repository
+    # holds is still there, though the refused form carried the same content.
+    assert content_files(settings) == before
+    assert elsewhere.content == b"shared"

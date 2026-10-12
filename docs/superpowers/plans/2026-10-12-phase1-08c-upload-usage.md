@@ -29,6 +29,19 @@
 | P13 | `Format.usage(address, key, files) -> list[Usage]`, in a component's detail. Nothing is offered for a component whose name or version holds anything but letters, digits and `. _ + ~ / -`. | D14. A snippet is pasted into a shell or a build file, and a name is chosen by whoever deployed it, or by a remote. |
 | P14 | A Maven snippet names the kind (`<type>war</type>`, `@war`) when the artifact is not a jar. | Without it the build asks for a jar that is not there. |
 
+**Changed while executing and after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P15 | A Maven upload refuses a file named as a checksum is (`.sha1`, `.md5`, `.sha256`, `.sha512`). | Stored, it sat where the checksum of another file is asked for and was never served. Found while executing. |
+| P16 | The upload route describes its body in the OpenAPI document as `multipart/form-data`. | API-2. The route reads the body itself, so the framework did not know of it. Found while executing. |
+| P17 | After a form is refused, the route rolls back and removes from the blob store each of the form's files that no record refers to. | The review uploaded a 3 MiB file followed by a name that could not be replaced: the answer was `409`, and the 3 MiB stayed in the store with no row, where compaction never looks. |
+| P18 | P10 is reversed: a snapshot is not uploaded (`422`, at `version`). | The review deployed a timestamped build and then uploaded the same snapshot: `201`, and a file no build is ever given, with a metadata that mixed the two. |
+| P19 | P11 is changed: the tarball is walked header by header by `tarballs.py` itself, not by `tarfile`. At most 100,000 members are passed over and 1 MiB of an extended header read; the 256 MiB stands. | The review measured 12.6 seconds and 250 MiB for 3 MB of empty members, and 400 MiB for a 200 KB tarball with one long header. The same archives now take about two seconds and under 1 MB, or are refused. |
+| P20 | P12 is narrowed: what a form does not say of a release that exists, its summary and keywords, stays as it was. | The review added a source distribution through the API to a release twine had uploaded, and its summary and keywords were erased. |
+| P21 | A file input nobody filled in counts towards the 100 files of a form and is not staged at all. | The review sent 3,000 of them in 297 KB: each was a temporary file written and removed. |
+| P22 | P13 is tightened: a plain name also begins with a letter, a digit or `_`, and is not empty. | A package named `--force` gave `npm install --force@1.0.0`. |
+
 ## Global Constraints
 
 - Everything in the earlier plans' Global Constraints still applies. In particular: the standard error envelope; services and formats never commit (the route does), except to give a connection back before slow work; no ORM relationships; asset paths never become file paths; no database connection is held while a body arrives; only the security package reads `Principal.patterns`; every route authenticates via a dependency that reaches one in `AUTHENTICATION_DEPENDENCIES`; LF line endings; 100-character lines; ruff clean; spaced markdown table separators.

@@ -187,6 +187,7 @@ async def read(
     form = UploadForm()
     receiving: _Receiving | None = None
     name, value = "", bytearray()
+    unfilled, skipping = 0, False
     try:
         async for chunk in body:
             for event in events.write(chunk):
@@ -197,23 +198,27 @@ async def read(
                             raise InvalidForm(f"it gives {name} twice")
                         if len(form.fields) >= MAX_FIELDS:
                             raise InvalidForm(f"it has more than {MAX_FIELDS} fields")
-                    elif len(form.files) >= MAX_FILES:
+                    elif len(form.files) + unfilled >= MAX_FILES:
                         raise InvalidForm(f"it has more than {MAX_FILES} files")
+                    elif not event.filename:
+                        # A file input nobody filled in: counted, read past, never staged.
+                        unfilled, skipping = unfilled + 1, True
                     else:
                         receiving = _Receiving(name, event.filename, stage)
                 elif event.kind == "data":
+                    if skipping:
+                        continue
                     if receiving is not None:
                         await receiving.add(event.data)
                     else:
                         value += event.data
                         if len(value) > FIELD_LIMIT:
                             raise InvalidForm(f"{name} is longer than {FIELD_LIMIT} bytes")
+                elif skipping:
+                    skipping = False
                 elif receiving is not None:
                     uploaded, receiving = await receiving.done(), None
-                    if uploaded.filename:
-                        form.files.append(uploaded)
-                    else:
-                        await discard(uploaded.staged)
+                    form.files.append(uploaded)
                 else:
                     try:
                         form.fields[name] = value.decode("utf-8")

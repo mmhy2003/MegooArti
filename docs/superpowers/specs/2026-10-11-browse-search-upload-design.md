@@ -154,12 +154,15 @@ Settled while planning:
 
 - **The POM has a part of its own.** The first draft named it `file.pom`, which reads as a classifier everywhere else. A part named `pom` is the POM whatever its file is called (`pom.xml`).
 - **A POM is written only for a version that has none**, so adding a classifier to a version that exists does not try to replace its POM.
-- **Snapshots are taken** by a repository whose version policy allows them, under the plain name (`app-1.0-SNAPSHOT.jar`). The metadata already ranks such a file below every timestamped build.
+- **A snapshot is not uploaded.** The plan first took one under its plain name (`app-1.0-SNAPSHOT.jar`). The review showed what that costs: the metadata ranks such a file below every timestamped build, so beside a deployed build it is stored and given to nobody. A build deploys snapshots.
 - **A field the format does not know is refused** (`422`), so a misspelt one is not ignored. So is a part named `file` that was sent as text.
-- **An npm tarball is read into memory** to find its `package.json`, under the limit and the turn-taking of a publish. No more than 256 MiB is decompressed looking for it. A package marked `private` is refused, as `npm publish` refuses it.
+- **An npm tarball is read into memory** to find its `package.json`, under the limit and the turn-taking of a publish. The archive is walked header by header by code of its own, which keeps nothing of the members it passes: no more than 256 MiB is decompressed, 100,000 members passed and 1 MiB of any extended header read. A package marked `private` is refused, as `npm publish` refuses it.
 - **A PyPI source distribution's name** is divided at its last hyphen (PEP 625). A version with a hyphen in it would be read as part of the name.
+- **A PyPI upload leaves standing what it does not say.** twine repeats a release's summary and keywords with every file; a form mostly says neither, and does not erase them.
+- **A refused form leaves nothing in the blob store.** Each file is put in place as it is stored, so after a refusal the route removes those that no record refers to.
+- **A file input nobody filled in** counts towards the 100 files of a form, and is never written anywhere.
 - **An offline repository takes uploads**, as it can be browsed and deleted from: being offline stops package clients.
-- **Usage is offered only for plain names.** A snippet is pasted into a shell or a build file, and a name is chosen by whoever deployed the component, or by a remote. A component whose name or version holds anything but letters, digits and `. _ + ~ / -` gets none.
+- **Usage is offered only for plain names.** A snippet is pasted into a shell or a build file, and a name is chosen by whoever deployed the component, or by a remote. A component whose name or version holds anything but letters, digits and `. _ + ~ / -`, or begins with anything but a letter, a digit or `_` (a hyphen would be read as an option), gets none.
 - **A Maven snippet names the kind** (`<type>`, `@war`) when the artifact is not a jar.
 - **A Maven upload refuses a checksum file** (`.sha1`, `.md5`, `.sha256`, `.sha512`). Stored, it would sit where the checksum of another file is asked for and never be served.
 - **The API document describes the form** as `multipart/form-data`, since the route reads the body itself.
@@ -170,7 +173,7 @@ Settled while planning:
 | --- | --- |
 | Maven | A `<dependency>` for Maven; a line for Gradle (Kotlin and Groovy) |
 | npm | `npm install <name>@<version> --registry=<address>` |
-| PyPI | `pip install --index-url <address>/simple/ <name>==<version>` |
+| PyPI | `pip install --index-url <address>simple/ <name>==<version>` (the address ends in a slash) |
 | Docker | `docker pull <host>/<repository>/<image>:<tag>` |
 | Raw | None: a file has its `download` address |
 

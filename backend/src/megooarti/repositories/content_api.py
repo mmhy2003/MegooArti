@@ -500,6 +500,13 @@ async def upload(
                 files.append(_asset_view(found, handler, detail, base))
         components = {file.component.id: file.component for file in files if file.component}
         await db.commit()
+    except BaseException:
+        # Each file was put in place in the blob store as it was stored. The rows that
+        # knew of them are not kept, so the files must not be either.
+        await db.rollback()
+        await context.forget([file.staged for file in form.files])
+        await db.commit()
+        raise
     finally:
         # What was stored is no longer staged, and giving it back does nothing.
         for file in form.files:
