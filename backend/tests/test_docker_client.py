@@ -475,7 +475,9 @@ def test_an_image_for_several_platforms_is_copied_in_and_out(accounts, tmp_path)
     work = tmp_path / "skopeo"
     work.mkdir()
     index, blobs = write_layout(work / "layout", "multi")
-    there = f"docker://backend:8000/{HOSTED}/megooarti-test/multi:1.0"
+    # With its port: a first part without a dot or a port is read as a name at Docker
+    # Hub, not as a registry.
+    there = f"docker://gateway:80/{HOSTED}/megooarti-test/multi:1.0"
     creds = f"{USERNAME}:{PASSWORD}"
 
     copied = skopeo(

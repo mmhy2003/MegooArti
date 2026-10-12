@@ -194,6 +194,8 @@ describe("changing a password", () => {
       const field = screen.getByLabelText(label);
       expect(field).toHaveAttribute("aria-invalid", "true");
       expect(field).toHaveAccessibleDescription(expect.stringContaining(words));
+      // The keyboard goes to what is wrong, so a screen reader reads the field and why.
+      await waitFor(() => expect(field).toHaveFocus());
       expect(calls).toHaveLength(0);
     },
   );
@@ -213,6 +215,7 @@ describe("changing a password", () => {
         "The current password is not correct.",
       ),
     );
+    await waitFor(() => expect(screen.getByLabelText("Current password")).toHaveFocus());
     expect(screen.queryByText("Your password is changed.")).toBeNull();
   });
 

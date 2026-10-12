@@ -30,8 +30,9 @@ describe("the content security policy", () => {
     expect(policy["font-src"]).toEqual(["'self'"]);
     expect(policy["img-src"]).toEqual(["'self'", "data:"]);
     expect(policy["frame-ancestors"]).toEqual(["'none'"]);
+    expect(policy["frame-src"]).toEqual(["'none'"]);
     expect(policy["object-src"]).toEqual(["'none'"]);
-    expect(policy["base-uri"]).toEqual(["'self'"]);
+    expect(policy["base-uri"]).toEqual(["'none'"]);
     expect(policy["form-action"]).toEqual(["'self'"]);
     expect(contentSecurityPolicy("abc123", false)).not.toMatch(/https?:|\*/);
   });

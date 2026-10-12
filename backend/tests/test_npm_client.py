@@ -37,7 +37,7 @@ TAKEN = "is-odd"
 
 def inside(repository: str) -> str:
     """A repository's address as a container on the Compose network writes it in .npmrc."""
-    return f"backend:8000/repository/{repository}/"
+    return f"gateway/repository/{repository}/"
 
 
 def package(name: str, version: str, **fields) -> dict[str, str]:

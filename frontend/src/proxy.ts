@@ -21,8 +21,9 @@ export function contentSecurityPolicy(nonce: string, development: boolean): stri
     "img-src 'self' data:",
     "font-src 'self'",
     "connect-src 'self'",
+    "frame-src 'none'",
     "object-src 'none'",
-    "base-uri 'self'",
+    "base-uri 'none'",
     "form-action 'self'",
     "frame-ancestors 'none'",
   ].join("; ");

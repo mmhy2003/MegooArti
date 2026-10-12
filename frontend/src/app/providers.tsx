@@ -1,42 +1,21 @@
 "use client";
 
-import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { setNonce } from "get-nonce";
 import { NextIntlClientProvider } from "next-intl";
 import type { ReactNode } from "react";
 
 import { ThemeProvider } from "@/components/theme-provider";
-import { isApiError } from "@/lib/api/client";
-import { SESSION_KEY, sessionMayHaveChanged } from "@/lib/session/session";
+import { createQueryClient } from "@/lib/query";
 
 import messages from "../../messages/en.json";
-
-function createClient(): QueryClient {
-  // A refused request may mean the session has ended. The session is then asked for
-  // again, and what is shown follows from its answer.
-  const onError = (error: unknown) => {
-    if (sessionMayHaveChanged(error)) void client.invalidateQueries({ queryKey: SESSION_KEY });
-  };
-  const client: QueryClient = new QueryClient({
-    queryCache: new QueryCache({ onError }),
-    mutationCache: new MutationCache({ onError }),
-    defaultOptions: {
-      queries: {
-        // What the server refuses, it refuses again. What did not arrive is tried once more.
-        retry: (failures, error) => failures < 1 && !(isApiError(error) && error.status > 0),
-        refetchOnWindowFocus: false,
-      },
-    },
-  });
-  return client;
-}
 
 let browserClient: QueryClient | undefined;
 
 function getClient(): QueryClient {
   // On the server each request has its own. In the browser there is one for the page.
-  if (typeof window === "undefined") return createClient();
-  browserClient ??= createClient();
+  if (typeof window === "undefined") return createQueryClient();
+  browserClient ??= createQueryClient();
   return browserClient;
 }
 

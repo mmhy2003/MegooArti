@@ -100,3 +100,20 @@ def test_the_ui_in_a_real_browser(stack):
     passed = re.search(r"(\d+) passed", result.stdout)
     assert passed is not None and int(passed[1]) >= 17, said
     assert not re.search(r"\d+ (failed|skipped|did not run)", result.stdout), said
+
+
+def test_a_client_cannot_say_which_address_it_comes_from(stack):
+    """The sign-in limit is counted by address, and the log names it: neither may be forged."""
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{HTTP_PORT}/api/v1/auth/login",
+        method="POST",
+        data=b'{"username": "nobody-at-all", "password": "wrong"}',
+        headers={"Content-Type": "application/json", "X-Forwarded-For": "203.0.113.77"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        urllib.request.urlopen(request, timeout=30)
+
+    logged = compose("logs", "--no-color", "backend").stdout
+    assert refused.value.code == 401
+    assert "login_failed" in logged
+    assert "203.0.113.77" not in logged

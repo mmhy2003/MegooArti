@@ -86,7 +86,7 @@ export function AppShell({
       >
         {t("skipToContent")}
       </a>
-      <header className="border-b border-line-strong bg-panel">
+      <header className="relative border-b border-line-strong bg-panel">
         <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-4 px-4 lg:gap-8">
           <AppLink href="/" className="shrink-0 rounded-sm">
             <Wordmark />

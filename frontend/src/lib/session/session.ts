@@ -91,11 +91,17 @@ export function useChangePassword() {
 }
 
 /**
- * For a request the server refused: `401` means the session has ended, and a
- * password that must be changed means the session says so now. Either way the session
- * is asked for again, and what is shown follows from it.
+ * For a request the server refused: `401` means the session has ended, a password
+ * that must be changed means the session says so now, and a CSRF token that is wrong
+ * means the session is another one than this page knows (signed out and in again in
+ * another tab). In each case the session is asked for again: what is shown follows
+ * from it, and its token is the one to send from then on.
  */
 export function sessionMayHaveChanged(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
-  return error.status === 401 || error.code === "password_change_required";
+  return (
+    error.status === 401 ||
+    error.code === "password_change_required" ||
+    error.code === "csrf_failed"
+  );
 }

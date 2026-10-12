@@ -36,6 +36,20 @@
 | P18 | The browser tests are Playwright tests in `frontend/e2e/`, started by a `docker`-marked pytest test that passes the stack's address (at `localhost`) and the generated administrator password. | D16. One command runs every real-client test. |
 | P19 | Install scripts of dependencies are not run (`allowBuilds` in `pnpm-workspace.yaml`, all `false`). | None is needed, and pnpm 12 refuses to install otherwise. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as first written. The branch differs from them as follows.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| P20 | `returnPath` resolves what it is given against an origin of its own and requires that origin back, and refuses a control character or a backslash. It returns the address as a browser would write it. | The review signed in at `/login?next=/%09/evil.example/phish` and landed on that site: a browser drops a tab from an address, so the text passed a check for `//`. |
+| P21 | The mode is applied from storage and the system, read in the layout effect, and not from the provider's own state. The head's script asks the system when storage cannot be read. | While the page hydrated, the server's guess (dark) was applied over what the head had set: the review recorded dark painted for a moment in six loads of eight with a light system. |
+| P22 | The gateway sets `X-Forwarded-For` to the address it sees (`$remote_addr`). | With `$proxy_add_x_forwarded_for` the review sent a header and the backend counted and logged failed sign-ins under the address in it. |
+| P23 | The query client is made by `createQueryClient` in `src/lib/query.ts`, used by the application and by the tests. A refusal of the session's own request does not ask for the session again; `csrf_failed` does, like a `401`. | A `401` for the session request made 805 requests in five seconds. A session replaced in another tab made every later change fail with nothing said. The file that held this was imported by no test. |
+| P24 | A sign-out that fails is said under the header, with a way to try again. | The review signed out in a tab whose session had been replaced: nothing happened and nothing was said, on what may be a shared machine. It reverses the ledger's ruling that this waits for plan 10. |
+| P25 | The package clients of the real-client tests address the gateway (`http://gateway/...`), not the backend. | D17 said the gateway was proven by the clients; they were still talking to the backend directly. |
+| P26 | A form moves the keyboard to its first field that is wrong. | The error appeared and was not announced (WCAG 4.1.3). |
+| P27 | Each route names its page with Next.js's own metadata (`title` in the route's `page.tsx`, and a template in the layout): "Repositories · MegooArti". | Every page was titled "MegooArti" (WCAG 2.4.2). The reviewer graded it minor; it is a level A criterion and UI-6 is a must. A title set by the screen itself was written over by Next.js at the next navigation, which the browser test showed. |
+| P28 | The policy has `frame-src 'none'` and `base-uri 'none'`. | The spec's section 9 says no frames and no base. |
+
 ## Global Constraints
 
 - **A colour is written in `src/styles/tokens.css` and nowhere else.** Components use the utilities of `globals.css`.

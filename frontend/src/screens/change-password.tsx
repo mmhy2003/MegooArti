@@ -2,7 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,13 @@ export function ChangePasswordScreen() {
   const [next, setNext] = useState("");
   const [repeat, setRepeat] = useState("");
   const [problems, setProblems] = useState<Problems>({});
+  const form = useRef<HTMLFormElement>(null);
+
+  // The keyboard goes to the first field that is wrong. A screen reader then reads the
+  // field and, with it, what is wrong: an error that only appears is not heard.
+  useEffect(() => {
+    form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [problems]);
   // Asked once, when the screen opens: after the change it is no longer true, and the
   // gate has by then gone on to another screen.
   const [forced] = useState(session.data?.must_change_password ?? false);
@@ -83,7 +90,7 @@ export function ChangePasswordScreen() {
         </Alert>
       ) : null}
       <Panel className="p-6">
-        <form onSubmit={submit} className="flex flex-col gap-5" noValidate>
+        <form ref={form} onSubmit={submit} className="flex flex-col gap-5" noValidate>
           <TextField
             label={t("current")}
             name="current-password"

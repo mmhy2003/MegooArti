@@ -43,9 +43,10 @@ export function applyMode(mode: Mode): void {
  * Runs in the page's head, before anything is painted, so the wrong mode is never
  * shown (UI-10). It is the same decision as `resolve(storedChoice(), ...)`, written
  * out because it runs before any module is loaded. A test holds the two together.
+ * Only reading storage may fail (a browser can forbid it): the system is then asked.
  */
-export const THEME_SCRIPT = `(function(){try{var c=localStorage.getItem(${JSON.stringify(
+export const THEME_SCRIPT = `(function(){var c=null;try{c=localStorage.getItem(${JSON.stringify(
   STORAGE_KEY,
-)});var d=c==="dark"||(c!=="light"&&matchMedia(${JSON.stringify(
+)})}catch(e){}var d=c==="dark"||(c!=="light"&&matchMedia(${JSON.stringify(
   DARK_QUERY,
-)}).matches);document.documentElement.setAttribute("data-theme",d?"dark":"light")}catch(e){}})()`;
+)}).matches);document.documentElement.setAttribute("data-theme",d?"dark":"light")})()`;

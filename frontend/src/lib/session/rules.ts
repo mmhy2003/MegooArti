@@ -27,16 +27,37 @@ export function allows(session: SessionInfo, permission: string): boolean {
   return anyGrants(session.permissions, permission);
 }
 
+// An origin that is nobody's, to read an address against.
+const NOWHERE = "http://ui.invalid";
+
+/** A tab, a line break or any other control character. */
+function hasControl(text: string): boolean {
+  return Array.from(text).some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || code === 0x7f;
+  });
+}
+
 /**
  * Where to go after signing in: the screen that was asked for, if it is one of ours.
  * Anything else, such as another site's address, is the home screen.
+ *
+ * It is read as a browser reads it, and not by looking at its text: a browser drops a
+ * tab or a line break from an address and takes a backslash for a slash, so
+ * `/<tab>/evil.example` is `//evil.example`, which is another site.
  */
 export function returnPath(wanted: string | null | undefined): string {
-  if (!wanted || !wanted.startsWith("/") || wanted.startsWith("//") || wanted.includes("\\")) {
+  if (!wanted || !wanted.startsWith("/") || wanted.includes("\\") || hasControl(wanted)) {
     return HOME;
   }
-  if (wanted === SIGN_IN || wanted.startsWith(`${SIGN_IN}?`)) return HOME;
-  return wanted;
+  let address: URL;
+  try {
+    address = new URL(wanted, NOWHERE);
+  } catch {
+    return HOME;
+  }
+  if (address.origin !== NOWHERE || address.pathname === SIGN_IN) return HOME;
+  return `${address.pathname}${address.search}${address.hash}`;
 }
 
 function signInFor(path: string): string {

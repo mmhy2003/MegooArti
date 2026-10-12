@@ -1,10 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { render, type RenderResult } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { ReactElement } from "react";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import type { SessionInfo } from "@/lib/api/types";
+import { createQueryClient } from "@/lib/query";
 import { SESSION_KEY } from "@/lib/session/session";
 
 import messages from "../../messages/en.json";
@@ -48,9 +49,9 @@ export type Rendered = RenderResult & { client: QueryClient };
  * With `session`, the session is already known, as it is once the shell has asked.
  */
 export function renderUi(ui: ReactElement, options: { session?: SessionInfo } = {}): Rendered {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  // The UI's own store, with its rule for a session that changed. Only a second try of
+  // what did not arrive is left out: a test says what arrives.
+  const client = createQueryClient({ retry: false });
   if (options.session) client.setQueryData(SESSION_KEY, options.session);
   const result = render(
     <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">

@@ -23,7 +23,8 @@ services:
     build: ./backend
     environment:
       MEGOOARTI_DATABASE_URL: postgresql://megooarti:megooarti@db:5432/megooarti
-      # Only the gateway can reach this container, so what it says of the client is taken.
+      # This container is not published: requests from outside come through the
+      # gateway, which says who is calling and overwrites what a client says of itself.
       MEGOOARTI_FORWARDED_ALLOW_IPS: "*"
       MEGOOARTI_SESSION_COOKIE_SECURE: ${MEGOOARTI_SESSION_COOKIE_SECURE:-true}
     depends_on:

@@ -1,6 +1,7 @@
 {
   "app": {
     "name": "MegooArti",
+    "title": "{screen} · MegooArti",
     "tagline": "Repository and artifact manager",
     "skipToContent": "Skip to the content",
     "loading": "Loading",
@@ -29,6 +30,7 @@
     "signedInAs": "Signed in as",
     "changePassword": "Change password",
     "signOut": "Sign out",
+    "signOutFailed": "You are still signed in",
     "signIn": "Sign in"
   },
   "signIn": {

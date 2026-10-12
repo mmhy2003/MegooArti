@@ -69,6 +69,7 @@ test("a visitor who is not signed in is asked to sign in", async () => {
 
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(page).toHaveTitle("Sign in · MegooArti");
   await expect(page.getByLabel("User name")).toBeFocused();
 
   const policy = response?.headers()["content-security-policy"] ?? "";
@@ -92,6 +93,43 @@ test("the mode is set by the page's head, before any of the UI's code has run", 
 
     expect(await fresh.evaluate(() => document.documentElement.dataset.theme)).toBe(system);
     await bare.close();
+  }
+});
+
+test("what the head set is not undone while the page starts", async ({ browser, baseURL }) => {
+  // Every value `data-theme` takes through a whole load, the UI's own code included.
+  const watch = () => {
+    const seen: string[] = [];
+    Object.assign(window, { seenModes: seen });
+    new MutationObserver(() => {
+      seen.push(document.documentElement.dataset.theme ?? "");
+    }).observe(document, { attributes: true, subtree: true, attributeFilter: ["data-theme"] });
+  };
+  const cases = [
+    { system: "light", stored: null },
+    { system: "dark", stored: "light" },
+  ] as const;
+  for (const { system, stored } of cases) {
+    const fresh = await browser.newContext({ baseURL, colorScheme: system });
+    const visitor = await fresh.newPage();
+    await visitor.addInitScript(watch);
+    if (stored !== null) {
+      await visitor.addInitScript(
+        (choice) => localStorage.setItem("megooarti-theme", choice),
+        stored,
+      );
+    }
+    await visitor.goto("/login");
+    await expect(visitor.getByLabel("User name")).toBeFocused(); // the page is alive
+    await visitor.waitForTimeout(500);
+
+    // Set once, to light, by the head: never dark again, not for a moment.
+    const seen = await visitor.evaluate(
+      () => (window as unknown as { seenModes: string[] }).seenModes,
+    );
+    expect(seen.filter((mode) => mode !== "light")).toEqual([]);
+    expect(seen.length).toBeGreaterThan(0);
+    await fresh.close();
   }
 });
 
@@ -121,6 +159,7 @@ test("the first sign-in is done by keyboard alone, and leads to choosing a passw
   await expect(
     page.getByRole("heading", { level: 1, name: "Choose a new password" }),
   ).toBeVisible();
+  await expect(page).toHaveTitle("Change password · MegooArti");
   // Nothing else can be reached until it is done.
   await expect(page.getByRole("navigation")).toHaveCount(0);
   await page.goto("/");
@@ -141,6 +180,8 @@ test("a password that is too short is refused at its field, without asking the s
     "aria-invalid",
     "true",
   );
+  // The keyboard is at what is wrong, where a screen reader reads the field and why.
+  await expect(page.getByLabel("New password", { exact: true })).toBeFocused();
   await expect(page.getByText("The password must be at least 8 characters long.")).toBeVisible();
 });
 
@@ -151,6 +192,7 @@ test("choosing a password leads on to the repositories, of which there are none 
 
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+  await expect(page).toHaveTitle("Repositories · MegooArti");
   await expect(page.getByRole("heading", { name: "No repositories" })).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Repositories" }),
@@ -231,6 +273,7 @@ test("an address with nothing at it says so", async () => {
   const response = await page.goto("/no/such/screen");
 
   expect(response?.status()).toBe(404);
+  await expect(page).toHaveTitle("There is nothing at this address · MegooArti");
   await expect(
     page.getByRole("heading", { name: "There is nothing at this address" }),
   ).toBeVisible();
@@ -263,6 +306,18 @@ test("the sign-in screen cannot be made to send its visitor to another site", as
 
   await expect(page.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/");
+
+  // Signed in, the sign-in screen goes on by itself. A browser drops a tab or a line
+  // break from an address, so each of these is `//evil.example`: another site.
+  for (const next of [
+    "%2F%09%2Fevil.example%2F",
+    "%2F%0A%2Fevil.example%2F",
+    "%2F%0D%2Fevil.example",
+  ]) {
+    await page.goto(`/login?next=${next}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+    expect(page.url()).toBe(new URL("/", page.url()).toString());
+  }
 });
 
 test("through all of it, nothing was asked of another host, and the browser had no complaint", async ({
@@ -279,5 +334,8 @@ test("through all of it, nothing was asked of another host, and the browser had 
   // refused (401) and the address that had nothing at it (404). Anything else, such as
   // something the content security policy stopped, fails this.
   const unexpected = complaints.filter((text) => !/status of 40[14]/.test(text));
+  // In particular not of the site the return paths named. (Its name is in the query of
+  // addresses that were asked for, which is as far as it got.)
+  expect(requested.filter((address) => new URL(address).hostname.includes("evil"))).toEqual([]);
   expect(unexpected).toEqual([]);
 });

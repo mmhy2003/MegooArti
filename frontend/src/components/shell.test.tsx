@@ -1,7 +1,10 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
+import { useQuery } from "@tanstack/react-query";
+
+import { api, setCsrfToken } from "@/lib/api/client";
 import type { SessionInfo } from "@/lib/api/types";
 import { leaveTo } from "@/lib/browser";
 import { STORAGE_KEY } from "@/lib/theme";
@@ -119,7 +122,7 @@ describe("the user menu", () => {
     expect(client.getQueryData(["content", "repositories"])).toBeUndefined();
   });
 
-  test("stays signed in, and says nothing false, when signing out failed", async () => {
+  test("says so when signing out failed: nobody should think they are signed out", async () => {
     const user = userEvent.setup();
     mockApi({ "POST /auth/logout": "network-failure" });
     const { client } = renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
@@ -127,9 +130,41 @@ describe("the user menu", () => {
     await user.click(screen.getByRole("button", { name: "Account of Ada Admin" }));
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
-    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You are still signed in");
+    expect(alert).toHaveTextContent("The server could not be reached.");
     expect(leaveTo).not.toHaveBeenCalled();
     expect(client.getQueryData(["session"])).toEqual(ADMIN);
+  });
+
+  test("signs out at the second try when the session was replaced in another tab", async () => {
+    const user = userEvent.setup();
+    // The token this page holds is that of a session that is gone. Asking for the
+    // session again brings the new one's.
+    const renewed = { ...ADMIN, csrf_token: "token-of-the-new-session" };
+    const { calls } = mockApi({
+      "GET /auth/session": { json: renewed },
+      "POST /auth/logout": (call) =>
+        call.headers["X-CSRF-Token"] === "token-of-the-new-session"
+          ? { status: 204 }
+          : failure(403, "csrf_failed", "The CSRF token is missing or wrong."),
+    });
+    renderUi(
+      <SessionGate shell>
+        <p>The screen</p>
+      </SessionGate>,
+      { session: ADMIN },
+    );
+    setCsrfToken("token-of-the-old-session");
+
+    await user.click(screen.getByRole("button", { name: "Account of Ada Admin" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You are still signed in");
+    await waitFor(() => expect(calls.some((call) => call.path === "/auth/session")).toBe(true));
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(leaveTo).toHaveBeenCalledWith("/"));
   });
 
   test("is a way to sign in for a visitor", () => {
@@ -288,5 +323,77 @@ describe("the gate before every screen", () => {
     await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
     const signOut = calls.find((call) => call.method === "POST");
     expect(signOut?.headers["X-CSRF-Token"]).toBe("csrf-of-this-session");
+  });
+});
+
+describe("a session that changed under the page", () => {
+  /** A screen that asks the API for something, as every screen of plan 10 will. */
+  function Asking() {
+    const things = useQuery({ queryKey: ["things"], queryFn: () => api.get("/things") });
+    return <p>{things.isError ? "Refused" : "The screen"}</p>;
+  }
+
+  const gated = (
+    <SessionGate shell>
+      <Asking />
+    </SessionGate>
+  );
+
+  test("a request refused with 401 means it ended: the visitor is asked to sign in again", async () => {
+    let ended = false;
+    mockApi({
+      "GET /auth/session": () => ({ json: ended ? NOBODY : ADMIN }),
+      "GET /things": () => {
+        ended = true;
+        return failure(401, "unauthorized", "Authentication is required.");
+      },
+    });
+    navigation.at("/things");
+    renderUi(gated);
+
+    await waitFor(() =>
+      expect(navigation.router.replace).toHaveBeenCalledWith("/login?next=%2Fthings"),
+    );
+  });
+
+  test("a request refused because the password must be changed leads there", async () => {
+    let told = false;
+    mockApi({
+      "GET /auth/session": () => ({ json: { ...ADMIN, must_change_password: told } }),
+      "GET /things": () => {
+        told = true;
+        return failure(403, "password_change_required", "Change your password first.");
+      },
+    });
+    renderUi(gated);
+
+    await waitFor(() =>
+      expect(navigation.router.replace).toHaveBeenCalledWith("/account/password"),
+    );
+  });
+
+  test("a refusal that says nothing of the session leaves it alone", async () => {
+    const { calls } = mockApi({
+      "GET /auth/session": { json: ADMIN },
+      "GET /things": failure(403, "forbidden", "You do not have permission to do this."),
+    });
+    renderUi(gated);
+
+    expect(await screen.findByText("Refused")).toBeVisible();
+    expect(calls.filter((call) => call.path === "/auth/session")).toHaveLength(1);
+    expect(navigation.router.replace).not.toHaveBeenCalled();
+  });
+
+  test("a 401 for the session itself is said once, and not asked for again and again", async () => {
+    // What a proxy with a sign-in of its own answers, once its own session has ended.
+    const { calls } = mockApi({
+      "GET /auth/session": failure(401, "unauthorized", "Sign in at the proxy."),
+    });
+    renderUi(gated);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("You are not signed in");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(calls).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
   });
 });

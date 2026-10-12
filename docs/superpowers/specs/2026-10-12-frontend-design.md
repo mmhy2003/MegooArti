@@ -54,7 +54,7 @@ One design, delivered as two plans.
 | D14 | The API's types are generated from the backend's OpenAPI document. A copy of that document is in the repository, and a backend test fails when it is out of date. | API-2. The UI and the API cannot drift apart unnoticed. |
 | D15 | An error from the API is shown with its message, its code and the request's ID. | UI-5, NFR-14. Whoever reports a fault can say which request it was. |
 | D16 | Unit and component tests run with Vitest and Testing Library. Tests in a real browser (Playwright) run against the Compose stack, through the gateway, as part of the `docker` suite, in both modes, with an accessibility scan and a check that no request leaves the origin. | NFR-17, UI-6, UI-11, UI-14. Contrast and focus are only real in a browser. |
-| D17 | In Compose the backend is no longer published. The existing real-client tests reach it through the gateway. | The gateway's rules are then proven by Maven, npm, pip and Docker themselves, and are the rules an operator copies. |
+| D17 | In Compose the backend is no longer published. The real-client tests reach it through the gateway: the package clients in their containers too, which address the gateway by its name. | The gateway's rules are then proven by Maven, npm, pip and Docker themselves, and are the rules an operator copies. |
 
 ## 4. Structure
 
@@ -121,7 +121,7 @@ Plan 9 registers one item, the home screen. Plan 10 registers the rest.
 2. Signed in, and the password must be changed: the change-password screen, and nothing else.
 3. Signed in: the screen that was asked for.
 4. Not signed in, anonymous access on (the answer has a `method`): the browsing area.
-5. Not signed in otherwise: the sign-in screen, which returns to the screen that was asked for. Only a path within the UI is returned to.
+5. Not signed in otherwise: the sign-in screen, which returns to the screen that was asked for. Only an address within the UI is returned to. It is read as a browser reads it, against the UI's own origin: its text alone does not say where it leads, since a browser drops a tab or a line break and takes a backslash for a slash.
 
 Signing in posts the name and password, keeps the CSRF token, and fills the session from the answer. If the answer is a success and the session then says nobody is signed in, the browser did not keep the cookie, and the screen says why: the cookie is `Secure`, and the address is plain HTTP on a host that is not `localhost`.
 
@@ -140,12 +140,14 @@ everything else -> frontend
 
 Towards the backend the gateway must: pass the request path exactly as it was sent (an npm scope is an encoded slash); put no limit on the size of a body; pass a body on as it arrives and an answer as it is produced, without buffering either; wait as long as a proxy repository may need for its remote; and send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`. The backend trusts those headers only from addresses named in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
 
+The gateway writes `X-Forwarded-For` itself, from the address it sees, and does not pass on what a client sent: the backend counts failed sign-ins by that address.
+
 ## 9. Security
 
 - **Content security policy:** `default-src 'self'`; scripts only with the request's nonce; styles from the origin, with the nonce, or as attributes (Radix positions menus with them); images from the origin and `data:`; fonts and connections from the origin only; no frames, no objects, no base, forms to the origin only.
 - **Other headers:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`, and a `Permissions-Policy` that grants nothing.
 - **What a repository holds is text:** a name, a path or a description is never put into the page as markup.
-- **The return path after sign-in** must begin with one `/` and no second one, or the home screen is used.
+- **The return path after sign-in** must resolve, as a browser resolves it, to an address of the UI's own origin, and hold no control character or backslash. Otherwise the home screen is used.
 - **The frontend container** runs as a user that is not root and has no secret in its environment.
 
 ## 10. Testing
@@ -179,7 +181,17 @@ Towards the backend the gateway must: pass the request path exactly as it was se
 - **A table scrolls inside its panel.** Text hidden from sight inside a cell is placed absolutely, and widened the page on a narrow screen until the table's own box contained it. The browser test for a 375-pixel screen found it.
 - **The gateway is nginx**, with the routing rules in `gateway/nginx.conf`. `/v2` without its slash is not the registry: every client asks for `/v2/`.
 - **The browser tests run at `localhost`**, because a browser keeps a `Secure` cookie over plain HTTP only there.
-- **Not in plan 9:** a failed sign-out is not reported on the screen (it needs the notifications plan 10 brings), and the home screen shows the first 200 repositories and says how many there are.
+- **Not in plan 9:** the home screen shows the first 200 repositories and says how many there are.
+
+Changed after the whole-branch review:
+
+- **The return path is resolved, not pattern-matched.** `/<tab>/evil.example` passed a check of its text and led to another site.
+- **The mode is applied from storage and the system, never from what the server guessed.** While the page hydrated, the server's dark was applied for a moment over what the head's script had set. The head's script now also asks the system when storage cannot be read.
+- **A refusal for a wrong CSRF token is treated as a session that changed**, like a `401`: the session is asked for again, which brings its token. A `401` for the session's own request is shown, and not asked for again without end.
+- **A sign-out that fails says so**, under the header, with a way to try again.
+- **The gateway writes the client's address itself.** With `$proxy_add_x_forwarded_for` a client could choose the address the backend counts failed sign-ins by.
+- **A field that is wrong gets the keyboard**, so that a screen reader reads it and why. **Each screen names the page** ("Repositories · MegooArti").
+- **The policy also forbids frames and a base address**, as section 9 says.
 
 ## 12. The screens of plan 10 (outline)
 

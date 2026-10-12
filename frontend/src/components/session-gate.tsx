@@ -28,7 +28,8 @@ function Gate({ shell, children }: { shell: boolean; children: ReactNode }) {
   const goTo = decision !== null && !decision.show ? decision.goTo : null;
 
   useEffect(() => {
-    // `goTo` is one of our own addresses: `decide` makes it from the rules.
+    // `goTo` is one of our own screens: `decide` gives a constant, or what `returnPath`
+    // has read as a browser would and found to be within this origin.
     if (goTo !== null) router.replace(goTo as Route);
   }, [goTo, router]);
 

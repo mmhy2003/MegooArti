@@ -7,9 +7,10 @@ import "@/styles/globals.css";
 
 import messages from "../../messages/en.json";
 import { Providers } from "./providers";
+import { TITLES } from "./titles";
 
 export const metadata: Metadata = {
-  title: messages.app.name,
+  title: TITLES,
   description: messages.app.tagline,
 };
 

@@ -54,8 +54,9 @@ Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` if another PostgreSQL already uses 5432. The database port is
 published on `127.0.0.1` only. `MEGOOARTI_HTTP_PORT` is the gateway's: the backend and
 the frontend are not published. Compose passes `MEGOOARTI_SESSION_COOKIE_SECURE` on to
-the backend, and sets `MEGOOARTI_FORWARDED_ALLOW_IPS` to `*` there, because only the
-gateway can reach it.
+the backend, and sets `MEGOOARTI_FORWARDED_ALLOW_IPS` to `*` there: requests from
+outside reach it only through the gateway, which writes the client's address itself
+and overwrites whatever a client says of its own.
 
 The frontend container has no configuration. It reads `PORT` (default `3000`) and
 `HOSTNAME` (default `0.0.0.0`), and nothing else: it holds no secret and never calls
@@ -868,9 +869,9 @@ and the repositories you may browse. Browsing, search, upload and administration
 follow.
 
 - **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
-  browser keeps it over HTTPS, and over plain HTTP only at `localhost`. If you reach
-  the UI over plain HTTP at another name or an IP address, signing in will say that
-  the browser did not keep the session: use HTTPS, or set
+  browser keeps it over HTTPS, and over plain HTTP only on the machine itself
+  (`localhost`). If you reach the UI over plain HTTP at another name or address,
+  signing in will say that the browser did not keep the session: use HTTPS, or set
   `MEGOOARTI_SESSION_COOKIE_SECURE=false`.
 - **Anonymous access.** If it is on, a visitor who is not signed in sees what the
   anonymous user may browse, and a "Sign in" button. If it is off, the sign-in screen.
@@ -895,8 +896,8 @@ the right service:
 | everything else | frontend, port 3000 | The web UI |
 
 [gateway/nginx.conf](gateway/nginx.conf) is a complete example: it is what Compose
-runs, and every real-client test of this project passes through it. Towards the
-backend, your proxy must do what it does:
+runs, and the real-client tests of this project (Maven, npm, pip, Docker and a
+browser) pass through it. Towards the backend, your proxy must do what it does:
 
 - **Pass the path on exactly as it was sent.** An npm scope arrives as an encoded
   slash (`@scope%2fname`) and must stay one. In nginx that means `proxy_pass` with no
@@ -907,10 +908,17 @@ backend, your proxy must do what it does:
   (`proxy_buffering off`).
 - **Wait long enough.** A proxy repository may take minutes to fetch a large file
   from its remote before the first byte comes back (`proxy_read_timeout 600s`).
+- **Speak HTTP/1.1 to the backend** (`proxy_http_version 1.1`), so that a body of
+  unknown length can be passed on as it arrives.
 - **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`**, and set
   `MEGOOARTI_FORWARDED_ALLOW_IPS` on the backend to your proxy's address. The backend
   writes the addresses it gives to clients (tarball links, the registry's token
   address) from them, unless the base URL is set in the system settings.
+- **Write `X-Forwarded-For` yourself, from the address you see.** Do not pass on the
+  one a client sent: the backend counts failed sign-ins by that address and writes it
+  to its log, and a client that could choose it could evade the limit or lock out
+  somebody else's address. (`gateway/nginx.conf` sets it to `$remote_addr`. If your
+  proxy is itself behind another one that you trust, pass on what that one says.)
 - **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
   leaves compression to you as well.
 

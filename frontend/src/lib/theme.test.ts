@@ -84,14 +84,17 @@ describe("the script in the page's head", () => {
       throw new DOMException("denied", "SecurityError");
     });
 
+    setSystemMode("light");
+
     expect(runScript).not.toThrow();
-    expect(shown()).toBeNull();
+    // Nothing was chosen that can be read, so the system decides: not the markup's dark.
+    expect(shown()).toBe("light");
     expect(storedChoice()).toBe("system");
     expect(() => storeChoice("dark")).not.toThrow();
   });
 
   test("is one statement that a text cannot break out of", () => {
     expect(THEME_SCRIPT).not.toContain("</");
-    expect(THEME_SCRIPT.startsWith("(function(){try{")).toBe(true);
+    expect(THEME_SCRIPT.startsWith("(function(){")).toBe(true);
   });
 });

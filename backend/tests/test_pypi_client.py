@@ -82,7 +82,7 @@ with tarfile.open(dist / f"{module}-{version}.tar.gz", "w:gz") as sdist:
 
 def inside(repository: str) -> str:
     """A repository's address as a container on the Compose network reaches it."""
-    return f"http://backend:8000/repository/{repository}/"
+    return f"http://gateway/repository/{repository}/"
 
 
 def python(directory: Path, script: str) -> subprocess.CompletedProcess[str]:
@@ -190,8 +190,8 @@ def test_twine_and_uv_publish_and_pip_installs(token, tmp_path):
     work = tmp_path / "pypi"
     work.mkdir()
     (work / "make_dist.py").write_text(MAKE_DIST, encoding="utf-8", newline="\n")
-    index = f"http://{USERNAME}:{PASSWORD}@backend:8000/repository/{HOSTED}/simple/"
-    token_index = f"http://__token__:{token}@backend:8000/repository/{HOSTED}/simple/"
+    index = f"http://{USERNAME}:{PASSWORD}@gateway/repository/{HOSTED}/simple/"
+    token_index = f"http://__token__:{token}@gateway/repository/{HOSTED}/simple/"
 
     # twine uploads a wheel and a source distribution with a user name and a password.
     # A second upload of the same files is refused.
@@ -237,7 +237,7 @@ def test_twine_and_uv_publish_and_pip_installs(token, tmp_path):
     assert page.count("#sha256=") == 4
 
     # pip installs the newest version from an empty cache, then one it is asked for.
-    pip = f"pip install --quiet --index-url {index} --trusted-host backend"
+    pip = f"pip install --quiet --index-url {index} --trusted-host gateway"
     run_it = 'python -c "import megooarti_greeter; print(megooarti_greeter.hello())"'
     installed = python(
         work, f"{pip} {PROJECT_NAME} && {run_it} && {pip} {PROJECT_NAME}==1.0.0 && {run_it}"
@@ -280,7 +280,7 @@ def group_index(token, administrator) -> str:
     for body in (proxy, public):
         status, _, answer = call("POST", "/repositories", body, administrator)
         assert status == 201, answer
-    return f"http://__token__:{token}@backend:8000/repository/{GROUP}/simple/"
+    return f"http://__token__:{token}@gateway/repository/{GROUP}/simple/"
 
 
 def test_pip_uv_and_poetry_install_through_a_group(token, group_index, tmp_path):
@@ -306,7 +306,7 @@ def test_pip_uv_and_poetry_install_through_a_group(token, group_index, tmp_path)
     )
     (work / "published" / "megooarti_poetic.py").write_text("VALUE = 1\n", encoding="utf-8")
     # Every tool is itself installed through the group: many real packages by the proxy.
-    pip = f"pip install --quiet --index-url {group_index} --trusted-host backend"
+    pip = f"pip install --quiet --index-url {group_index} --trusted-host gateway"
     twine = (
         "twine upload --non-interactive --disable-progress-bar"
         f" --repository-url {inside(HOSTED)} -u __token__ -p {token}"
@@ -414,8 +414,8 @@ def test_files_uploaded_through_the_api_are_installed_by_pip(token, tmp_path):
     ]
 
     # pip installs it from an empty cache, by the index's own pages.
-    index = f"http://{USERNAME}:{PASSWORD}@backend:8000/repository/{HOSTED}/simple/"
-    pip = f"pip install --quiet --index-url {index} --trusted-host backend"
+    index = f"http://{USERNAME}:{PASSWORD}@gateway/repository/{HOSTED}/simple/"
+    pip = f"pip install --quiet --index-url {index} --trusted-host gateway"
     run_it = 'python -c "import megooarti_uploaded; print(megooarti_uploaded.hello())"'
     installed = python(work, f"{pip} {name}==1.0.0 && {run_it}")
     assert installed.returncode == 0, said(installed)

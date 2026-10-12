@@ -54,7 +54,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const mode = resolve(choice, dark);
 
   // Before paint, so a change of the system's mode or of the choice never shows late.
-  useLayoutEffect(() => applyMode(mode), [mode]);
+  // What is applied is read here, from storage and the system, not taken from `mode`:
+  // while the page hydrates, `mode` is still the server's guess, and applying that
+  // would undo for a moment what the head's script got right.
+  useLayoutEffect(() => applyMode(resolve(storedChoice(), systemIsDark())), [mode]);
 
   const choose = useCallback((next: ThemeChoice) => {
     storeChoice(next);

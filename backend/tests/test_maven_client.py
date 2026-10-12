@@ -25,8 +25,9 @@ pytestmark = pytest.mark.docker
 IMAGE = "maven:3.9-eclipse-temurin-21"
 NETWORK = f"{PROJECT}_default"
 CACHE = f"{PROJECT}-maven-cache"
-# The backend as a container on the Compose network sees it, and as this test does.
-INSIDE = "http://backend:8000/repository"
+# The installation as a container on the Compose network reaches it, and as this test
+# does: both through the gateway, as every client of a real installation does.
+INSIDE = "http://gateway/repository"
 OUTSIDE = f"http://127.0.0.1:{HTTP_PORT}/repository"
 LIBRARY = "io/megooarti/test/library"
 MAVEN = "mvn --batch-mode --settings settings.xml"

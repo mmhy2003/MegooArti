@@ -69,8 +69,27 @@ describe("where to go after signing in", () => {
     "javascript:alert(1)",
     "/login",
     "/login?next=%2Flogin",
+    // A browser drops a tab and a line break from an address: these are `//evil.example`.
+    "/\t/evil.example/",
+    "/\n/evil.example/",
+    "/\r/evil.example/",
+    "\t//evil.example/",
+    "/\u0000/evil.example",
+    "/\u007f",
   ])("%j is not, and the home screen is used", (wanted) => {
     expect(returnPath(wanted)).toBe("/");
+  });
+
+  test("the address is given back as a browser would write it", () => {
+    expect(returnPath("/search?q=commons lang#top")).toBe("/search?q=commons%20lang#top");
+    expect(returnPath("/a/../search")).toBe("/search");
+    expect(returnPath("/a/../login")).toBe("/"); // not the sign-in screen by another spelling
+  });
+
+  test("the gate goes nowhere else, whatever the sign-in screen was asked to return to", () => {
+    for (const next of ["/\t/evil.example/", "//evil.example", "https://evil.example"]) {
+      expect(decide(ADMIN, "/login", next)).toEqual(goTo("/"));
+    }
   });
 });
 

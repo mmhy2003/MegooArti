@@ -89,7 +89,9 @@ def test_the_gateway_passes_a_path_on_exactly_as_it_was_sent():
         "proxy_buffering off;",
         "proxy_http_version 1.1;",
         "proxy_set_header Host $http_host;",
-        "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        # The client's own address, and nothing the client said of itself: the gateway
+        # is the edge, and the backend takes its word.
+        "proxy_set_header X-Forwarded-For $remote_addr;",
         "proxy_set_header X-Forwarded-Proto $scheme;",
         "proxy_read_timeout 600s;",
     ],
