@@ -15,8 +15,22 @@ ENVIRONMENT = {**os.environ, "MEGOOARTI_HTTP_PORT": HTTP_PORT, "MEGOOARTI_DB_POR
 DATA_FILE = "/var/lib/megooarti/admin.password"
 
 
+class ComposeFailed(RuntimeError):
+    """A Compose command that did not succeed, with what Docker said.
+
+    `subprocess` says only that the exit status was not zero, which is no reason: a
+    build that could not reach a registry and one that could not compile look alike.
+    """
+
+    def __init__(self, arguments: tuple[str, ...], result: subprocess.CompletedProcess[str]):
+        self.returncode, self.stdout, self.stderr = result.returncode, result.stdout, result.stderr
+        said = (result.stderr or result.stdout or "").strip()[-4000:]
+        command = " ".join(arguments)
+        super().__init__(f"docker compose {command} exited with {result.returncode}:\n{said}")
+
+
 def compose(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    result = subprocess.run(
         ["docker", "compose", "--project-name", PROJECT, *arguments],
         cwd=REPOSITORY_ROOT,
         env=ENVIRONMENT,
@@ -24,8 +38,11 @@ def compose(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[
         text=True,
         encoding="utf-8",
         errors="replace",
-        check=check,
+        check=False,
     )
+    if check and result.returncode != 0:
+        raise ComposeFailed(arguments, result)
+    return result
 
 
 def run_in_backend(*arguments: str) -> subprocess.CompletedProcess[str]:

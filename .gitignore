@@ -8,3 +8,4 @@ requirements.txt
 node_modules/
 .next/
 backend/data/
+backend/.test-failures/

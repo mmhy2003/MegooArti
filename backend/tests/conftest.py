@@ -28,8 +28,18 @@ from tests.accounts import PASSWORD, sign_in
 from tests.clients import client_for
 from tests.containers import DATA_FILE, call, compose
 from tests.databases import ensure_database, reset_schema
+from tests.failures import keep_broken_setup
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://megooarti:megooarti@localhost:5432/megooarti_test"
+
+
+# For the tests of the tests' own support code.
+pytest_plugins = ["pytester"]
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Keep what a failed setup said, whatever becomes of the run's own output."""
+    keep_broken_setup(report)
 
 
 def _configured_test_database_url() -> str:
