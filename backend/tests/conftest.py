@@ -209,7 +209,7 @@ async def files(db) -> Repository:
 def stack():
     """The built image and its database, started afresh for each module of container tests."""
     compose("down", "--volumes", check=False)
-    compose("build", "backend")
+    compose("build")
     compose("up", "--detach", "--wait", "--wait-timeout", "180")
     yield
     compose("down", "--volumes", check=False)

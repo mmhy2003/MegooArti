@@ -18,15 +18,17 @@ services:
       timeout: 3s
       retries: 30
 
+  # The API, the repositories and the registry. It is reached through the gateway only.
   backend:
     build: ./backend
     environment:
       MEGOOARTI_DATABASE_URL: postgresql://megooarti:megooarti@db:5432/megooarti
+      # Only the gateway can reach this container, so what it says of the client is taken.
+      MEGOOARTI_FORWARDED_ALLOW_IPS: "*"
+      MEGOOARTI_SESSION_COOKIE_SECURE: ${MEGOOARTI_SESSION_COOKIE_SECURE:-true}
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "${MEGOOARTI_HTTP_PORT:-8000}:8000"
     # Must stay longer than MEGOOARTI_SHUTDOWN_GRACE_SECONDS (default 30), or Docker
     # kills the container while requests are still finishing.
     stop_grace_period: 40s
@@ -42,6 +44,41 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+
+  # The web UI. It holds no data and no secret, and never calls the backend: the
+  # browser does.
+  frontend:
+    build: ./frontend
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # The one published address. For development and testing: in production your own
+  # reverse proxy takes its place, with the rules of gateway/nginx.conf.
+  gateway:
+    image: nginx:stable-alpine
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "${MEGOOARTI_HTTP_PORT:-8000}:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
 volumes:
   db-data:
