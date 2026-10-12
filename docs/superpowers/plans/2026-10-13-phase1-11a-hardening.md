@@ -25,6 +25,16 @@
 | H15 | A setup or a teardown that fails leaves what it said in `backend/.test-failures/` (the newest fifty), and a Compose command that fails says what Docker said (`containers.ComposeFailed`). | H8 was not caught in 25 runs of the security tests. The next time it has a text. The files caught another failure while this plan was built: `docker compose build` failing once for a whole module, of which `subprocess` said only that the exit status was 1. |
 | H16 | The browser tests become 66. The blob store test makes a repository in a store of its own to be refused. | `default` is no longer offered for deletion. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change to the code was made test-first, and the spec's section 4 records what they settle as H17 to H20.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `service._settings` gives a repository its format's policy only when it is made (`current is None`). Replaced without one, it keeps the policy stored, or `service.NO_POLICY` (`allow_redeploy`) where none is stored. `HostedSettings.deployment_policy` has that default again, so a row without a policy is answered and not a 500. `test_replacing_a_repository_without_a_policy_gives_it_its_formats_own` is replaced by `..._keeps_the_one_it_has` (four ways of leaving it out, three repositories). | The review: taking a Maven release repository offline changed what could be deployed to it. |
+| F2 | `ChoiceGroup` tells of a press on the choice that is checked (`onClick`), and `RepositoryForm` shows `manage.hints.policyFollows` under the deployment policy while `draft.deploymentPolicy` is null. | The review: the policy a person had confirmed changed above the field they were at. |
+| F3 | The comment at the refusal of one's own password, the spec's first section and its row H2 say what the refusal is for and what it is not. | The review made the claim untrue with two requests. |
+| F4 | `tests/failures.py`: `keep_broken_setup` answers `None` where the file cannot be written; `say_where(write_line, kept)` is the end-of-run line, called from `pytest_terminal_summary` in `conftest.py`, which keeps the paths of this run. | The review stopped a session with a file in the folder's place. |
+| F5 | `frontend/openapi.json` and `schema.d.ts` were written again: `HostedSettings` is as it was before this plan, and `HostedIn` is what is sent. The README says that a replaced repository keeps its policy, and where a failed setup's text is. | F1, F4. |
+
 ## Global Constraints
 
 - **Nothing that exists is changed by this plan:** no migration. A repository keeps the policy it has, and a repository, a role or a blob store that is called `.` or `..` is still found.

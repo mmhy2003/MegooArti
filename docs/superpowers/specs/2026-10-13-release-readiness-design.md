@@ -13,7 +13,7 @@ Phase 1 is then complete, with the exceptions section 2 names.
 **Success looks like this:**
 
 - An administrator who makes a Maven repository for releases, and changes nothing, cannot have a released version overwritten.
-- Nobody changes a password, their own or another's, without the server knowing they are who the session says.
+- One's own password is changed in one place, and that place asks for the present one.
 - A person can follow one document from an empty machine to a running instance with their own passwords, and another from a backup to the same instance restored, and both are run by a test.
 - Gradle and sbt resolve and publish as Maven does.
 - The licence is in the repository and in the images.
@@ -55,8 +55,8 @@ Each row is something a review found and set aside because it was the server's t
 
 | # | What | Why |
 | --- | --- | --- |
-| H1 | `hosted.deployment_policy` may be left out when a repository is created or replaced. The server then chooses: `disable_redeploy` for a hosted Maven repository whose version policy is `release`, `allow_redeploy` otherwise. A policy that is sent is kept as sent. The form of a new repository shows that default and follows it as format, type and version policy change, until the person chooses a policy themselves. | D3. A released version that can be replaced is a build that cannot be repeated. No migration: an administrator may have chosen "allow redeploy". |
-| H2 | `PUT /users/{id}/password` for one's own account is refused with `409 own_password`. One's own password is changed at `PUT /me/password`, which asks for the present one. | A session left open, or a stolen cookie with its CSRF token, was enough to set a new password and so to keep the account. The UI stopped offering it in plan 10b (A22); the API still took it. |
+| H1 | `hosted.deployment_policy` may be left out. Of a repository that is made, the server then chooses: `disable_redeploy` for a hosted Maven repository whose version policy is `release`, `allow_redeploy` otherwise. Of one that is replaced, the policy it has is kept (H17). A policy that is sent is kept as sent. The form of a new repository shows that default and follows it as format, type and version policy change, until the person chooses a policy themselves. | D3. A released version that can be replaced is a build that cannot be repeated. No migration: an administrator may have chosen "allow redeploy". |
+| H2 | `PUT /users/{id}/password` for one's own account is refused with `409 own_password`. One's own password is changed at `PUT /me/password`, which asks for the present one. | One's own password has one place, and that place asks. The direct way was also how an administrator ended their own session by mistake (A22): the UI stopped offering it in plan 10b, and the API still took it. It is not a wall against a stolen session of an administrator (H19). |
 | H3 | A repository, a role and a blob store cannot be created with the name `.` or `..` (`422` at `name`). Those that exist stay, and are listed without a link (A25). | A browser, a proxy and most clients take them for folders: such a repository cannot be reached at its own address. |
 | H4 | The base URL cannot have a user name or a password in it (`422`), and the form says so before it is sent. | Every address the server gives out is built from it, and would carry them to every client. |
 | H5 | `POST /auth/login` and `POST /auth/logout` refuse a request from another site, as every other request that changes something does (`403 cross_site_request`). | A page on another site could sign a visitor in to an account of its own choosing, and what the visitor then uploaded was the other's. |
@@ -83,6 +83,15 @@ Each row is something a review found and set aside because it was the server's t
 | H14 | In the list of blob stores, `default` has the words "Always kept" where the others have their button. | No button that the server would refuse (UI-2). |
 | H15 | H8 was not caught where it was looked for: 25 runs of the security tests passed. A setup or a teardown that fails now leaves what it said in `backend/.test-failures/` (the newest fifty are kept), whatever becomes of the run's output; and a Compose command that fails says what Docker said, where it said only that the exit status was not zero. | The next time it happens it has a text. While this plan was built the files caught the other failure nobody had read: `docker compose build` failing once for a whole module of client tests, with no reason given. |
 | H16 | The browser tests are 66: a Maven repository made by the form with nothing chosen refuses the second deploy, and the documentation page draws. The blob store test makes a repository in its own store to be refused, since `default` is no longer offered. | Section 4.2. |
+
+### Settled by the review of plan 11a
+
+| # | What | Why |
+| --- | --- | --- |
+| H17 | Replaced without a policy, a repository keeps the one it has. Only a repository that is made is given its format's own. A row stored without a policy is answered as `allow_redeploy`, which is what is enforced for it. | As first built, `PUT {"online": false}` gave a repository its format's default: every Maven repository for releases made before this plan turned to `disable_redeploy` when it was taken offline, and one set to `read_only` turned to `allow_redeploy` (which it also did before this plan). A row with `"hosted": {}` answered 500 for the whole list. |
+| H18 | In the form of a new repository, pressing the policy that is shown makes it the person's choice, and until one is chosen a line under it says that it follows the format and the version policy. | A browser says nothing when the radio that is checked is pressed. A person who pressed "Disable redeploy" to confirm it, and then chose the version policy "Mixed" further down, sent "Allow redeploy" without having seen it change. |
+| H19 | H2 is said for what it is: one place for one's own password, which asks for the present one. Whoever holds an administrator's session can still make a user or an API token without being asked. Asking for the present password before anything that makes or changes a credential is not built: it is the product owner's to decide (section 8). | The spec said that nobody changes a password without the server knowing who they are, and the review made a second administrator through an open session and set the first one's password with it. |
+| H20 | The hook that keeps a failed setup never costs the run: where its folder cannot be written, the failure is in the run's output as before. The end of the run says how many were kept and where, and the README says that the folder exists. | With a file in the folder's place the whole session stopped at the first failed setup. A file nobody knows of is read by nobody. |
 
 ### 4.1 API changes
 
@@ -145,6 +154,8 @@ It stays as it is. A group answers for several repositories, and a build that na
 
 ## 8. Known and left
 
+**Asking again for the present password** before a credential is made or changed (another user's password, a new user, an API token): today an open session of an administrator is enough for each (H19).
+
 From the reviews of plans 10a to 10c, none of which stops a release: page titles that could say more; lists of choices capped where a later page exists; a refusal's text staying after its field is edited; the generated password not announced; a proxy secret's hint that is untrue once the kind of sign-in changes; a proxy's failure state cleared by a save without a word; a notification that covers the buttons under it for some seconds; names that break every few characters at phone width; the settings form's missing heading; `repository-settings.tsx` to be split; the browser tests' complaint filter letting `409` through.
 
 They are listed in the changelog's "Known issues" where a person would meet them.
@@ -155,7 +166,7 @@ They are listed in the changelog's "Known issues" where a person would meet them
 | --- | --- |
 | H1 changes what an existing script gets when it creates a Maven release repository without a policy. | That is the point of D3. The changelog says so; the policy can be sent. |
 | H5 refuses a sign-in the UI makes, in some browser or behind some proxy. | The same check has guarded every other request since plan 3; the browser suite signs in through the gateway, and the unit tests cover a browser that sends `Origin` only. |
-| The vendored Swagger UI ages. | It is two files with their version in a test; replacing them is one command, written in the development guide. |
+| The vendored Swagger UI ages. | It is three files with their version in a test; replacing them is one command, written in the development guide. |
 | The restore test needs the Docker socket and several minutes. | It is marked `docker`, as the other real-client tests are. |
 | Moving the README's content loses something. | Plan 11c's first task lists every heading of the README and where it goes; its last checks that none is left unplaced. |
 

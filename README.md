@@ -152,9 +152,10 @@ In place of a password, use an API token as the password, or send it as
   `delete`. For example `repository:raw:files:read`, or `repository:raw` for everything
   on every Raw repository.
 - **Deployment policy** per hosted repository: `allow_redeploy`, `disable_redeploy`
-  (a path can be written once) or `read_only`. A repository that is given none allows
-  redeploy, except a Maven repository for releases, which refuses it: a release is
-  deployed once.
+  (a path can be written once) or `read_only`. A repository that is made without one
+  allows redeploy, except a Maven repository for releases, which refuses it: a release
+  is deployed once. Replacing a repository's settings without naming a policy keeps
+  the one it has.
 - **A name** is 1 to 64 letters, digits, `.`, `_` or `-`, and not `.` or `..`.
 - **Uploads are verified.** If the client sends `Content-Length`, or an
   `X-Checksum-Md5`, `X-Checksum-Sha1` or `X-Checksum-Sha256` header, the received bytes
@@ -1097,6 +1098,10 @@ uv run python -m megooarti    # serve on http://localhost:8000 using .env
 
 Tests create and use the databases `megooarti_test` and `megooarti_test_migrations`.
 Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server.
+
+A test whose setup fails leaves what it said in `backend/.test-failures/`, one file
+for each, and the end of the run says so. The newest fifty are kept; Git does not see
+the folder.
 
 ### The web UI
 
