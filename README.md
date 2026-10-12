@@ -702,6 +702,16 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
 - **A component** is a package version: a Maven artifact version, an npm package
   version, a PyPI release, a Docker tag. In a Raw repository every file is one.
   `components/<id>` lists its files.
+- **How to use a component** is part of its detail: `usage` is a list of snippets,
+  each with a `label`, the `language` it is written in (`xml`, `kotlin`, `groovy` or
+  `shell`) and the `text` to copy. Maven gets a `<dependency>` and a line for Gradle
+  in Kotlin and in Groovy, npm `npm install <name>@<version> --registry=<address>`,
+  PyPI `pip install --index-url <address>simple/ <name>==<version>`, a Docker tag
+  `docker pull <host>/<repository>/<image>:<tag>`. The address is the repository's
+  public one (the `base_url` setting, if it is set). A Raw file has no snippet: it has
+  its `download` address. Nor has a component whose name or version holds anything
+  but letters, digits and `. _ + ~ / -`: the text is there to be pasted into a shell
+  or a build file, and a name is chosen by whoever deployed it.
 - **Deleting goes through the format**, so the repository is left as the format's own
   client would leave it. A deleted npm tarball is an unpublished version, and
   dist-tags that named it move. A deleted Docker manifest takes its tags and the
@@ -716,12 +726,78 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
   many were `skipped` because the format keeps them, and gives a `next` to repeat the
   request with, as `after`, while there may be more. The root of a repository cannot
   be deleted this way.
-- **An offline repository** can still be browsed and deleted from here. Being offline
-  stops package clients, not the people who tend the repository.
+- **An offline repository** can still be browsed, deleted from and uploaded to here.
+  Being offline stops package clients, not the people who tend the repository.
 - **A proxy** is browsed for what it has cached, and deleting from it removes the
   cached copy: it is fetched again when it is next asked for.
 - **A group** holds nothing of its own. It lists its `members`, which are browsed one
   by one.
+
+## Uploading
+
+A file can be put into a hosted repository without a package client: one
+`multipart/form-data` request to `/api/v1/content/<repository>/upload`, with the
+fields its format needs.
+
+```bash
+# Raw: files into a directory, each under its own name
+curl -u alice -F directory=docs/v1 -F file=@guide.pdf -F file=@logo.png \
+  https://repo.example.com/api/v1/content/files/upload
+
+# Maven: an artifact by its coordinates. A POM is written for it
+curl -u alice -F group=com.acme -F artifact=app -F version=1.0 \
+  -F file=@app.jar -F file.sources=@app-sources.jar \
+  https://repo.example.com/api/v1/content/maven-releases/upload
+
+# npm: the tarball that `npm pack` writes
+curl -u alice -F file=@tool-1.0.0.tgz https://repo.example.com/api/v1/content/npm-hosted/upload
+
+# PyPI: wheels and source distributions
+curl -u alice -F file=@greeter-1.0-py3-none-any.whl -F file=@greeter-1.0.tar.gz \
+  https://repo.example.com/api/v1/content/pypi-hosted/upload
+```
+
+| Format | Fields | Files |
+| --- | --- | --- |
+| Raw | `directory` (the root without it) | One or more `file`, each stored in the directory under its own name |
+| Maven | `group`, `artifact`, `version`; `packaging` (default `jar`); `generate_pom` (default `true`) | `file` for the artifact, `file.<classifier>` for a file beside it (`file.sources`), `pom` for its POM |
+| npm | `tag` (default `latest`) | One `file`: a package tarball. Its `package.json` says the name and the version |
+| PyPI | `summary`, `requires_python`, `keywords`, each optional and said of every file | One or more `file`: wheels and source distributions (`.whl`, `.tar.gz`, `.zip`) |
+
+- **The answer** is `201` with the `files` that were stored, each described as `asset`
+  describes a file, and the `components` they belong to.
+- **All or nothing.** If one file of a form is refused, none of them is stored.
+- **Permissions and policy are those of any upload:** `add` for a new file, `edit` to
+  replace one, and the repository's deployment policy. Uploading needs no right to
+  browse or to read.
+- **A file must be sent as a file**, with a file name: `-F file=@app.jar`, not
+  `-F file=app.jar`. A field the format does not know is refused, so a misspelt one
+  is not silently ignored.
+- **Maven.** The files go where a deploy would put them, and checksums and
+  `maven-metadata.xml` follow by themselves. What a file is (`jar`, `war`, `tar.gz`,
+  `jar.asc`) is read from the end of its own name; the rest of its name does not
+  matter. Without a POM, one is written that says the group, artifact, version and
+  packaging: enough for a build that depends on the artifact. None is written if the
+  form sends one, if the version already has one, or with `generate_pom=false`. The
+  repository's version policy applies. In a snapshot repository an uploaded file is
+  stored under its plain name (`app-1.0-SNAPSHOT.jar`), and a timestamped build that
+  a build tool deploys ranks above it. A checksum file (`.sha1`, `.md5`) is refused:
+  checksums are computed from the files.
+- **npm.** What is stored is what `npm publish` would store: the tarball, and the
+  `package.json` inside it as the version's manifest. A package whose `package.json`
+  says `"private": true` is refused, as npm refuses to publish it. The tarball may be
+  as large as a publish may be (`MEGOOARTI_NPM_MAX_PUBLISH_BYTES`), and is read into
+  memory to find its `package.json`. Every other upload goes to the blob store as it
+  arrives.
+- **PyPI.** A file's name says its project and version. A source distribution's is
+  read as the project, a hyphen and the version, so its version must be written
+  without a hyphen (`1.0.post1`, not `1.0-1`), as current build tools write it.
+- **Docker images are pushed** with a container client. A Docker repository, a proxy
+  and a group answer `409 upload_not_supported`.
+- **A form that cannot be used** answers `422 validation_error`, and its `details`
+  name the field. A file that is not what its format takes answers as that format's
+  own upload does (`400 invalid_package`, `400 version_policy_violation`,
+  `400 invalid_path`).
 
 ## Search
 

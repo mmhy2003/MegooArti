@@ -77,7 +77,8 @@ One design, delivered as three plans.
 
 ### 4.3 For upload and snippets (plan 8c)
 
-- **Two hooks on a format:** `upload`, given the fields and files of a form, and `usage`, given a component and the repository's public address.
+- **Two hooks on a format:** `upload`, given the fields and files of a form, and `usage`, given a component, its files and the address a client is given for the repository.
+- **Reading a form.** A `multipart/form-data` body is read as it arrives: fields into memory, each file to temporary storage, never into memory. What a format does not store is discarded by the route. A format that has to look inside a file can read a staged one, up to a limit it names.
 
 ## 5. The content API (plan 8a)
 
@@ -143,11 +144,25 @@ No value is longer than what it is compared with can be (256 characters for `q`,
 | Format | Fields |
 | --- | --- |
 | Raw | `directory`, and one or more `file` parts, each stored under the directory by its file name |
-| Maven | `group`, `artifact`, `version`, `packaging` (default `jar`), `generate_pom` (default true), and one or more `file` parts, each with an optional `classifier` and `extension` taken from the part's name (`file`, `file.sources`, `file.pom`). A POM that is uploaded is used; checksums and metadata are written as for a deploy |
-| npm | One `file`, a package tarball. Its `package.json` says what it is; it is published as `npm publish` would |
-| PyPI | One or more `file` parts, wheels or source distributions. Their names say what they are; they are stored as an upload by twine would |
+| Maven | `group`, `artifact`, `version`, `packaging` (default `jar`), `generate_pom` (default true), and one or more files: `file` for the artifact, `file.<classifier>` for a file beside it, `pom` for the POM. What a file is (its extension) is read from the end of its own name. A POM that is uploaded is used; checksums and metadata follow as for a deploy |
+| npm | One `file`, a package tarball, and optionally `tag` (default `latest`). Its `package.json` says what it is; it is published as `npm publish` would |
+| PyPI | One or more `file` parts, wheels or source distributions, and optionally `summary`, `requires_python` and `keywords`, said of every file. Their names say what they are; they are stored as an upload by twine would |
 
-The answer is `201` with the components and files that were stored. The deployment policy and the `add` and `edit` permissions apply as to any upload. A Docker repository, a proxy and a group answer `409`.
+The answer is `201` with the components and files that were stored. The deployment policy and the `add` and `edit` permissions apply as to any upload, and nothing else is needed: not `browse`, not `read`. A form is stored whole or not at all. A Docker repository, a proxy and a group answer `409`.
+
+Settled while planning:
+
+- **The POM has a part of its own.** The first draft named it `file.pom`, which reads as a classifier everywhere else. A part named `pom` is the POM whatever its file is called (`pom.xml`).
+- **A POM is written only for a version that has none**, so adding a classifier to a version that exists does not try to replace its POM.
+- **Snapshots are taken** by a repository whose version policy allows them, under the plain name (`app-1.0-SNAPSHOT.jar`). The metadata already ranks such a file below every timestamped build.
+- **A field the format does not know is refused** (`422`), so a misspelt one is not ignored. So is a part named `file` that was sent as text.
+- **An npm tarball is read into memory** to find its `package.json`, under the limit and the turn-taking of a publish. No more than 256 MiB is decompressed looking for it. A package marked `private` is refused, as `npm publish` refuses it.
+- **A PyPI source distribution's name** is divided at its last hyphen (PEP 625). A version with a hyphen in it would be read as part of the name.
+- **An offline repository takes uploads**, as it can be browsed and deleted from: being offline stops package clients.
+- **Usage is offered only for plain names.** A snippet is pasted into a shell or a build file, and a name is chosen by whoever deployed the component, or by a remote. A component whose name or version holds anything but letters, digits and `. _ + ~ / -` gets none.
+- **A Maven snippet names the kind** (`<type>`, `@war`) when the artifact is not a jar.
+- **A Maven upload refuses a checksum file** (`.sha1`, `.md5`, `.sha256`, `.sha512`). Stored, it would sit where the checksum of another file is asked for and never be served.
+- **The API document describes the form** as `multipart/form-data`, since the route reads the body itself.
 
 **Usage** of a component, in its detail: a list of `label`, `language` and `text`.
 
