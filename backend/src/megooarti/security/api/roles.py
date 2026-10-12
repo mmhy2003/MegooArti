@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
+from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
 from megooarti.security import roles
 from megooarti.security.api.schemas import Pattern
@@ -35,7 +36,7 @@ class RoleContent(BaseModel):
 
 
 class RoleCreate(RoleContent):
-    name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    name: NewName
 
 
 async def _load(db: AsyncSession, name: str) -> Role:

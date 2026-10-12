@@ -516,10 +516,31 @@
         "title": "GroupSettings",
         "type": "object"
       },
+      "HostedIn": {
+        "properties": {
+          "deployment_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allow_redeploy",
+                  "disable_redeploy",
+                  "read_only"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment Policy"
+          }
+        },
+        "title": "HostedIn",
+        "type": "object"
+      },
       "HostedSettings": {
         "properties": {
           "deployment_policy": {
-            "default": "allow_redeploy",
             "enum": [
               "allow_redeploy",
               "disable_redeploy",
@@ -529,6 +550,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "deployment_policy"
+        ],
         "title": "HostedSettings",
         "type": "object"
       },
@@ -1168,7 +1192,7 @@
           "hosted": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/HostedSettings"
+                "$ref": "#/components/schemas/HostedIn"
               },
               {
                 "type": "null"
@@ -1351,7 +1375,7 @@
           "hosted": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/HostedSettings"
+                "$ref": "#/components/schemas/HostedIn"
               },
               {
                 "type": "null"

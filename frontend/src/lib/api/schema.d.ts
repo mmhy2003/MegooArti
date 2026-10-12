@@ -834,11 +834,15 @@ export interface components {
              */
             members: string[];
         };
+        /** HostedIn */
+        HostedIn: {
+            /** Deployment Policy */
+            deployment_policy?: ("allow_redeploy" | "disable_redeploy" | "read_only") | null;
+        };
         /** HostedSettings */
         HostedSettings: {
             /**
              * Deployment Policy
-             * @default allow_redeploy
              * @enum {string}
              */
             deployment_policy: "allow_redeploy" | "disable_redeploy" | "read_only";
@@ -1098,7 +1102,7 @@ export interface components {
                 [key: string]: unknown;
             };
             group?: components["schemas"]["GroupSettings"] | null;
-            hosted?: components["schemas"]["HostedSettings"] | null;
+            hosted?: components["schemas"]["HostedIn"] | null;
             /** Name */
             name: string;
             /**
@@ -1150,7 +1154,7 @@ export interface components {
                 [key: string]: unknown;
             };
             group?: components["schemas"]["GroupSettings"] | null;
-            hosted?: components["schemas"]["HostedSettings"] | null;
+            hosted?: components["schemas"]["HostedIn"] | null;
             /**
              * Online
              * @default true

@@ -39,6 +39,8 @@ async def test_create_and_get(admin_client):
     [
         {"name": "has space"},
         {"name": ""},
+        {"name": "."},
+        {"name": ".."},
         {"name": "s3-store", "type": "s3"},
         {"name": "escape", "path": "../outside"},
     ],
@@ -76,3 +78,15 @@ async def test_a_store_in_use_cannot_be_deleted(admin_client, db, default_store)
     response = await admin_client.delete(f"{STORES}/default")
 
     assert (response.status_code, error_code(response)) == (409, "in_use")
+
+
+async def test_the_default_store_cannot_be_deleted(admin_client):
+    # A repository made without naming a blob store is put in it (H7).
+    response = await admin_client.delete(f"{STORES}/default")
+
+    assert (response.status_code, error_code(response)) == (409, "default_blob_store")
+    assert (await admin_client.get(f"{STORES}/default")).status_code == 200
+    made = await admin_client.post(
+        "/api/v1/repositories", json={"name": "files", "format": "raw", "type": "hosted"}
+    )
+    assert (made.status_code, made.json()["blob_store"]) == (201, "default")

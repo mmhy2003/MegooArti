@@ -41,6 +41,8 @@ async def test_create_get_and_list(admin_client):
     [
         {"name": "has space"},
         {"name": ""},
+        {"name": "."},
+        {"name": ".."},
         {"permissions": ["not a pattern"]},
         {"description": "x" * 256},
         {"roles": ["ghost"]},
@@ -129,3 +131,15 @@ async def test_a_permission_granted_through_a_role_takes_effect(
     assert (await other_client.get(ROLES, headers=headers)).status_code == 200
     refused = await other_client.post(ROLES, json=READERS, headers=headers)
     assert (refused.status_code, error_code(refused)) == (403, "forbidden")
+
+
+async def test_a_role_that_is_called_dots_already_is_still_listed(admin_client, db):
+    # Made before the rule, or by another way than this API (H3).
+    await role_service.create_role(db, "..", "", [], [])
+    await db.commit()
+
+    listed = (await admin_client.get(ROLES)).json()["items"]
+
+    assert ".." in [item["name"] for item in listed]
+    # And a name that only has dots in it is a name.
+    assert (await admin_client.post(ROLES, json={**READERS, "name": "..."})).status_code == 201

@@ -135,6 +135,14 @@ class Format:
             raise ApiError(422, "validation_error", "The request is not valid.", details)
         return {}
 
+    def default_deployment_policy(self, config: dict[str, Any]) -> str:
+        """The deployment policy of a hosted repository that was given none.
+
+        `config` is this format's own settings, as `validate_config` returned them.
+        The generic format lets a file be replaced.
+        """
+        return "allow_redeploy"
+
     def describe_component(self, path: str) -> ComponentKey | None:
         """Which component a stored path belongs to: the file, in its directory.
 

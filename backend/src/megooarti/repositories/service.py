@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories.formats import format_names, get_format
+from megooarti.repositories.formats import Format, format_names, get_format
 from megooarti.repositories.models import (
     Asset,
     NegativeCacheEntry,
@@ -23,7 +23,7 @@ from megooarti.repositories.models import (
 )
 from megooarti.secrets_box import Sealed
 from megooarti.storage import blobs
-from megooarti.storage.blob_stores import get_blob_store
+from megooarti.storage.blob_stores import DEFAULT_BLOB_STORE, get_blob_store
 from megooarti.storage.models import BlobStore
 
 DEPLOYMENT_POLICIES = ("allow_redeploy", "disable_redeploy", "read_only")
@@ -50,8 +50,9 @@ def _invalid(field: str, message: str) -> ApiError:
     return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
-def _hosted_settings(hosted: dict[str, Any] | None) -> dict[str, Any]:
-    policy = (hosted or {}).get("deployment_policy", "allow_redeploy")
+def _hosted_settings(hosted: dict[str, Any] | None, default: str) -> dict[str, Any]:
+    """`default` is the policy of a repository that is given none: its format's to say."""
+    policy = (hosted or {}).get("deployment_policy") or default
     if policy not in DEPLOYMENT_POLICIES:
         choices = ", ".join(DEPLOYMENT_POLICIES)
         raise _invalid("hosted.deployment_policy", f"Must be one of: {choices}.")
@@ -282,17 +283,25 @@ async def list_repositories(
     return [await describe(db, repository) for repository in page], total or 0
 
 
-def _type_settings(
+def _settings(
+    handler: Format,
     type: str,
     hosted: dict[str, Any] | None,
     proxy: dict[str, Any] | None,
+    format_config: dict[str, Any] | None,
     current: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    """What a repository's `config` holds: its type's settings and its format's."""
+    config = handler.validate_config(
+        type, format_config or {}, (current or {}).get("format_config")
+    )
+    settings: dict[str, Any] = {}
     if type == "hosted":
-        return {"hosted": _hosted_settings(hosted)}
+        default = handler.default_deployment_policy(config)
+        settings["hosted"] = _hosted_settings(hosted, default)
     if type == "proxy":
-        return {"proxy": _proxy_settings(proxy, (current or {}).get("proxy"))}
-    return {}
+        settings["proxy"] = _proxy_settings(proxy, (current or {}).get("proxy"))
+    return {**settings, "format_config": config}
 
 
 async def create_repository(
@@ -315,13 +324,10 @@ async def create_repository(
     if type not in handler.types:
         raise _invalid("type", f"{type} repositories are not available for this format.")
     handler.validate_name(name)
-    settings = {
-        **_type_settings(type, hosted, proxy, None),
-        "format_config": handler.validate_config(type, format_config or {}),
-    }
+    settings = _settings(handler, type, hosted, proxy, format_config, None)
     store_id = None
     if type != "group":  # a group stores nothing of its own
-        store = await get_blob_store(db, blob_store or "default")
+        store = await get_blob_store(db, blob_store or DEFAULT_BLOB_STORE)
         if store is None:
             raise _invalid("blob_store", f"Unknown blob store: {blob_store}.")
         store_id = store.id
@@ -360,12 +366,9 @@ async def update_repository(
         # Leaving the members out must not quietly empty the group.
         raise _invalid("group", "A group's members must be given.")
     before = repository.config.get("proxy")
-    repository.config = {
-        **_type_settings(repository.type, hosted, proxy, repository.config),
-        "format_config": handler.validate_config(
-            repository.type, format_config or {}, repository.config.get("format_config")
-        ),
-    }
+    repository.config = _settings(
+        handler, repository.type, hosted, proxy, format_config, repository.config
+    )
     repository.online = online
     await db.flush()
     if repository.type == "group":

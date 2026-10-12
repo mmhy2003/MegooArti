@@ -416,6 +416,15 @@ class MavenFormat(Format):
             "layout_policy": _choice(config, "layout_policy", paths.LAYOUT_POLICIES, "strict"),
         }
 
+    def default_deployment_policy(self, config: dict[str, Any]) -> str:
+        """A release is deployed once: replaced, a build that used it cannot be repeated.
+
+        A snapshot is replaced by its nature, and a mixed repository takes snapshots.
+        """
+        if config.get("version_policy") == "release":
+            return "disable_redeploy"
+        return "allow_redeploy"
+
     def describe_component(self, path: str) -> ComponentKey | None:
         """An artifact file belongs to its group, artifact and version. Nothing else does."""
         parsed = paths.classify(path)

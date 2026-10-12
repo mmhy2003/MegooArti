@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
+from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
 from megooarti.security.authentication import Principal, require
 from megooarti.storage import blob_stores
@@ -28,7 +29,7 @@ class BlobStoreOut(BaseModel):
 
 
 class BlobStoreCreate(BaseModel):
-    name: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    name: NewName
     type: str = "file"
     path: str | None = Field(default=None, max_length=1024)
 

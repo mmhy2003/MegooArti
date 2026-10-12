@@ -161,3 +161,20 @@ async def test_other_methods_are_not_allowed(client, releases, root, method):
     response = await client.request(method, JAR, content=BYTES, headers=root)
 
     assert (response.status_code, error_code(response)) == (405, "method_not_allowed")
+
+
+async def test_a_release_is_deployed_once_to_a_repository_that_was_given_no_policy(
+    client, releases, snapshots, root
+):
+    # `releases` and `snapshots` are made with nothing said of redeploying (H1).
+    await client.put(JAR, content=BYTES, headers=root)
+    snapshot = f"{SNAPSHOTS}/app-1.0-SNAPSHOT.jar"
+    await client.put(snapshot, content=BYTES, headers=root)
+
+    again = await client.put(JAR, content=b"another build", headers=root)
+    snapshot_again = await client.put(snapshot, content=b"another build", headers=root)
+
+    assert (again.status_code, error_code(again)) == (409, "redeploy_disabled")
+    assert (await client.get(JAR, headers=root)).content == BYTES
+    assert snapshot_again.status_code in (200, 201, 204)
+    assert (await client.get(snapshot, headers=root)).content == b"another build"

@@ -12,6 +12,7 @@ from megooarti.clock import utcnow
 from megooarti.config import Settings
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
+from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import service
 from megooarti.repositories.content import build_context
@@ -24,12 +25,17 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
-# The same characters as a permission segment, so a name can never shift a permission.
-_NAME = r"^[A-Za-z0-9_.-]{1,64}$"
+DeploymentPolicy = Literal["allow_redeploy", "disable_redeploy", "read_only"]
 
 
 class HostedSettings(BaseModel):
-    deployment_policy: Literal["allow_redeploy", "disable_redeploy", "read_only"] = "allow_redeploy"
+    deployment_policy: DeploymentPolicy
+
+
+class HostedIn(BaseModel):
+    # Left out, the server chooses: a Maven repository for releases refuses to replace
+    # what was deployed, and every other one allows it.
+    deployment_policy: DeploymentPolicy | None = None
 
 
 class NegativeCache(BaseModel):
@@ -96,12 +102,12 @@ class RepositoryOut(BaseModel):
 
 
 class RepositoryCreate(BaseModel):
-    name: str = Field(pattern=_NAME)
+    name: NewName
     format: str
     type: Literal["hosted", "proxy", "group"]
     online: bool = True
     blob_store: str | None = None
-    hosted: HostedSettings | None = None
+    hosted: HostedIn | None = None
     proxy: ProxyIn | None = None
     group: GroupSettings | None = None
     format_config: dict[str, Any] = {}
@@ -109,7 +115,7 @@ class RepositoryCreate(BaseModel):
 
 class RepositoryUpdate(BaseModel):
     online: bool = True
-    hosted: HostedSettings | None = None
+    hosted: HostedIn | None = None
     proxy: ProxyIn | None = None
     group: GroupSettings | None = None
     format_config: dict[str, Any] = {}

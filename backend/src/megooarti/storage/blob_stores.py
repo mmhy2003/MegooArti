@@ -13,6 +13,9 @@ from megooarti.repositories.models import Repository
 from megooarti.storage.backends import BlobBackend, FileBlobBackend
 from megooarti.storage.models import Blob, BlobStore
 
+# The one a migration made, and where a repository is put that names none.
+DEFAULT_BLOB_STORE = "default"
+
 
 @dataclass(frozen=True)
 class BlobStoreView:
@@ -118,6 +121,13 @@ async def delete_blob_store(db: AsyncSession, store: BlobStore) -> None:
     )
     if user is not None:
         raise ApiError(409, "in_use", f"The repository {user} uses this blob store.")
+    if store.name == DEFAULT_BLOB_STORE:
+        raise ApiError(
+            409,
+            "default_blob_store",
+            "The default blob store cannot be deleted: "
+            "a repository made without naming one is put in it.",
+        )
     # With no repository there is no asset, so every remaining blob is unreferenced.
     await db.execute(delete(Blob).where(Blob.blob_store_id == store.id))
     await db.delete(store)

@@ -59,6 +59,8 @@ async def test_create_with_explicit_settings(admin_client):
         {"name": "has space"},
         {"name": "a:b"},
         {"name": "star*"},
+        {"name": "."},
+        {"name": ".."},
         {"format": "cobol"},
         {"type": "proxy", "proxy": {"remote_url": "ftp://remote.example"}},
         {"type": "nonsense"},
@@ -229,3 +231,80 @@ async def test_group_mistakes_are_reported(admin_client):
     assert (unknown.status_code, error_code(unknown)) == (422, "validation_error")
     assert (cycle.status_code, error_code(cycle)) == (409, "repository_cycle")
     assert (in_use.status_code, error_code(in_use)) == (409, "in_use")
+
+
+@pytest.mark.parametrize("name", ["...", ".a", "a.", "a..b", "-"])
+async def test_a_name_with_dots_in_it_is_a_name(admin_client, name):
+    # Only . and .. themselves are folders to a browser and a proxy.
+    assert (await admin_client.post(REPOSITORIES, json={**FILES, "name": name})).status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("wanted", "policy"),
+    [
+        # A Maven repository takes releases unless it says otherwise, and a release is
+        # deployed once.
+        ({"format": "maven"}, "disable_redeploy"),
+        ({"format": "maven", "format_config": {"version_policy": "release"}}, "disable_redeploy"),
+        ({"format": "maven", "hosted": {}}, "disable_redeploy"),
+        ({"format": "maven", "hosted": {"deployment_policy": None}}, "disable_redeploy"),
+        # A snapshot is replaced by its nature, and a mixed repository takes snapshots.
+        ({"format": "maven", "format_config": {"version_policy": "snapshot"}}, "allow_redeploy"),
+        ({"format": "maven", "format_config": {"version_policy": "mixed"}}, "allow_redeploy"),
+        ({"format": "raw"}, "allow_redeploy"),
+        ({"format": "npm"}, "allow_redeploy"),
+        ({"format": "pypi", "hosted": {}}, "allow_redeploy"),
+        # What is said is kept, whatever the format would have chosen.
+        ({"format": "maven", "hosted": {"deployment_policy": "allow_redeploy"}}, "allow_redeploy"),
+        ({"format": "maven", "hosted": {"deployment_policy": "read_only"}}, "read_only"),
+        (
+            {"format": "raw", "hosted": {"deployment_policy": "disable_redeploy"}},
+            "disable_redeploy",
+        ),
+    ],
+)
+async def test_a_hosted_repository_given_no_policy_gets_its_formats_own(
+    admin_client, wanted, policy
+):
+    created = await admin_client.post(
+        REPOSITORIES, json={"name": "made", "type": "hosted", **wanted}
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["hosted"] == {"deployment_policy": policy}
+    assert (await admin_client.get(f"{REPOSITORIES}/made")).json()["hosted"] == {
+        "deployment_policy": policy
+    }
+
+
+async def test_replacing_a_repository_without_a_policy_gives_it_its_formats_own(admin_client):
+    for name, format in (("releases", "maven"), ("files", "raw")):
+        wanted = {"name": name, "format": format, "type": "hosted"}
+        await admin_client.post(
+            REPOSITORIES, json={**wanted, "hosted": {"deployment_policy": "read_only"}}
+        )
+
+    releases = await admin_client.put(f"{REPOSITORIES}/releases", json={"online": True})
+    files = await admin_client.put(f"{REPOSITORIES}/files", json={"online": True})
+    kept = await admin_client.put(
+        f"{REPOSITORIES}/releases",
+        json={"online": True, "hosted": {"deployment_policy": "allow_redeploy"}},
+    )
+
+    assert releases.json()["hosted"] == {"deployment_policy": "disable_redeploy"}
+    assert files.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
+    assert kept.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
+
+
+async def test_a_proxy_and_a_group_have_no_deployment_policy(admin_client):
+    proxy = {"name": "central", "format": "maven", "type": "proxy"}
+    made = await admin_client.post(
+        REPOSITORIES, json={**proxy, "proxy": {"remote_url": "https://repo.example.org/maven2"}}
+    )
+    group = await admin_client.post(
+        REPOSITORIES,
+        json={"name": "all", "format": "maven", "type": "group", "group": {"members": []}},
+    )
+
+    assert (made.status_code, made.json()["hosted"]) == (201, None)
+    assert (group.status_code, group.json()["hosted"]) == (201, None)
