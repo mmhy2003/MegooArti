@@ -67,3 +67,61 @@ async def test_the_configured_base_url_counts_as_the_sites_own_origin(client, ro
     proxied = {**root, "Origin": "https://repo.example.org", "Host": "backend:8000"}
 
     assert (await client.post(ROLES, json=ROLE, headers=proxied)).status_code == 201
+
+
+LOGIN = "/api/v1/auth/login"
+LOGOUT = "/api/v1/auth/logout"
+SESSION = "/api/v1/auth/session"
+CREDENTIALS = {"username": "root", "password": PASSWORD}
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        {"Sec-Fetch-Site": "cross-site"},
+        # Without fetch metadata (plain HTTP), where the page is from is all there is.
+        {"Origin": "http://evil.example", "Host": "arti.example"},
+    ],
+)
+async def test_nobody_is_signed_in_from_another_site(client, root, said):
+    # A page elsewhere could sign its visitor in to an account of its own (H5).
+    response = await client.post(LOGIN, json=CREDENTIALS, headers=said)
+
+    assert (response.status_code, error_code(response)) == (403, "cross_site_request")
+    assert "set-cookie" not in response.headers
+    assert (await client.get(SESSION)).json()["authenticated"] is False
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        {},  # curl, a script: they say nothing of where they are from
+        {"Sec-Fetch-Site": "same-origin"},
+        {"Sec-Fetch-Site": "none"},
+        {"Origin": "http://arti.example", "Host": "arti.example"},
+    ],
+)
+async def test_signing_in_from_the_site_itself_or_from_no_site_goes_on(client, root, said):
+    response = await client.post(LOGIN, json=CREDENTIALS, headers=said)
+
+    assert response.status_code == 200
+    assert (await client.get(SESSION)).json()["authenticated"] is True
+
+
+async def test_a_wrong_password_from_another_site_is_not_counted_as_an_attempt(client, root):
+    wrong = {"username": "root", "password": "not the password"}
+    for _ in range(10):  # more than the failures that lock an account for a while
+        refused = await client.post(LOGIN, json=wrong, headers={"Sec-Fetch-Site": "cross-site"})
+        assert refused.status_code == 403
+
+    assert (await client.post(LOGIN, json=CREDENTIALS)).status_code == 200
+
+
+async def test_nobody_is_signed_out_from_another_site(client, root):
+    signed_in = (await client.post(LOGIN, json=CREDENTIALS)).json()
+    token = {"X-CSRF-Token": signed_in["csrf_token"]}
+
+    response = await client.post(LOGOUT, headers={**token, "Sec-Fetch-Site": "cross-site"})
+
+    assert (response.status_code, error_code(response)) == (403, "cross_site_request")
+    assert (await client.get(SESSION)).json()["authenticated"] is True

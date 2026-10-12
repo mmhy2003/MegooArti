@@ -157,13 +157,16 @@ async def reset_password(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     user = await _load(db, user_id)
-    own_session = principal.session if user.id == principal.user.id else None
+    if user.id == principal.user.id:
+        # Here nobody is asked who they are: a session left open, or a stolen cookie,
+        # would be enough to keep the account.
+        raise ApiError(
+            409,
+            "own_password",
+            "Change your own password at PUT /api/v1/me/password, which asks for the present one.",
+        )
     await users.set_password(
-        db,
-        user,
-        body.password,
-        must_change_password=body.must_change_password,
-        keep_session_id=None if own_session is None else own_session.id,
+        db, user, body.password, must_change_password=body.must_change_password
     )
     await db.commit()
     discard_initial_password(request.app.state.settings, user)

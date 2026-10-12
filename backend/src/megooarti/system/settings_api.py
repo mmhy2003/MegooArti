@@ -37,6 +37,9 @@ class BaseUrl(BaseModel):
         parts = urlsplit(value)
         if parts.scheme not in ("http", "https") or not parts.netloc:
             raise ValueError("must be an http or https URL")
+        if "@" in parts.netloc:
+            # Every address the server gives out is built from it, and would carry them.
+            raise ValueError("must not contain a user name or a password")
         if parts.query or parts.fragment:
             raise ValueError("must not contain a query or a fragment")
         return value.rstrip("/")

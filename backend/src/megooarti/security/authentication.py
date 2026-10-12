@@ -385,6 +385,15 @@ async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
         raise refusal
 
 
+async def refuse_cross_site(request: Request, db: AsyncSession = Depends(get_session)) -> None:
+    """For a route that identifies nobody and still changes something: signing in.
+
+    A page on another site could otherwise sign its visitor in to an account of its
+    own choosing, and what the visitor then did would be done as that account.
+    """
+    await _refuse_cross_site(request, db)
+
+
 async def _identify(
     request: Request, db: AsyncSession, scheme: Scheme, *, registry: bool = False
 ) -> Principal | None:

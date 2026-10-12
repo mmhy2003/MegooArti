@@ -17,6 +17,7 @@ from megooarti.security.authentication import (
     build_principal,
     client_ip,
     current_principal,
+    refuse_cross_site,
 )
 
 log = structlog.get_logger(__name__)
@@ -70,7 +71,7 @@ def session_info(principal: Principal | None) -> SessionInfo:
     )
 
 
-@router.post("/login", response_model=SessionInfo)
+@router.post("/login", response_model=SessionInfo, dependencies=[Depends(refuse_cross_site)])
 async def login(
     body: LoginRequest,
     request: Request,

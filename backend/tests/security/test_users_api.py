@@ -215,3 +215,37 @@ async def test_text_the_database_cannot_store_is_a_validation_error(admin_client
     response = await admin_client.patch(f"{USERS}/{dana.id}", json={"display_name": "D\x00"})
 
     assert (response.status_code, error_code(response)) == (422, "validation_error")
+
+
+async def test_ones_own_password_is_not_set_here(admin_client, other_client):
+    # Nobody is asked who they are here: an open session would be enough to keep the
+    # account (H2). It is changed at /me/password, which asks for the present one.
+    root_id = await id_of(admin_client, "root")
+
+    response = await admin_client.put(
+        f"{USERS}/{root_id}/password", json={"password": "a password of the thief's"}
+    )
+
+    assert (response.status_code, error_code(response)) == (409, "own_password")
+    assert "/api/v1/me/password" in response.json()["error"]["message"]
+    # Nothing changed: the session is alive, and the password is the one it was.
+    assert (await admin_client.get(SESSION)).json()["authenticated"] is True
+    assert (await sign_in(other_client, "root"))["must_change_password"] is False
+    changed = await admin_client.put(
+        "/api/v1/me/password",
+        json={"current_password": PASSWORD, "new_password": "a password of my own"},
+    )
+    assert changed.status_code == 204
+
+
+async def test_ones_own_password_is_not_set_here_with_a_token_either(client, make_user, make_token):
+    root = await make_user("root", roles=["admin"])
+    token = await make_token(root)
+
+    response = await client.put(
+        f"{USERS}/{root.id}/password",
+        json={"password": "a password of the thief's"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert (response.status_code, error_code(response)) == (409, "own_password")

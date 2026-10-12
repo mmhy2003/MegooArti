@@ -33,7 +33,17 @@ async def test_base_url_is_stored_without_a_trailing_slash_and_can_be_cleared(ad
 
 
 @pytest.mark.parametrize(
-    "value", ["ftp://repo.example.org", "repo.example.org", "https://", "https://x.example/?a=1"]
+    "value",
+    [
+        "ftp://repo.example.org",
+        "repo.example.org",
+        "https://",
+        "https://x.example/?a=1",
+        # Every address the server gives out would carry them (H4).
+        "https://robot:secret@repo.example.org",
+        "https://robot@repo.example.org",
+        "https://@repo.example.org",
+    ],
 )
 async def test_an_invalid_base_url_is_rejected(admin_client, value):
     response = await admin_client.put(f"{SETTINGS}/base-url", json={"base_url": value})
@@ -67,3 +77,12 @@ async def test_reading_settings_does_not_allow_changing_them(client, make_user, 
 
     assert read.status_code == 200
     assert (write.status_code, error_code(write)) == (403, "forbidden")
+
+
+async def test_a_base_url_may_have_a_port_and_a_path(admin_client):
+    response = await admin_client.put(
+        f"{SETTINGS}/base-url", json={"base_url": "http://repo.example.org:8081/megooarti"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["base_url"] == "http://repo.example.org:8081/megooarti"
