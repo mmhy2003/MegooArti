@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from megooarti import __version__
+from megooarti.api_docs import docs_router
 from megooarti.clock import utcnow
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
@@ -117,7 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="MegooArti",
         version=__version__,
         openapi_url=f"{API_PREFIX}/openapi.json",
-        docs_url="/api/docs",
+        docs_url=None,  # served by api_docs, with its own files
         redoc_url=None,
         lifespan=_lifespan,
         responses=ERROR_RESPONSES,
@@ -134,6 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The one client for requests to proxy remotes. Tests replace it with a fake remote.
     app.state.http = None  # built by remote.client_of on first use: it is slow to create
     register_error_handlers(app)
+    app.include_router(docs_router(f"{API_PREFIX}/openapi.json", "MegooArti API"))
     app.include_router(status_router, prefix=API_PREFIX)
     app.include_router(auth_api.router, prefix=API_PREFIX)
     app.include_router(me_api.router, prefix=API_PREFIX)

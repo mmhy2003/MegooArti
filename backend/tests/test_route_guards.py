@@ -17,9 +17,9 @@ OPEN = {
     "/api/v1/status/ready",
     "/api/v1/auth/login",  # this is where credentials are presented
 }
-# The API description and its viewer, which FastAPI adds itself. They describe the
+# The API description, its viewer and the files the viewer loads. They describe the
 # API's shape, not its data, and are left open by design.
-DOCUMENTATION = {"/api/v1/openapi.json", "/api/docs", "/docs/oauth2-redirect"}
+DOCUMENTATION = {"/api/v1/openapi.json", "/api/docs", "/api/docs/assets/{name}"}
 
 
 def dependency_calls(dependant) -> set:
