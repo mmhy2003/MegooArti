@@ -555,7 +555,7 @@ describe("an upload", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test`
-Expected: 1 file fails and none of its tests runs: `Failed to resolve import "./format" from "src/lib/lib.test.ts"`. The other 342 tests pass.
+Expected: 1 file fails and none of its tests runs: `Failed to resolve import` of one of the modules this task creates (`./format`, `./paths`, `./content`; which one is named varies), from `src/lib/lib.test.ts`. The other 342 tests pass.
 
 - [ ] **Step 3: Implement**
 
@@ -1547,7 +1547,7 @@ describe("the heading of a screen", () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test`
-Expected: 8 tests fail and 1 file does not load. In `lint.test.ts`, the seven of "text written into a property that is read out is refused" (the lint finds nothing). In `ui.test.tsx`, "cannot be pressed again while what it started is under way, and says so" (the button is disabled, and has no `aria-disabled`). `more.test.tsx` fails with `Failed to resolve import "./breadcrumbs"`.
+Expected: 8 tests fail and 1 file does not load. In `lint.test.ts`, the seven of "text written into a property that is read out is refused" (the lint finds nothing). In `ui.test.tsx`, "cannot be pressed again while what it started is under way, and says so" (the button is disabled, and has no `aria-disabled`). `more.test.tsx` fails with `Failed to resolve import` of one of the components this task creates.
 
 - [ ] **Step 3: Implement**
 
@@ -3199,7 +3199,7 @@ Change `frontend/src/screens/screens.test.tsx`:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test`
-Expected: 2 tests fail and 1 file does not load. In `screens.test.tsx`: "lists the repositories a caller may browse" (the name is no link) and "says so, and leads home" (the heading is of level 2). `browse.test.tsx` fails with `Failed to resolve import "./component"`.
+Expected: 2 tests fail and 1 file does not load. In `screens.test.tsx`: "lists the repositories a caller may browse" (the name is no link) and "says so, and leads home" (the heading is of level 2). `browse.test.tsx` fails with `Failed to resolve import "./browse"` or `"./component"`.
 
 - [ ] **Step 3: Implement**
 
@@ -5574,7 +5574,7 @@ Change `frontend/src/components/shell.test.tsx`:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test`
-Expected: 4 tests fail and 1 file does not load. In `navigation.test.ts`: "leads to the repositories, to search and to upload, whoever is asking" and "marks the repositories while one is browsed, and a component of one is shown". In `shell.test.tsx`: "leads to the repositories, to search and to upload" and "has the search box in its header, and in the navigation of a narrow window". `titles.test.ts` fails with `Failed to resolve import "./(shell)/browse/[repository]/[[...path]]/page"`.
+Expected: 4 tests fail and 1 file does not load. In `navigation.test.ts`: "leads to the repositories, to search and to upload, whoever is asking" and "marks the repositories while one is browsed, and a component of one is shown". In `shell.test.tsx`: "leads to the repositories, to search and to upload" and "has the search box in its header, and in the navigation of a narrow window". `titles.test.ts` fails with `Failed to resolve import` of one of the new routes.
 
 - [ ] **Step 3: Implement**
 
@@ -5918,7 +5918,7 @@ Change `frontend/e2e/ui.spec.ts`:
 +  await expect(
 +    page.getByRole("list", { name: "Chosen for Files" }).getByRole("listitem"),
 +  ).toHaveCount(2);
-+  await expect(page.getByLabel("Files")).toHaveCSS("color", "rgba(0, 0, 0, 0)");
++  await expect(page.getByLabel("Files", { exact: true })).toHaveCSS("color", "rgba(0, 0, 0, 0)");
 +  await send.click();
 +
 +  await expect(page.getByRole("progressbar")).toBeVisible();
