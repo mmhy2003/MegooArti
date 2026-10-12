@@ -4,11 +4,16 @@ import { metadata as password } from "./(shell)/account/password/page";
 import { metadata as preferences } from "./(shell)/account/preferences/page";
 import { metadata as tokens } from "./(shell)/account/tokens/page";
 import { metadata as anonymousAccess } from "./(shell)/admin/anonymous-access/page";
+import { metadata as blobStores } from "./(shell)/admin/blob-stores/page";
+import { generateMetadata as repositorySettings } from "./(shell)/admin/repositories/[repository]/page";
+import { metadata as manageRepositories } from "./(shell)/admin/repositories/page";
+import { metadata as newRepository } from "./(shell)/admin/repositories/~new/page";
 import { metadata as role } from "./(shell)/admin/roles/[name]/page";
 import { metadata as newRole } from "./(shell)/admin/roles/~new/page";
 import { metadata as roles } from "./(shell)/admin/roles/page";
 import { metadata as user } from "./(shell)/admin/users/[id]/page";
 import { metadata as newUser } from "./(shell)/admin/users/new/page";
+import { metadata as system } from "./(shell)/admin/system/page";
 import { metadata as users } from "./(shell)/admin/users/page";
 import { generateMetadata as browse } from "./(shell)/browse/[repository]/[[...path]]/page";
 import { generateMetadata as component } from "./(shell)/components/[repository]/[id]/page";
@@ -45,6 +50,18 @@ test("the screens of the account and of the administration have titles of their 
   expect([users.title, newUser.title, user.title]).toEqual(["Users", "New user", "User"]);
   expect([roles.title, newRole.title, role.title]).toEqual(["Roles", "New role", "Role"]);
   expect(anonymousAccess.title).toBe("Anonymous access");
+});
+
+test("the screens of the repositories' and the system's administration have titles", async () => {
+  expect([manageRepositories.title, newRepository.title]).toEqual([
+    "Manage repositories",
+    "New repository",
+  ]);
+  expect([blobStores.title, system.title]).toEqual(["Blob stores", "System"]);
+  // A repository's settings are titled by it, and so told from its folders.
+  expect(await repositorySettings({ params: Promise.resolve({ repository: "releases" }) })).toEqual(
+    { title: "Settings of releases" },
+  );
 });
 
 test("a screen about one repository is titled by it, as the address names it", async () => {
