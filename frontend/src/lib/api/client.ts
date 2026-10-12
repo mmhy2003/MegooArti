@@ -5,7 +5,7 @@
  */
 
 export const API_PREFIX = "/api/v1";
-const REQUEST_ID = "X-Request-ID";
+export const REQUEST_ID = "X-Request-ID";
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -49,6 +49,11 @@ export function setCsrfToken(token: string | null): void {
   csrfToken = token;
 }
 
+/** The header that goes with a request that changes something, if there is a session. */
+export function csrfHeader(): Record<string, string> {
+  return csrfToken === null ? {} : { "X-CSRF-Token": csrfToken };
+}
+
 function address(path: string, query?: Query): string {
   const search = new URLSearchParams();
   for (const [name, value] of Object.entries(query ?? {})) {
@@ -70,19 +75,23 @@ function details(value: unknown): ErrorDetail[] {
   }));
 }
 
+/** The error an answer that is not a success stands for, whatever its body is. */
+export function errorOf(status: number, body: unknown, requestId: string | null): ApiError {
+  const sent = isRecord(body) && isRecord(body.error) ? body.error : null;
+  if (sent === null || typeof sent.code !== "string" || typeof sent.message !== "string") {
+    return new ApiError(status, "unexpected_answer", "", [], requestId);
+  }
+  return new ApiError(status, sent.code, sent.message, details(sent.details), requestId);
+}
+
 async function failure(response: Response): Promise<ApiError> {
-  const requestId = response.headers.get(REQUEST_ID);
   let body: unknown = null;
   try {
     body = await response.json();
   } catch {
     // Not JSON: a gateway's own page, or nothing at all.
   }
-  const sent = isRecord(body) && isRecord(body.error) ? body.error : null;
-  if (sent === null || typeof sent.code !== "string" || typeof sent.message !== "string") {
-    return new ApiError(response.status, "unexpected_answer", "", [], requestId);
-  }
-  return new ApiError(response.status, sent.code, sent.message, details(sent.details), requestId);
+  return errorOf(response.status, body, response.headers.get(REQUEST_ID));
 }
 
 export type RequestOptions = { query?: Query; body?: unknown; signal?: AbortSignal };
@@ -94,7 +103,7 @@ export async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (UNSAFE.has(method) && csrfToken !== null) headers["X-CSRF-Token"] = csrfToken;
+  if (UNSAFE.has(method)) Object.assign(headers, csrfHeader());
 
   let response: Response;
   try {
