@@ -383,6 +383,15 @@ What an administrator keeps besides people: the repositories, the blob stores th
 | R19 | The browser tests that find the navigation's "Repositories" name it exactly. | "Manage repositories" is in the same navigation. |
 | R20 | The system page takes the blob stores' state from the blob stores' own endpoint, and shows it to whoever may read them. | R12: it is another permission. |
 
+#### Settled by the review of plan 10c
+
+| # | What | Why |
+| --- | --- | --- |
+| R22 | The address on a repository's settings page is the one the browsing API gives, which is the one its clients use, and is shown to whoever may browse the repository. | The page showed the path `/repository/<name>/` under "Address", with a button to copy it. It is no address, and a Docker repository answers 404 there: a registry has an address of its own. |
+| R23 | When the list to add a member from is gone (nothing is left to add), the keyboard goes to the last member's "take out" button, and with no member either, to the members themselves. | Adding the last repository there was to add left the keyboard at nothing (B11, R17). |
+| R24 | What a form chooses from is all there is: the repositories a group can have as members, and the blob stores, are asked for 200 at a time until there are no more, and the system page shows every blob store. The other repositories are asked for only by the form of a group. While they are not had, or could not be had, the form says so and offers to try again; it does not say that there are none. | With more than 200 repositories some could not be put into a group, and nothing said so. A request that failed read as "There is no other repository of this format to add." Every form, of whatever type, asked for the list and waited for it after saving. |
+| R25 | A blob store cannot be called `.` or `..` in the form (R13). Its form is on the page of the list (R10), so the address `~new` of R13 is the repository form's alone. | The name was sent, and the server answered about a directory nobody had typed. |
+
 ## 13. Requirement coverage
 
 | Requirement | Where |

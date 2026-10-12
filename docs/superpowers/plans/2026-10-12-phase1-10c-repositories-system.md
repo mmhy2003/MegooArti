@@ -24,6 +24,18 @@
 | R20 | The system page takes the blob stores' state from their own endpoint, for whoever may read them. | R12: another permission. |
 | R21 | The texts of every screen of this plan are added to `messages/en.json` in Task 3, with the navigation's items. | One file, typed as a whole. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change to the code was made test-first, and the spec's section 12.4 records what they settle as R22 to R25.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `RepositorySettingsScreen` asks the browsing API for the repository (`useRepository` of `lib/content.ts`) and shows its `url` as the address, when there is an answer. `url_path` is shown nowhere. | The review: the address of a Docker repository answered 404, and for the others it was a path. |
+| F2 | `MemberList`: the "take out" buttons have `data-button="remove"`, the `fieldset` has `tabIndex={-1}` and the ref; after a member is added or taken out the keyboard goes to the list to add from, else to the last member's button, else to the fieldset. | The review: `document.activeElement` was `body` after the last candidate was added. |
+| F3 | `lib/administration.ts` has `every(path)`, which asks for a list 200 at a time until it has `total`; `useEveryManagedRepository(enabled)` and `useEveryBlobStore(enabled)` answer with arrays. `RepositoryForm` enables the first only for a group. `MemberList`'s `candidates` may be `null` (not known): nothing is offered and nothing is said to be missing, and the form shows a loading or an error state under the list. The blob store choice shows an error state too. `SystemScreen` passes `stores.data`. | The review: the first 200 of all formats, and a failed request read as "none". |
+| F4 | The blob store form refuses `.` and `..` (`blobStores.nameDots`, `isAddressable`). | The review: R13 said so, and the form did not. |
+| F5 | `test_system_information.py` has a test for a database with no `alembic_version` table (seen to fail with `current_revision` changed by hand), and the test of the configuration names every field of the answer. The screens' tests have one for "Never migrated". | The review: Review Focus 5 said each case had a test, and this one had none. The behaviour was right. |
+| F6 | The browser test of a hosted repository fetches a file from the address the settings page shows, and opens the settings of the Docker repository to see its own address. The tests stay 64. | The review: no test opened the settings of a Docker repository. |
+| F7 | The README says that a hosted or proxy Maven repository has Maven's policies, and that the settings page shows the address clients use. | The review: a Maven group has neither policy. |
+
 ## Global Constraints
 
 - **A colour is written in `src/styles/tokens.css` and nowhere else.**
