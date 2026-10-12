@@ -71,6 +71,31 @@ describe("the navigation as it is", () => {
     }
     expect(NAVIGATION[0]?.items[0]).toMatchObject({ key: "repositories", href: "/", icon: Boxes });
   });
+
+  test("leads to the repositories, to search and to upload, whoever is asking", () => {
+    const [browse] = visible(NAVIGATION, NOBODY);
+
+    expect(browse?.items.map((entry) => [entry.key, entry.href])).toEqual([
+      ["repositories", "/"],
+      ["search", "/search"],
+      ["upload", "/upload"],
+    ]);
+  });
+
+  test("marks the repositories while one is browsed, and a component of one is shown", () => {
+    const current = (pathname: string) =>
+      NAVIGATION.flatMap((area) => area.items)
+        .filter((entry) => isCurrent(entry, pathname))
+        .map((entry) => entry.key);
+
+    expect(current("/")).toEqual(["repositories"]);
+    expect(current("/browse/releases/com/acme")).toEqual(["repositories"]);
+    expect(current("/components/releases/0190-c0")).toEqual(["repositories"]);
+    expect(current("/search")).toEqual(["search"]);
+    expect(current("/upload/releases")).toEqual(["upload"]);
+    expect(current("/browser")).toEqual([]); // an address that only begins the same
+    expect(current("/account/password")).toEqual([]);
+  });
 });
 
 describe("where the visitor is", () => {

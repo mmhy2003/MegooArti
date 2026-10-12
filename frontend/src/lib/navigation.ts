@@ -2,14 +2,14 @@
  * The navigation, as data. A screen is put into the navigation by adding an item here,
  * with the permission its API needs: the item is then shown only to those who hold it.
  */
-import { Boxes, type LucideIcon } from "lucide-react";
+import { Boxes, Search, Upload, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 
 import type { SessionInfo } from "@/lib/api/types";
 import { allows } from "@/lib/session/rules";
 
 export type AreaKey = "browse" | "administration";
-export type ItemKey = "repositories";
+export type ItemKey = "repositories" | "search" | "upload";
 
 export type NavItem = {
   /** Its name is the message `nav.items.<key>`. */
@@ -18,6 +18,8 @@ export type NavItem = {
   icon: LucideIcon;
   /** What a caller must hold to be shown it. Without one, everybody is. */
   permission?: string;
+  /** Other addresses that are part of it: the screens it leads to. */
+  under?: string[];
 };
 
 export type NavArea = {
@@ -26,9 +28,16 @@ export type NavArea = {
   items: NavItem[];
 };
 
-// Browsing first, then administration (UI-2). Plan 10 adds its screens to both.
+// Browsing first, then administration (UI-2).
 export const NAVIGATION: readonly NavArea[] = [
-  { key: "browse", items: [{ key: "repositories", href: "/", icon: Boxes }] },
+  {
+    key: "browse",
+    items: [
+      { key: "repositories", href: "/", icon: Boxes, under: ["/browse", "/components"] },
+      { key: "search", href: "/search", icon: Search },
+      { key: "upload", href: "/upload", icon: Upload },
+    ],
+  },
   { key: "administration", items: [] },
 ];
 
@@ -46,6 +55,7 @@ export function visible(areas: readonly NavArea[], session: SessionInfo): NavAre
 
 /** Whether an item is where the visitor is: its own address, or anything under it. */
 export function isCurrent(item: NavItem, pathname: string): boolean {
-  if (item.href === "/") return pathname === "/";
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const within = (address: string) => pathname === address || pathname.startsWith(`${address}/`);
+  if ((item.under ?? []).some(within)) return true;
+  return item.href === "/" ? pathname === "/" : within(item.href);
 }

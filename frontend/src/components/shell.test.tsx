@@ -47,6 +47,38 @@ describe("the shell", () => {
     await expectAccessible();
   });
 
+  test("leads to the repositories, to search and to upload", () => {
+    navigation.at("/browse/releases/com");
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const [wide] = screen.getAllByRole("navigation", { name: "Main" });
+    const links = within(wide as HTMLElement).getAllByRole("link");
+
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Repositories", "/"],
+      ["Search", "/search"],
+      ["Upload", "/upload"],
+    ]);
+    // Browsing a repository is being among the repositories.
+    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
+  });
+
+  test("has the search box in its header, and in the navigation of a narrow window", async () => {
+    const user = userEvent.setup();
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const boxes = within(screen.getByRole("banner")).getAllByRole("search", {
+      name: "Search components",
+      hidden: true,
+    });
+
+    expect(boxes).toHaveLength(2); // one is shown, by the width of the window
+    expect(boxes[0]).toHaveClass("hidden", "md:block");
+    expect(boxes[1]).toHaveClass("md:hidden");
+    expect(boxes[1]?.closest("#narrow-navigation")).not.toBeNull();
+
+    await user.type(within(boxes[0] as HTMLElement).getByRole("searchbox"), "guava{Enter}");
+    expect(navigation.router.push).toHaveBeenCalledWith("/search?q=guava");
+  });
+
   test("shows no area that has nothing in it", () => {
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
 
@@ -86,6 +118,7 @@ describe("the shell", () => {
     );
 
     expect(screen.queryByRole("navigation")).toBeNull();
+    expect(screen.queryByRole("search")).toBeNull(); // nothing can be searched for yet
     expect(screen.queryByRole("button", { name: "Open the navigation" })).toBeNull();
     expect(screen.getByRole("button", { name: "Account of Ada Admin" })).toBeVisible();
   });

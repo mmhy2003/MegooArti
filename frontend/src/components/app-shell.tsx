@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 
+import { SearchBox } from "@/components/search-box";
 import { ThemeSwitch } from "@/components/theme-switch";
 import { AppLink } from "@/components/ui/link";
 import { UserMenu } from "@/components/user-menu";
@@ -97,6 +98,7 @@ export function AppShell({
             </nav>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
+            {bare ? null : <SearchBox className="hidden w-56 md:block xl:w-72" />}
             <ThemeSwitch />
             <UserMenu session={session} />
             {areas.length > 0 ? (
@@ -122,8 +124,9 @@ export function AppShell({
             id="narrow-navigation"
             aria-label={t("mainNavigation")}
             hidden={!open}
-            className="border-t border-line px-4 py-4 lg:hidden"
+            className="flex flex-col gap-4 border-t border-line px-4 py-4 lg:hidden"
           >
+            <SearchBox className="md:hidden" />
             <Navigation areas={areas} onNavigate={() => setOpen(false)} />
           </nav>
         ) : null}
