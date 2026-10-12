@@ -59,9 +59,13 @@ export function Button({
     <button
       type={type ?? "button"}
       className={classes}
-      disabled={disabled || busy}
+      disabled={disabled}
+      // Busy, it cannot be pressed, but it keeps the keyboard: a button that is
+      // disabled outright drops focus to the page.
+      aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
       {...rest}
+      onClick={busy ? (event) => event.preventDefault() : rest.onClick}
     >
       {busy ? <Spinner /> : null}
       {children}

@@ -2,9 +2,10 @@
 
 import { AlertDialog } from "radix-ui";
 import { useTranslations } from "next-intl";
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "./button";
+import { TextField } from "./field";
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -18,6 +19,11 @@ export type ConfirmDialogProps = {
   onConfirm: () => void;
   /** The action is under way: the dialog stays, and its button says so. */
   busy?: boolean;
+  /**
+   * For what takes much with it (a folder, a repository): this must be typed, exactly,
+   * before the button that does it can be pressed.
+   */
+  mustType?: string;
 };
 
 /**
@@ -32,13 +38,22 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   busy = false,
+  mustType,
 }: ConfirmDialogProps) {
   const t = useTranslations("confirm");
+  const [typed, setTyped] = useState("");
+  const allowed = mustType === undefined || typed === mustType;
   // What had the keyboard when the dialog opened. Radix gives focus back to a trigger
   // of its own, and this dialog is opened by whatever its screen chooses.
   const opener = useRef<HTMLElement | null>(null);
   return (
-    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
+    <AlertDialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setTyped(""); // the next time, it is typed again
+        onOpenChange(next);
+      }}
+    >
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-page/80" />
         <AlertDialog.Content
@@ -52,12 +67,24 @@ export function ConfirmDialog({
           }}
           className="bevel fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-bad bg-panel p-6"
         >
-          <AlertDialog.Title className="text-lg font-semibold text-fg uppercase">
+          {/* Not in capitals: it names what goes, and a name is shown as it is written. */}
+          <AlertDialog.Title className="text-lg font-semibold break-words text-fg">
             {title}
           </AlertDialog.Title>
           <AlertDialog.Description asChild>
             <div className="mt-2 text-fg-muted">{children}</div>
           </AlertDialog.Description>
+          {mustType !== undefined ? (
+            <TextField
+              className="mt-4"
+              label={t("typeToConfirm", { name: mustType })}
+              plainLabel
+              autoComplete="off"
+              spellCheck={false}
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+            />
+          ) : null}
           <div className="mt-6 flex flex-wrap justify-end gap-3">
             <AlertDialog.Cancel asChild>
               <Button>{t("cancel")}</Button>
@@ -65,6 +92,7 @@ export function ConfirmDialog({
             <Button
               variant="danger"
               busy={busy}
+              disabled={!allowed}
               onClick={(event) => {
                 event.preventDefault();
                 onConfirm();

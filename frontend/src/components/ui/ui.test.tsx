@@ -44,7 +44,11 @@ describe("a button", () => {
 
     expect(pressed).not.toHaveBeenCalled();
     expect(screen.getByRole("button")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button")).toBeDisabled();
+    expect(screen.getByRole("button")).toHaveAttribute("aria-disabled", "true");
+    // It keeps the keyboard: a button disabled outright drops focus to the page.
+    expect(screen.getByRole("button")).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(pressed).not.toHaveBeenCalled();
   });
 
   test("can be a link that looks like one", async () => {

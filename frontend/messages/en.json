@@ -15,7 +15,9 @@
       "administration": "Administration"
     },
     "items": {
-      "repositories": "Repositories"
+      "repositories": "Repositories",
+      "search": "Search",
+      "upload": "Upload"
     }
   },
   "theme": {
@@ -76,7 +78,8 @@
     },
     "emptyTitle": "No repositories",
     "empty": "There is no repository you can browse. An administrator creates repositories and says who may use them.",
-    "more": "Showing {shown} of {total}."
+    "more": "Showing {shown} of {total}.",
+    "browse": "Browse {name}"
   },
   "copy": {
     "label": "Copy {what}",
@@ -99,7 +102,8 @@
     "fallback": "Something went wrong."
   },
   "confirm": {
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "typeToConfirm": "Type {name} to go on"
   },
   "notFound": {
     "title": "There is nothing at this address",
@@ -110,5 +114,196 @@
     "title": "This page stopped working",
     "body": "Something in the page itself failed. Loading it again usually helps.",
     "reload": "Load the page again"
+  },
+  "notifications": {
+    "label": "Notifications",
+    "dismiss": "Dismiss"
+  },
+  "time": {
+    "never": "Never"
+  },
+  "pager": {
+    "label": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "position": "Page {page} of {pages}"
+  },
+  "files": {
+    "orDrop": "or drop files here",
+    "chosen": "Chosen for {label}",
+    "remove": "Take out {name}"
+  },
+  "searchBox": {
+    "label": "Search components",
+    "placeholder": "Search  ( / )"
+  },
+  "browse": {
+    "kind": "{format} repository, {type}",
+    "kindProxy": "{format} repository, {type}. What is here is what has been fetched through it.",
+    "path": "Path",
+    "searchIn": "Search this repository",
+    "offline": "This repository is offline: package clients are refused. It can still be browsed here.",
+    "entriesOf": "What is in {folder}",
+    "columns": {
+      "name": "Name",
+      "size": "Size",
+      "modified": "Changed"
+    },
+    "folderNamed": "Folder {name}",
+    "fileNamed": "File {name}",
+    "showMore": "Show more",
+    "emptyTitle": "Nothing here yet",
+    "empty": "This repository holds no file.",
+    "emptyProxy": "Nothing has been fetched through this proxy yet. What it holds is what was asked of it.",
+    "noFolderTitle": "No such folder",
+    "noFolder": "There is nothing at {folder} in this repository.",
+    "toTop": "Go to the top of {repository}",
+    "uploadHere": "Upload here",
+    "membersTitle": "Members",
+    "membersIntro": "A group holds nothing of its own. It answers from these repositories, in this order. Those you may not browse are not listed.",
+    "noMembers": "None that you may browse.",
+    "detailsOf": "Details of {name}",
+    "closeDetails": "Close the details",
+    "facts": {
+      "path": "Path",
+      "size": "Size",
+      "type": "Type",
+      "sha256": "SHA-256",
+      "sha1": "SHA-1",
+      "md5": "MD5",
+      "sha512": "SHA-512",
+      "blobStore": "Blob store",
+      "storedBy": "Stored by",
+      "created": "Stored",
+      "modified": "Changed",
+      "lastDownloaded": "Last downloaded",
+      "component": "Part of"
+    },
+    "download": "Download",
+    "delete": "Delete",
+    "deleteFileTitle": "Delete {name}?",
+    "deleteFileBody": "The file is removed as its format's own client would remove it. It cannot be brought back.",
+    "deleted": "Deleted {name}.",
+    "deleteFolder": "Delete folder",
+    "deleteFolderTitle": "Delete the folder {name}?",
+    "deleteFolderBody": "Every file under {folder} is deleted. It cannot be brought back.",
+    "deletedSoFar": "{deleted, plural, one {# file deleted so far} other {# files deleted so far}}…",
+    "folderDeleted": "Deleted {deleted, plural, one {# file} other {# files}} under {name}.{skipped, plural, =0 {} one { # file is kept by the format.} other { # files are kept by the format.}}",
+    "folderStopped": "Stopped. {deleted, plural, one {# file} other {# files}} under {name} had been deleted."
+  },
+  "component": {
+    "path": "Path",
+    "about": "What it is",
+    "usage": "Use it",
+    "noUsage": "A file of this kind has no command to copy. Its files have their own addresses.",
+    "files": "Files",
+    "facts": {
+      "repository": "Repository",
+      "format": "Format",
+      "namespace": "Group",
+      "name": "Name",
+      "version": "Version",
+      "created": "Stored",
+      "modified": "Changed"
+    },
+    "columns": {
+      "path": "Path",
+      "size": "Size",
+      "modified": "Changed"
+    },
+    "delete": "Delete this version",
+    "deleteTitle": "Delete {name}?",
+    "deleteBody": "{count, plural, one {Its file is} other {Its # files are}} deleted, as the format's own client would delete the version. It cannot be brought back.",
+    "deleted": "Deleted {name}."
+  },
+  "search": {
+    "title": "Search",
+    "intro": "Components in every repository you can browse.",
+    "fields": {
+      "q": "Words",
+      "format": "Format",
+      "repository": "Repository",
+      "namespace": "Group",
+      "name": "Name",
+      "version": "Version",
+      "checksum": "Checksum of a file"
+    },
+    "hints": {
+      "q": "Each word must be in the name, the group, the version or the description. * stands for anything.",
+      "checksum": "MD5, SHA-1, SHA-256 or SHA-512: its length says which."
+    },
+    "any": "Any",
+    "submit": "Search",
+    "notAChecksum": "A checksum is 32, 40, 64 or 128 hexadecimal digits.",
+    "results": "Results",
+    "found": "{total, plural, one {# component} other {# components}} found.",
+    "noneTitle": "Nothing found",
+    "none": "No component you can browse matches. Try fewer words, or * for part of a name.",
+    "columns": {
+      "name": "Name",
+      "namespace": "Group",
+      "version": "Version",
+      "repository": "Repository",
+      "format": "Format",
+      "modified": "Changed"
+    }
+  },
+  "upload": {
+    "title": "Upload",
+    "titleTo": "Upload to {repository}",
+    "path": "Path",
+    "chooserIntro": "The repositories you can upload to.",
+    "nowhereTitle": "Nowhere to upload to",
+    "nowhere": "There is no hosted repository you may add to. A proxy and a group take no upload, and a Docker image is pushed with a container client.",
+    "intro": {
+      "raw": "Files, stored under a directory by their own names.",
+      "maven": "An artifact, stored where its coordinates say. Checksums and metadata follow by themselves.",
+      "npm": "A package tarball, as npm pack writes it. Its package.json says what it is.",
+      "pypi": "Wheels and source distributions. Each one's name says its project and version."
+    },
+    "fields": {
+      "directory": "Directory",
+      "files": "Files",
+      "tarball": "Tarball",
+      "artifactFile": "Artifact",
+      "group": "Group",
+      "artifact": "Artifact name",
+      "version": "Version",
+      "packaging": "Packaging",
+      "pom": "POM",
+      "generatePom": "Write a POM if the version has none",
+      "classifier": "Classifier",
+      "extraFile": "File",
+      "tag": "Tag",
+      "summary": "Summary",
+      "requiresPython": "Requires Python",
+      "keywords": "Keywords"
+    },
+    "hints": {
+      "directory": "Where in the repository the files go. Empty is its root.",
+      "packaging": "What the POM that is written says: jar, war, pom.",
+      "pom": "Optional. Whatever it is called, it is stored as the version's POM.",
+      "generatePom": "A build that depends on an artifact without a POM warns, or fails.",
+      "classifier": "What sets this file apart: sources, javadoc.",
+      "tag": "The dist-tag the version gets.",
+      "requiresPython": "For example >=3.9. Installers then offer the files only to such a Python.",
+      "files": {
+        "raw": "Any files.",
+        "maven": "The file's own name does not matter. What it is (jar, war) is read from its end.",
+        "npm": "One .tgz file.",
+        "pypi": ".whl, .tar.gz or .zip."
+      }
+    },
+    "extraLegend": "Another file of this version",
+    "addExtra": "Add another file",
+    "removeExtra": "Remove",
+    "submit": "Upload",
+    "stop": "Stop",
+    "sending": "{sent} of {total} sent",
+    "stored": "{count, plural, one {# file stored} other {# files stored}}",
+    "notHereTitle": "Nothing can be uploaded here",
+    "notHosted": "Only a hosted repository takes an upload. A proxy holds what its remote has, and a group holds nothing of its own.",
+    "notDocker": "An image is pushed with a container client, not uploaded.",
+    "notAllowed": "You do not have permission to add to this repository."
   }
 }

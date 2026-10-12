@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { ReactElement } from "react";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { NotificationsProvider } from "@/components/ui/notifications";
 import type { SessionInfo } from "@/lib/api/types";
 import { createQueryClient } from "@/lib/query";
 import { SESSION_KEY } from "@/lib/session/session";
@@ -56,7 +57,9 @@ export function renderUi(ui: ReactElement, options: { session?: SessionInfo } = 
   const result = render(
     <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
       <QueryClientProvider client={client}>
-        <ThemeProvider>{ui}</ThemeProvider>
+        <ThemeProvider>
+          <NotificationsProvider>{ui}</NotificationsProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </NextIntlClientProvider>,
   );

@@ -15,16 +15,29 @@ export function Panel({ className, children, ...rest }: HTMLAttributes<HTMLDivEl
 export function PageHeader({
   title,
   intro,
+  named = false,
   children,
 }: {
   title: string;
   intro?: string;
+  /**
+   * The title has a name in it that someone chose (a repository, a version). Names
+   * tell capitals from small letters, so it is shown as it is written.
+   */
+  named?: boolean;
   children?: ReactNode;
 }) {
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-wide text-fg uppercase">{title}</h1>
+        <h1
+          className={cn(
+            "text-2xl font-semibold text-fg",
+            named ? "break-words" : "tracking-wide uppercase",
+          )}
+        >
+          {title}
+        </h1>
         {intro ? <p className="mt-1 text-fg-muted">{intro}</p> : null}
       </div>
       {children ? <div className="flex flex-wrap gap-2">{children}</div> : null}

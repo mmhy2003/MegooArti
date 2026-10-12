@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { ReactNode } from "react";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { NotificationsProvider } from "@/components/ui/notifications";
 import { createQueryClient } from "@/lib/query";
 
 import messages from "../../messages/en.json";
@@ -30,7 +31,9 @@ export function Providers({ nonce, children }: { nonce?: string; children: React
     // that the server and the browser would write a date the same way.
     <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
       <QueryClientProvider client={getClient()}>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <NotificationsProvider>{children}</NotificationsProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </NextIntlClientProvider>
   );

@@ -11,17 +11,29 @@ export type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> &
   hint?: string;
   /** What is wrong with what was typed. It replaces the hint. */
   error?: string | null;
+  /** The label has a name in it that must be read exactly: it is not put in capitals. */
+  plainLabel?: boolean;
 };
 
 /** A labelled input. Its hint and its error are read out with it. */
-export function TextField({ label, hint, error, className, ...input }: TextFieldProps) {
+export function TextField({
+  label,
+  hint,
+  error,
+  plainLabel = false,
+  className,
+  ...input
+}: TextFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
   const described = error ? errorId : hint ? hintId : undefined;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={id} className="label-caps text-fg-muted">
+      <label
+        htmlFor={id}
+        className={cn("text-fg-muted", plainLabel ? "text-sm font-medium" : "label-caps")}
+      >
         {label}
       </label>
       <input

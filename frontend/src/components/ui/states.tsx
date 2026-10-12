@@ -43,15 +43,19 @@ export function EmptyState({
   title,
   children,
   action,
+  page = false,
 }: {
   title: string;
   children?: ReactNode;
   action?: ReactNode;
+  /** It is all there is on the page, so its title is the page's heading. */
+  page?: boolean;
 }) {
+  const Heading = page ? "h1" : "h2";
   return (
     <div className="flex flex-col items-center gap-3 p-10 text-center">
       <Inbox aria-hidden="true" className="size-10 text-neon-magenta" />
-      <h2 className="text-lg font-semibold text-fg uppercase">{title}</h2>
+      <Heading className="text-lg font-semibold text-fg uppercase">{title}</Heading>
       {children ? <p className="max-w-prose text-fg-muted">{children}</p> : null}
       {action}
     </div>
