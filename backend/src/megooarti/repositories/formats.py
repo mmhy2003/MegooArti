@@ -5,7 +5,8 @@ sets `name`, and overrides only what differs. Formats never touch tables or file
 they work through the repository context they are handed.
 """
 
-from collections.abc import Awaitable, Callable, Collection
+import re
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -38,6 +39,27 @@ class ComponentKey:
     namespace: str
     name: str
     version: str = ""
+
+
+@dataclass(frozen=True)
+class Usage:
+    """One way to use a component, as text for a person to copy."""
+
+    label: str  # who it is for: "Maven", "Gradle (Kotlin)", "npm"
+    language: str  # what it is written in, for whoever shows it: xml, kotlin, groovy, shell
+    text: str
+
+
+_PLAIN = re.compile(r"[A-Za-z0-9_.+~/-]*")
+
+
+def plain(*parts: str) -> bool:
+    """Whether text can stand between other words in a command or a build file.
+
+    A name comes from whoever deployed it, or from a remote. Put into something a
+    person pastes and runs, a quote or a `;` in it would be theirs to run as well.
+    """
+    return all(_PLAIN.fullmatch(part) is not None for part in parts)
 
 
 def _declared_size(request: Request) -> int | None:
@@ -165,6 +187,15 @@ class Format:
         for path, file in zip(targets, form.files, strict=True):
             await context.store(path, file.staged, content_type=self.content_type(path, None))
         return targets
+
+    def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
+        """How a component is used from a repository, as text to copy. The generic format: none.
+
+        `address` is what a client is given for the repository: where it is, ending in
+        a slash, or for a registry its host and its name. `files` are the paths of the
+        component's files. Nothing is offered for a component whose name is not `plain`.
+        """
+        return []
 
     def download_path(self, repository: str, path: str) -> str | None:
         """Where a stored file is fetched, from the root of the site.

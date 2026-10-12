@@ -11,11 +11,12 @@ of everything else.
 
 import asyncio
 import hashlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
 from typing import Any
+from xml.sax.saxutils import escape
 
 import structlog
 from starlette.requests import Request
@@ -28,7 +29,9 @@ from megooarti.repositories.formats import (
     ComponentKey,
     Format,
     Serve,
+    Usage,
     invalid_upload,
+    plain,
     register,
 )
 from megooarti.repositories.forms import UploadForm
@@ -372,6 +375,21 @@ async def _merged(
     return merged, max(modified for _, modified in found)
 
 
+def _kind(files: Sequence[str]) -> str:
+    """What a build has to name to be given the artifact: nothing, for a jar."""
+    kinds = {
+        file.extension
+        for file in map(paths.classify, files)
+        if file.kind == "artifact" and not file.classifier
+    }
+    kinds = {kind for kind in kinds if not kind.endswith(".asc")}  # a signature is of a file
+    if "jar" in kinds or not kinds:
+        return ""
+    # A POM and Gradle's module file describe the artifact. They are it only if alone.
+    others = sorted(kinds - {"pom", "module"})
+    return others[0] if others else "pom"
+
+
 class MavenFormat(Format):
     name = "maven"
 
@@ -409,6 +427,25 @@ class MavenFormat(Format):
         """Its coordinates, and the three of them as they are written in a build file."""
         together = f"{key.namespace}:{key.name}:{key.version}"
         return f"{super().search_text(key, attributes)} {together}"
+
+    def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
+        """A dependency, as Maven and Gradle write one. The repository is named elsewhere."""
+        kind = _kind(files)
+        if not plain(key.namespace, key.name, key.version, kind):
+            return []
+        lines = [
+            f"  <groupId>{escape(key.namespace)}</groupId>",
+            f"  <artifactId>{escape(key.name)}</artifactId>",
+            f"  <version>{escape(key.version)}</version>",
+            *([f"  <type>{escape(kind)}</type>"] if kind else []),
+        ]
+        dependency = "\n".join(["<dependency>", *lines, "</dependency>"])
+        notation = f"{key.namespace}:{key.name}:{key.version}" + (f"@{kind}" if kind else "")
+        return [
+            Usage("Maven", "xml", dependency),
+            Usage("Gradle (Kotlin)", "kotlin", f'implementation("{notation}")'),
+            Usage("Gradle (Groovy)", "groovy", f"implementation '{notation}'"),
+        ]
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         # Maven clients rarely declare a type, and never a useful one.

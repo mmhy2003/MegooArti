@@ -36,9 +36,11 @@ from megooarti.repositories.formats import (
     ComponentKey,
     Format,
     Serve,
+    Usage,
     invalid_upload,
     managed_by_format,
     only_fields,
+    plain,
     register,
 )
 from megooarti.repositories.forms import UploadForm
@@ -781,6 +783,13 @@ class NpmFormat(Format):
         if isinstance(description, str):
             words.append(description)
         return " ".join([super().search_text(key, attributes), *words])
+
+    def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
+        if not plain(key.namespace, key.name, key.version):
+            return []
+        package = f"@{key.namespace}/{key.name}" if key.namespace else key.name
+        command = f"npm install {package}@{key.version} --registry={address}"
+        return [Usage("npm", "shell", command)]
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""

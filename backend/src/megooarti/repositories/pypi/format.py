@@ -36,8 +36,10 @@ from megooarti.repositories.formats import (
     ComponentKey,
     Format,
     Serve,
+    Usage,
     invalid_upload,
     only_fields,
+    plain,
     register,
 )
 from megooarti.repositories.forms import UploadForm
@@ -438,6 +440,12 @@ class PypiFormat(Format):
             await _keep(context, sent, file.staged)
             for sent, file in zip(declared, form.files, strict=True)
         ]
+
+    def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
+        if not plain(key.name, key.version):
+            return []
+        command = f"pip install --index-url {address}simple/ {key.name}=={key.version}"
+        return [Usage("pip", "shell", command)]
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""

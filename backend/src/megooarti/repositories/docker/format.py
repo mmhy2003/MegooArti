@@ -31,6 +31,7 @@ a component too, in a namespace apart from the tags.
 
 import json
 import re
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
@@ -48,7 +49,9 @@ from megooarti.repositories.formats import (
     ComponentKey,
     Format,
     Serve,
+    Usage,
     managed_by_format,
+    plain,
     register,
 )
 from megooarti.storage.backends import StagedBlob
@@ -748,6 +751,12 @@ class DockerFormat(Format):
     remote_signs_in = True
     unlisted_namespaces = frozenset({names.MANIFESTS})
     no_upload = "An image is pushed with a container client, not uploaded."
+
+    def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
+        """Only a tag is pulled by a name of its own."""
+        if key.namespace or not plain(key.name, key.version):
+            return []
+        return [Usage("Docker", "shell", f"docker pull {address}/{key.name}:{key.version}")]
 
     async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
         """A tag goes alone. A manifest goes as by its digest in the registry API.

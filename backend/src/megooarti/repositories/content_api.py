@@ -24,7 +24,7 @@ from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import browse, forms, service
 from megooarti.repositories.content import RepositoryContext, build_context
-from megooarti.repositories.formats import Format, get_format
+from megooarti.repositories.formats import ComponentKey, Format, get_format
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
 from megooarti.security.authentication import (
@@ -93,8 +93,15 @@ class ComponentView(ComponentRef):
     modified: datetime
 
 
+class UsageView(BaseModel):
+    label: str
+    language: str  # what `text` is written in: xml, kotlin, groovy or shell
+    text: str
+
+
 class ComponentDetail(ComponentView):
     files: list[Entry]
+    usage: list[UsageView]  # how it is used from this repository, as text to copy
 
 
 class Uploaded(BaseModel):
@@ -120,15 +127,17 @@ def _handler(repository: Repository) -> Format:
     return handler
 
 
+def _address(repository: Repository, handler: Format | None, base: str) -> str:
+    """What a client is given for a repository."""
+    if handler is not None and handler.served_at == "registry":
+        # A container client is given a host and a name, not an address.
+        return f"{urlsplit(base).netloc}/{repository.name}"
+    return f"{base}/repository/{repository.name}/"
+
+
 async def _view(
     db: AsyncSession, repository: Repository, base: str, caller: Principal
 ) -> RepositoryView:
-    handler = get_format(repository.format)
-    if handler is not None and handler.served_at == "registry":
-        # A container client is given a host and a name, not an address.
-        url = f"{urlsplit(base).netloc}/{repository.name}"
-    else:
-        url = f"{base}/repository/{repository.name}/"
     members = None
     if repository.type == "group":
         # Only those the caller may browse: the others are not theirs to know of.
@@ -142,7 +151,7 @@ async def _view(
         format=repository.format,
         type=repository.type,
         online=repository.online,
-        url=url,
+        url=_address(repository, get_format(repository.format), base),
         members=members,
     )
 
@@ -282,18 +291,24 @@ async def list_components(
 async def get_component(
     repository: str,
     component_id: uuid.UUID,
+    request: Request,
     caller: Principal = Depends(require_caller),
     db: AsyncSession = Depends(get_session),
 ) -> ComponentDetail:
     found = await _holding(db, repository, caller)
-    held = await browse.component(
-        db, found, component_id, unlisted=_handler(found).unlisted_namespaces
-    )
+    handler = _handler(found)
+    held = await browse.component(db, found, component_id, unlisted=handler.unlisted_namespaces)
     if held is None:
         raise ApiError(404, "not_found", "No such component.")
     summary, files = held
+    usage = handler.usage(
+        _address(found, handler, await _base(request, db)),
+        ComponentKey(summary.namespace, summary.name, summary.version),
+        [child.path for child in files],
+    )
     return ComponentDetail.model_validate(
-        {**vars(summary), "files": [_entry(child) for child in files]}, from_attributes=True
+        {**vars(summary), "files": [_entry(child) for child in files], "usage": usage},
+        from_attributes=True,
     )
 
 
