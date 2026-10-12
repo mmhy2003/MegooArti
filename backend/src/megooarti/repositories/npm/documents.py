@@ -136,12 +136,12 @@ def _check_storable(value: Any) -> None:
             pending.extend(item)
 
 
-def loads(raw: bytes) -> Any:
+def loads(raw: bytes, what: str = "the body") -> Any:
     """Parse JSON a client sent, refusing what could not be stored. Raises InvalidPackage."""
     try:
         value = json.loads(raw, parse_constant=_refuse_constant, parse_float=_finite)
     except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
-        raise InvalidPackage("the body is not JSON") from None
+        raise InvalidPackage(f"{what} is not JSON") from None
     _check_storable(value)
     return value
 
@@ -185,6 +185,18 @@ def _attachment(attachments: dict[str, Any], package: str, version: str) -> byte
     return data
 
 
+def check_version(package: str, version: str, manifest: Any) -> None:
+    """Check one version a publish carries, by its manifest. Raises InvalidPackage."""
+    if not semver.is_valid(version):
+        raise InvalidPackage(f"{version!r} is not a valid version")
+    if not isinstance(manifest, dict):
+        raise InvalidPackage(f"the manifest of version {version} is not an object")
+    if manifest.get("name") != package or manifest.get("version") != version:
+        raise InvalidPackage(f"the manifest of version {version} names something else")
+    if len(dumps(manifest)) > MAX_MANIFEST_BYTES:
+        raise InvalidPackage(f"the manifest of version {version} is larger than 1 MiB")
+
+
 def read_upload(package: str, raw: bytes) -> Upload:
     """Read and check a body sent to a package's address.
 
@@ -208,14 +220,7 @@ def read_upload(package: str, raw: bytes) -> Upload:
         raise InvalidPackage("it has attachments but no versions")
     releases = []
     for version, manifest in versions.items():
-        if not semver.is_valid(version):
-            raise InvalidPackage(f"{version!r} is not a valid version")
-        if not isinstance(manifest, dict):
-            raise InvalidPackage(f"the manifest of version {version} is not an object")
-        if manifest.get("name") != package or manifest.get("version") != version:
-            raise InvalidPackage(f"the manifest of version {version} names something else")
-        if len(dumps(manifest)) > MAX_MANIFEST_BYTES:
-            raise InvalidPackage(f"the manifest of version {version} is larger than 1 MiB")
+        check_version(package, version, manifest)
         data = _attachment(attachments, package, version)
         releases.append(Release(version=version, manifest=manifest, data=data))
     # The tarballs are decoded now; their encoded copies need not stay in memory.

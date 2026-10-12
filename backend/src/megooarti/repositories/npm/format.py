@@ -36,10 +36,13 @@ from megooarti.repositories.formats import (
     ComponentKey,
     Format,
     Serve,
+    invalid_upload,
     managed_by_format,
+    only_fields,
     register,
 )
-from megooarti.repositories.npm import documents, paths, semver
+from megooarti.repositories.forms import UploadForm
+from megooarti.repositories.npm import documents, paths, semver, tarballs
 from megooarti.repositories.npm.rewrite import TarballLinks
 from megooarti.repositories.paths import normalise_path
 from megooarti.security.authentication import unauthorized
@@ -426,6 +429,22 @@ async def _publish(context: RepositoryContext, package: str, upload: documents.U
     return _answer({"ok": True, "id": package, "rev": "1-0"}, 201)
 
 
+def _packed(data: bytes) -> tuple[str, documents.Release]:
+    """A tarball as the one version it is, by its own `package.json`. Raises InvalidPackage."""
+    manifest = tarballs.manifest(data)
+    package, version = manifest.get("name"), manifest.get("version")
+    if not isinstance(package, str) or not paths.is_valid_name(package):
+        raise documents.InvalidPackage("its package.json does not name a package")
+    if not isinstance(version, str):
+        raise documents.InvalidPackage("its package.json has no version")
+    if manifest.get("private") is True:
+        # `npm publish` refuses it too: it is how a package says it must stay where it is.
+        raise documents.InvalidPackage("its package.json says the package is private")
+    manifest.setdefault("_id", f"{package}@{version}")  # as `npm publish` adds it
+    documents.check_version(package, version, manifest)
+    return package, documents.Release(version=version, manifest=manifest, data=data)
+
+
 async def _update(
     context: RepositoryContext, request: Request, package: str, upload: documents.Upload
 ) -> Response:
@@ -706,6 +725,30 @@ async def _group_search(context: RepositoryContext, request: Request) -> Respons
 
 class NpmFormat(Format):
     name = "npm"
+
+    async def upload(self, context: RepositoryContext, form: UploadForm) -> list[str]:
+        """Publish a package tarball as `npm publish` would. Its `package.json` says what it is."""
+        only_fields(form, ("tag",))
+        if len(form.files) != 1 or form.files[0].field != "file":
+            raise invalid_upload("file", "One package tarball is needed, sent as `file`.")
+        tag = form.fields.get("tag", "").strip() or "latest"
+        if not documents.is_valid_tag(tag):
+            raise invalid_upload("tag", "This is not a dist-tag.")
+        async with publishing():
+            data = await context.read_staged(
+                form.files[0].staged, limit=context.settings.npm_max_publish_bytes
+            )
+            if data is None:
+                raise ApiError(
+                    413, "payload_too_large", "The package is larger than this server takes."
+                )
+            try:
+                package, release = await off_loop(_packed, data)
+            except documents.InvalidPackage as error:
+                raise _invalid(error) from None
+            sent = documents.Upload(document={}, releases=(release,), tags={tag: release.version})
+            await _publish(context, package, sent)
+        return [paths.tarball_path(package, release.version)]
 
     async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
         """A tarball goes as `npm unpublish <name>@<version>` removes it.

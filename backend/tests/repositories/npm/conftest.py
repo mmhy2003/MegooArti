@@ -1,6 +1,8 @@
 import base64
 import hashlib
+import io
 import json
+import tarfile
 
 import pytest
 
@@ -118,3 +120,28 @@ async def npmjs(db) -> Repository:
 async def root(make_user) -> dict[str, str]:
     await make_user("root", roles=["admin"])
     return basic("root", PASSWORD)
+
+
+def packed(members: dict[str, dict | bytes | str]) -> bytes:
+    """A real tarball, as `npm pack` writes one: gzip over tar.
+
+    A member is JSON for a dict, a file for bytes, and for text `-> target` a symbolic link.
+    """
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, content in members.items():
+            member = tarfile.TarInfo(name)
+            if isinstance(content, str):
+                member.type, member.linkname = tarfile.SYMTYPE, content.removeprefix("-> ")
+                archive.addfile(member)
+                continue
+            data = json.dumps(content).encode() if isinstance(content, dict) else content
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def package_tarball(package: str, version: str, **manifest) -> bytes:
+    """The tarball of a small package, with its `package.json` saying what it is."""
+    said = {"name": package, "version": version, **manifest}
+    return packed({"package/package.json": said, "package/index.js": b"module.exports = 1;\n"})
