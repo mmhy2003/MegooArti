@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { AccountNav } from "@/components/account-nav";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/field";
@@ -83,6 +84,8 @@ export function ChangePasswordScreen() {
   const unexplained = change.isError && fromServer(change.error) === null;
   return (
     <div className="mx-auto max-w-lg">
+      {/* Whoever must choose a password first can go nowhere else, and is shown no way there. */}
+      {forced ? null : <AccountNav />}
       <PageHeader title={forced ? t("mustChangeTitle") : t("title")} />
       {forced ? (
         <Alert tone="warning" className="mb-6">
