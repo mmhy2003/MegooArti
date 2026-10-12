@@ -927,12 +927,13 @@ repositories, blob stores and the installation's own settings.
     combination has. A hosted repository has a deployment policy; a proxy has its
     remote, how it signs in there, how long it trusts what it cached, and what it
     does when the remote fails; a group has its members, put in order with buttons;
-    a Maven repository has a version policy and a layout policy. What cannot change
-    later (name, format, type, blob store, version policy) is shown as it is and not
-    as a field. A proxy's secret is typed and never shown: leave the field empty to
-    keep the one that is stored. A repository's page also shows a proxy's state and
-    last error, has it check everything with its remote again, rebuilds the index,
-    and deletes the repository after you type its name.
+    a hosted or proxy Maven repository has a version policy and a layout policy.
+    What cannot change later (name, format, type, blob store, version policy) is
+    shown as it is and not as a field, beside the address the repository's clients
+    use. A proxy's secret is typed and never shown: leave the field empty to keep
+    the one that is stored. A repository's page also shows a proxy's state and last
+    error, has it check everything with its remote again, rebuilds the index, and
+    deletes the repository after you type its name.
   - **Blob stores** lists the stores with how many blobs each holds, their size and
     the space left, makes a new one, and deletes one that no repository uses. Its
     files stay on the disk.
