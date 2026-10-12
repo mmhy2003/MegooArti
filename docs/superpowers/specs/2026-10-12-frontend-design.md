@@ -335,9 +335,42 @@ A person's own account, and what an administrator does about people: users, role
 | A28 | Changing the format of a row keeps the repository it names. | Set to "any", the row granted its action in every repository of the new format, by a side effect of choosing a list. The row then names a repository that may not exist, grants nothing, and says so in its words. |
 | A29 | A day that is no day (a year of five digits, which a date field lets through) is said to be none. The `/` key can be turned off for the life of the page where the browser keeps nothing. The forms for a new user and a new role are not shown to whoever may not create one. | Each was a button that did nothing, or a promise the page could not keep. |
 
-### 12.4 Repositories and the system (plan 10c, outline)
+### 12.4 Repositories and the system (plan 10c)
 
-Repositories (create and edit as S13 says, delete, invalidate a proxy's cache, rebuild an index). Blob stores (create, delete, what they hold). The base URL. System information: the version, the schema's revision and the blob stores' state, which needs a small addition to the API.
+What an administrator keeps besides people: the repositories, the blob stores they store in, and the installation itself. One addition to the API: system information.
+
+#### Decisions
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| R1 | Managing repositories is a list of its own, `/admin/repositories`, beside the list for browsing at `/`. It shows every repository with its format, type, state and blob store. A repository's browse screen leads to its settings for whoever may see them, and its settings lead to browsing it. | The browsing list is of what a caller may browse, and says what a client needs (the address). The administrator's is of what there is, and says how it is set up. |
+| R2 | A repository is created on one page that grows (S13). The format and the type come first. Under them are the parts that combination has: what every repository has (name, online, blob store), what a hosted one has (deployment policy), a proxy (remote, credential, how long what it cached is trusted, blocking), a group (members, in order), and what the format adds (Maven: version policy and layout). | Chosen by the product owner. |
+| R3 | Editing is the same page. What cannot change is shown as facts and not as fields: name, format, type, blob store, and a Maven repository's version policy. | REP-2. A field that cannot be changed is a field that will be tried. |
+| R4 | A proxy's secret is typed and never shown. On the page of a proxy that has one, the field is empty and says that one is stored and is kept if the field is left empty. When the server asks for it again (the remote's scheme, host or port changed), it says so at the field. | The API never returns it, and keeps it only for the remote it was given for. |
+| R5 | A group's members are a list in the order they are tried, each with buttons to move it up, move it down and take it out, and a list to add from: the repositories of the group's format that are not in it yet, the group itself left out. | The order decides who answers. Dragging alone cannot be done by keyboard. |
+| R6 | How long a proxy trusts what it cached is a number of minutes with what the special values mean said beside it: 0 asks every time, -1 never asks again. | As the API has it; a second control for "never" would be one more thing to get out of step. |
+| R7 | A proxy's page shows its state: whether it is blocked by hand or by itself and until when, how often it failed, and the last error. "Check everything again" invalidates its cache. | PRX rows of the BRD: an operator has to see why a proxy serves stale content. |
+| R8 | "Rebuild the index" is on the page of a hosted and a proxy repository, and says what it found when it is done: files looked at and moved, components looked at and removed. It is done in the request, so the button is busy until then. | The API's own way. |
+| R9 | Deleting a repository asks for its name to be typed (S9) and says that everything stored in it goes with it. Deleting a blob store asks for its name and says that its files stay on the disk. What the server refuses (a group presents the repository; a repository uses the store) is said as it says it. | The two things that cannot be undone and take the most with them. |
+| R10 | Blob stores are one page, `/admin/blob-stores`: those there are, each with how many blobs it holds, their size, and the space left where the server can say; and a form for a new one (name, and a directory, which is under the data directory unless it is absolute). | BLB-1, BLB-4. There is nothing of a blob store to edit. |
+| R11 | System is one page, `/admin/system`: the version, the schema's revision and whether it is the one this version expects, when the server started and what it runs on, the database's version, the state of the blob stores for whoever may see them, and the base URL, which can be set there. | SYS-4. The base URL is the one setting besides anonymous access. |
+| R12 | The API gets `GET /api/v1/system/information`, for whoever holds `admin:settings:read`: `version`, `schema` (`revision`, `expected`, `current`), `runtime` (`python`, `platform`, `started_at`) and `database` (`version`). Blob stores are not in it: they have their own endpoint and their own permission. | SYS-4. What a load balancer is told at `/status/ready` is yes or no; this says what. |
+| R13 | The forms for a new repository and a new blob store are at addresses no name can be (`~new`), and a name that is `.` or `..` is refused in the form (A25). | A repository may be called `new`. |
+| R14 | The navigation item is "Manage repositories", under Administration. | "Repositories" is the browsing list's name, in the same navigation. |
+
+#### Addresses
+
+| Address | What it shows | Shown to |
+| --- | --- | --- |
+| `/admin/repositories` | Every repository: name, format, type, state, blob store. | `admin:repositories:read` |
+| `/admin/repositories/~new` | The form for a new one. | `admin:repositories:write` |
+| `/admin/repositories/<name>` | One repository: its settings, a proxy's state, check again, rebuild the index, delete. | `admin:repositories:read`, `write` to change |
+| `/admin/blob-stores` | The blob stores, a new one, delete. | `admin:blobstores:read`, `write` to change |
+| `/admin/system` | Version, schema, runtime, database, blob stores' state, the base URL. | `admin:settings:read`, `write` for the base URL |
+
+- **The formats** a repository can have are those the server has: raw, maven, npm, pypi, docker. Each can be hosted, a proxy or a group.
+- **What the server refuses** is put at the field it names (`proxy.remote_url`, `group.members`, `format_config.layout_policy`, `name` for a Docker repository's name) or said whole (`repository_cycle`, `in_use`, `immutable`).
+- **The navigation's Administration area** becomes: Users, Roles, Anonymous access, Manage repositories, Blob stores, System.
 
 ## 13. Requirement coverage
 
