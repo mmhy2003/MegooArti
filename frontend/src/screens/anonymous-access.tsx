@@ -4,7 +4,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { PermissionList } from "@/components/permission-rows";
-import { StatusTag } from "@/components/ui/alert";
+import { Alert, StatusTag } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AppLink } from "@/components/ui/link";
@@ -99,6 +99,14 @@ function Allowed() {
   );
 }
 
+/** Whether the anonymous user can be seen to be disabled: the switch then gives nothing. */
+function useAnonymousIsDisabled(): boolean {
+  const session = useSession();
+  const readable = session.data !== undefined && allows(session.data, "admin:users:read");
+  const user = useAnonymousUser(readable);
+  return user.data !== undefined && user.data !== null && user.data.status !== "active";
+}
+
 /**
  * Whether someone who is not signed in may use the server at all (A9). It is the one
  * setting that makes content public, so turning it on asks first.
@@ -110,6 +118,7 @@ export function AnonymousAccessScreen() {
   const settings = useSettings();
   const change = useSetAnonymousAccess();
   const [asking, setAsking] = useState(false);
+  const disabled = useAnonymousIsDisabled();
 
   if (settings.isError) {
     return <ErrorState error={settings.error} onRetry={() => void settings.refetch()} />;
@@ -143,7 +152,14 @@ export function AnonymousAccessScreen() {
             </Button>
           ) : null}
         </div>
-        <p className="mt-3 text-fg-muted">{on ? t("onMeans") : t("offMeans")}</p>
+        {on && disabled ? (
+          // The server gives a visitor nothing while the user they act as cannot sign in.
+          <Alert tone="warning" className="mt-3">
+            {t("userDisabled")}
+          </Alert>
+        ) : (
+          <p className="mt-3 text-fg-muted">{on ? t("onMeans") : t("offMeans")}</p>
+        )}
         {change.isError ? <ErrorState error={change.error} className="mt-4" /> : null}
       </Panel>
       <Panel className="p-6">

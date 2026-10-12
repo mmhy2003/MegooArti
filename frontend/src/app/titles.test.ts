@@ -5,7 +5,7 @@ import { metadata as preferences } from "./(shell)/account/preferences/page";
 import { metadata as tokens } from "./(shell)/account/tokens/page";
 import { metadata as anonymousAccess } from "./(shell)/admin/anonymous-access/page";
 import { metadata as role } from "./(shell)/admin/roles/[name]/page";
-import { metadata as newRole } from "./(shell)/admin/roles/new/page";
+import { metadata as newRole } from "./(shell)/admin/roles/~new/page";
 import { metadata as roles } from "./(shell)/admin/roles/page";
 import { metadata as user } from "./(shell)/admin/users/[id]/page";
 import { metadata as newUser } from "./(shell)/admin/users/new/page";

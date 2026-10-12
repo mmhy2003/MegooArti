@@ -132,6 +132,39 @@ describe("the users (A13)", () => {
   });
 });
 
+describe("another page of a list", () => {
+  test("of users has the keyboard when it is shown, and a page past the last leads to the last", async () => {
+    mockApi({ "GET /users": { json: page([ALICE], 101) } });
+    navigation.at("/admin/users");
+    const { rerender } = renderUi(<UsersScreen />, { session: ADMIN });
+    await screen.findByRole("table", { name: "Users" });
+    expect(screen.getByRole("group", { name: "Users" })).not.toHaveFocus(); // not on arrival
+
+    navigation.at("/admin/users?page=2");
+    rerender(<UsersScreen />);
+    // The link that was followed went while the page loaded.
+    await waitFor(() => expect(screen.getByRole("group", { name: "Users" })).toHaveFocus());
+
+    navigation.at("/admin/users?page=9");
+    rerender(<UsersScreen />);
+    await waitFor(() =>
+      expect(navigation.router.replace).toHaveBeenCalledWith("/admin/users?page=3"),
+    );
+  });
+
+  test("of roles has the keyboard when it is shown", async () => {
+    mockApi({ "GET /roles": { json: page(ROLES, 60) } });
+    navigation.at("/admin/roles");
+    const { rerender } = renderUi(<RolesScreen />, { session: ADMIN });
+    await screen.findByRole("table", { name: "Roles" });
+
+    navigation.at("/admin/roles?page=2");
+    rerender(<RolesScreen />);
+
+    await waitFor(() => expect(screen.getByRole("group", { name: "Roles" })).toHaveFocus());
+  });
+});
+
 describe("a new user (A6)", () => {
   function fresh(more: Routes = {}, session = ADMIN) {
     const api = mockApi({
@@ -175,7 +208,7 @@ describe("a new user (A6)", () => {
 
   test("says the password to pass on once more, where the keyboard is taken", async () => {
     const user = userEvent.setup();
-    fresh();
+    const { client } = fresh();
     await user.type(screen.getByLabelText("User name"), "carol");
     await user.type(screen.getByLabelText("Name"), "Carol");
     await user.click(screen.getByRole("button", { name: "Generate one" }));
@@ -184,6 +217,18 @@ describe("a new user (A6)", () => {
 
     const created = await screen.findByRole("region", { name: "The user carol is created" });
 
+    // It is on this panel, to be passed on, and nowhere else: not in what the store
+    // keeps of the request that sent it.
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          client
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => [mutation.state.variables, mutation.state.data]),
+        ),
+      ).not.toContain(generated),
+    );
     expect(within(created).getByRole("heading")).toHaveFocus();
     expect(within(created).getByText(generated)).toBeVisible();
     expect(created).toHaveTextContent("They sign in with it once, and then choose their own.");
@@ -223,6 +268,27 @@ describe("a new user (A6)", () => {
       "The password must be at least 8 characters long.",
     );
     expect(of(calls, "POST")).toHaveLength(0);
+  });
+
+  test("puts the keyboard at what is still wrong at every press, not only the first", async () => {
+    const user = userEvent.setup();
+    fresh();
+
+    await user.click(submit());
+    expect(screen.getByLabelText("User name")).toHaveFocus();
+    await user.type(screen.getByLabelText("User name"), "carol");
+    await user.click(submit());
+
+    // The name is next: without this the button would seem to do nothing.
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+  });
+
+  test("is not offered to whoever may not create users, though the address be typed", async () => {
+    fresh({}, holding("admin:users:read", "admin:roles:read"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("You may not create users.");
+    expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();
+    expect(screen.queryByLabelText("User name")).toBeNull();
   });
 
   test("says that a name is taken at the name, and anything else the server refuses where it belongs", async () => {
@@ -375,6 +441,43 @@ describe("one user", () => {
     expect(of(calls, "PATCH")[0]?.body).not.toHaveProperty("status");
   });
 
+  test("one's own password is not set here, where doing so would lock one out (A7)", async () => {
+    one(SELF);
+    await screen.findByRole("checkbox", { name: "admin" });
+
+    // Set here with "must choose a new one", it would end this page and ask for the
+    // password that was on it.
+    expect(screen.queryByRole("button", { name: "Set password" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Generate one" })).toBeNull();
+    expect(screen.getByText(/This is your own account: your password is changed/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Change your password" })).toHaveAttribute(
+      "href",
+      "/account/password",
+    );
+  });
+
+  test("opens with what the server holds now, and not with what was fetched before", async () => {
+    const user = userEvent.setup();
+    let held = ["deployers"];
+    const { calls, rerender } = one(ALICE, {
+      "GET /users/id-of-alice": () => ({ json: { ...ALICE, roles: held } }),
+      "PATCH /users/id-of-alice": { json: ALICE },
+    });
+    expect(await screen.findByRole("checkbox", { name: "deployers" })).toBeChecked();
+
+    // Away, and back within the time what was fetched is kept. Meanwhile the role was
+    // taken from her elsewhere.
+    rerender(<p>Elsewhere</p>);
+    held = [];
+    rerender(<UserScreen />);
+
+    const role = await screen.findByRole("checkbox", { name: "deployers" });
+    await waitFor(() => expect(role).not.toBeChecked());
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(of(calls, "PATCH")).toHaveLength(1));
+    expect((of(calls, "PATCH")[0]?.body as { roles: string[] }).roles).toEqual([]);
+  });
+
   test("a built-in user is not deleted, and the anonymous one has no password", async () => {
     one(ANONYMOUS);
 
@@ -515,11 +618,24 @@ describe("the roles", () => {
     expect(rows[2]).toHaveTextContent("repository:maven:releases:add");
     expect(rows[2]).toHaveTextContent("anonymous");
     expect(rows[0]).toHaveTextContent("Built in");
+    // At an address no role's name can be: a role may be called "new".
     expect(screen.getByRole("link", { name: "New role" })).toHaveAttribute(
       "href",
-      "/admin/roles/new",
+      "/admin/roles/~new",
     );
     await expectAccessible();
+  });
+
+  test("show a role that no address can name, without a link to nowhere", async () => {
+    mockApi({ "GET /roles": { json: page([role(".."), role("deployers")]) } });
+    navigation.at("/admin/roles");
+    renderUi(<RolesScreen />, { session: ADMIN });
+
+    const table = await screen.findByRole("table", { name: "Roles" });
+
+    expect(within(table).getByText("..")).toBeVisible();
+    expect(within(table).queryByRole("link", { name: ".." })).toBeNull();
+    expect(within(table).getByRole("link", { name: "deployers" })).toBeVisible();
   });
 
   test("offer no new role to whoever may only read them", async () => {
@@ -554,7 +670,7 @@ describe("a role", () => {
       "POST /roles": (call) => ({ status: 201, json: role((call.body as { name: string }).name) }),
       ...more,
     });
-    navigation.at("/admin/roles/new");
+    navigation.at("/admin/roles/~new");
     return { ...renderUi(<NewRoleScreen />, { session: ADMIN }), ...api };
   }
 
@@ -603,6 +719,66 @@ describe("a role", () => {
       ),
     );
     expect(navigation.router.push).not.toHaveBeenCalled();
+  });
+
+  test("cannot be called . or .., which no address can name", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    for (const dots of [".", ".."]) {
+      await user.clear(screen.getByLabelText("Name"));
+      await user.type(screen.getByLabelText("Name"), dots);
+      await user.click(screen.getByRole("button", { name: "Create role" }));
+      expect(screen.getByLabelText("Name")).toHaveAccessibleDescription(
+        "A role cannot be called . or .. : its page would have no address.",
+      );
+    }
+    expect(of(calls, "POST")).toHaveLength(0);
+  });
+
+  test("may be called new, and is then opened as any other", async () => {
+    existing(role("new", { description: "A role like any other" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "new" })).toBeVisible();
+    expect(screen.getByLabelText("Description")).toHaveValue("A role like any other");
+    expect(screen.getByRole("button", { name: "Save" })).toBeVisible();
+  });
+
+  test("is not offered as a form to whoever may not create roles, though the address be typed", async () => {
+    mockApi({ "GET /roles": { json: page(ROLES) }, "GET /content": { json: REPOSITORIES } });
+    navigation.at("/admin/roles/~new");
+    renderUi(<NewRoleScreen />, { session: holding("admin:roles:read") });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("You may not create roles.");
+    expect(screen.queryByRole("button", { name: "Create role" })).toBeNull();
+  });
+
+  test("opens with what the server holds now, and not with what was fetched before", async () => {
+    const user = userEvent.setup();
+    let action = "read";
+    const held = () => role("readers", { permissions: [`repository:maven:releases:${action}`] });
+    const { calls, rerender } = existing(held(), {
+      "GET /roles/readers": () => ({ json: held() }),
+      "PUT /roles/readers": { json: held() },
+    });
+    const first = await screen.findByRole("group", { name: "Permission 1" });
+    expect(within(first).getByLabelText("Action")).toHaveValue("read");
+
+    // Away, and back. Meanwhile it was narrowed elsewhere: saving must not widen it again.
+    rerender(<p>Elsewhere</p>);
+    action = "browse";
+    rerender(<RoleScreen />);
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("group", { name: "Permission 1" })).getByLabelText("Action"),
+      ).toHaveValue("browse"),
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(of(calls, "PUT")).toHaveLength(1));
+    expect((of(calls, "PUT")[0]?.body as { permissions: string[] }).permissions).toEqual([
+      "repository:maven:releases:browse",
+    ]);
   });
 
   test("opens with what it holds, and loses nothing by being saved as it is (A3)", async () => {
@@ -780,6 +956,20 @@ describe("anonymous access (A9)", () => {
     // Not what a visitor is never allowed, whatever the roles say.
     expect(screen.queryByText("admin:audit:read")).toBeNull();
     await expectAccessible();
+  });
+
+  test("says so when it is on and gives nothing, the anonymous user being disabled", async () => {
+    anonymous(true, {
+      "GET /users": { json: page([SELF, { ...ANONYMOUS, status: "disabled" }]) },
+    });
+
+    expect(await screen.findByText(/The anonymous user is disabled/)).toBeVisible();
+    // Not that anyone may do what is listed: nobody may, until the user is enabled.
+    expect(screen.queryByText(/Anyone who can reach this server may do/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Change its roles" })).toHaveAttribute(
+      "href",
+      "/admin/users/id-of-anonymous",
+    );
   });
 
   test("offers no switch to whoever may only read the settings, and says what it cannot show", async () => {

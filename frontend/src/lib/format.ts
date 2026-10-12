@@ -39,6 +39,17 @@ export function exactTime(moment: Date): string {
   return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(moment);
 }
 
+/**
+ * The last second of a day (`2031-05-17`, as a date field gives it), where the person
+ * is, as the API takes a moment. Null for what is no day: a date field lets a year of
+ * five digits through, which no moment can be made of.
+ */
+export function endOfDay(day: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const moment = new Date(`${day}T23:59:59`);
+  return Number.isNaN(moment.getTime()) ? null : moment.toISOString();
+}
+
 export const CHECKSUMS = { 32: "md5", 40: "sha1", 64: "sha256", 128: "sha512" } as const;
 export type ChecksumKind = (typeof CHECKSUMS)[keyof typeof CHECKSUMS];
 

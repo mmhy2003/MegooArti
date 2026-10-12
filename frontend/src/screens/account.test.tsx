@@ -101,6 +101,37 @@ describe("one's API tokens (A4)", () => {
     );
   });
 
+  test("another page of them has the keyboard, and a page past the last leads to the last", async () => {
+    const { rerender } = tokens({ "GET /me/tokens": { json: page([token("t")], 60) } });
+    await screen.findByRole("table", { name: "Your tokens" });
+
+    navigation.at("/account/tokens?page=2");
+    rerender(<TokensScreen />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Your tokens" })).toHaveFocus());
+
+    // As after the only token of the last page is revoked: not "You have no token."
+    navigation.at("/account/tokens?page=5");
+    rerender(<TokensScreen />);
+    await waitFor(() =>
+      expect(navigation.router.replace).toHaveBeenCalledWith("/account/tokens?page=2"),
+    );
+    expect(screen.queryByText("You have no token.")).toBeNull();
+  });
+
+  test("puts the keyboard at what is still wrong at every press", async () => {
+    const user = userEvent.setup();
+    tokens();
+    await screen.findByRole("table", { name: "Your tokens" });
+    await user.selectOptions(screen.getByLabelText("Lasts"), "date");
+
+    await user.click(create());
+    expect(screen.getByLabelText("Name")).toHaveFocus();
+    await user.type(screen.getByLabelText("Name"), "x");
+    await user.click(create());
+
+    expect(screen.getByLabelText("Until the end of")).toHaveFocus();
+  });
+
   test("a new one lasts ninety days and does what its owner may, unless told otherwise", async () => {
     const user = userEvent.setup();
     const { calls } = tokens();
@@ -133,9 +164,7 @@ describe("one's API tokens (A4)", () => {
     await user.selectOptions(screen.getByLabelText("Lasts"), "date");
     await user.click(create());
     // A day is needed, and is asked for where it is missing.
-    expect(screen.getByLabelText("Until the end of")).toHaveAccessibleDescription(
-      "Choose the day.",
-    );
+    expect(screen.getByLabelText("Until the end of")).toHaveAccessibleDescription("Choose a day.");
     expect(screen.getByLabelText("Until the end of")).toHaveFocus();
     expect(second.calls.some((call) => call.method === "POST")).toBe(false);
 

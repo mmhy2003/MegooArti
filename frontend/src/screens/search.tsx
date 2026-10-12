@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { PageHeader, Panel } from "@/components/ui/panel";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { Table, Td, Th } from "@/components/ui/table";
 import { RESULTS_AT_ONCE, useRepositories, useSearch, type Wanted } from "@/lib/content";
+import { usePageFocus, useWithinPages } from "@/lib/focus";
 import { readChecksum } from "@/lib/format";
 import { browseHref, componentHref, searchHref } from "@/lib/paths";
 
@@ -47,18 +48,16 @@ function Results({ wanted, page, values }: { wanted: Wanted; page: number; value
   const results = useSearch(wanted, page);
   // Another page replaces the link that led to it while it loads, and what had the
   // keyboard is gone. It is given to the line above the results, which says what they are.
-  const top = useRef<HTMLParagraphElement>(null);
-  const shown = useRef(page);
-  const arrived = results.data !== undefined;
-  useEffect(() => {
-    if (!arrived || shown.current === page) return;
-    shown.current = page;
-    top.current?.focus();
-  }, [page, arrived]);
+  const top = usePageFocus<HTMLParagraphElement>(page, results.data !== undefined);
+  const pages =
+    results.data === undefined ? undefined : Math.ceil(results.data.total / RESULTS_AT_ONCE);
+  const hrefFor = (target: number) =>
+    searchHref({ ...values, page: target > 1 ? String(target) : undefined });
+  const beyond = useWithinPages(page, pages, hrefFor);
   if (results.isError) {
     return <ErrorState error={results.error} onRetry={() => void results.refetch()} />;
   }
-  if (!results.data) {
+  if (!results.data || beyond) {
     return (
       <Panel>
         <LoadingState />
@@ -118,13 +117,7 @@ function Results({ wanted, page, values }: { wanted: Wanted; page: number; value
           ))}
         </tbody>
       </Table>
-      <Pager
-        page={page}
-        pages={Math.ceil(total / RESULTS_AT_ONCE)}
-        hrefFor={(target) =>
-          searchHref({ ...values, page: target > 1 ? String(target) : undefined })
-        }
-      />
+      <Pager page={page} pages={pages ?? 1} hrefFor={hrefFor} />
     </Panel>
   );
 }

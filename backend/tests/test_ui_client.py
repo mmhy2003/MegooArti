@@ -98,7 +98,8 @@ def test_the_ui_in_a_real_browser(stack):
     said = f"exit {result.returncode}\n{result.stdout[-6000:]}\n{result.stderr[-2000:]}"
     assert result.returncode == 0, said
     passed = re.search(r"(\d+) passed", result.stdout)
-    assert passed is not None and int(passed[1]) >= 51, said
+    # As many as the file has: fewer would mean that some were left out without a word.
+    assert passed is not None and int(passed[1]) >= 54, said
     assert not re.search(r"\d+ (failed|skipped|did not run)", result.stdout), said
 
 

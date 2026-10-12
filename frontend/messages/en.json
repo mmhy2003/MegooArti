@@ -429,12 +429,12 @@
       "custom": "Only what I choose"
     },
     "limitHints": {
-      "everything": "It can do what you can, now and as your roles change.",
+      "everything": "It can do what you can in the repositories and the administration, now and as your roles change. It cannot make tokens or change your password.",
       "read": "Browse and download from the repositories you may read. Nothing else.",
       "custom": "Whatever you choose here, it never does more than you may do yourself."
     },
     "nameNeeded": "Give it a name.",
-    "dayNeeded": "Choose the day.",
+    "dayNeeded": "Choose a day.",
     "customNeeded": "Add at least one permission, or choose another limit.",
     "create": "Create token",
     "madeTitle": "The token {name} is made",
@@ -537,7 +537,10 @@
     "deleteBody": "They can no longer sign in, and every token of theirs is refused. This cannot be undone.",
     "deleted": "Deleted the user {username}.",
     "selfDelete": "This is your own account: you cannot delete it.",
-    "builtinDelete": "A built-in user cannot be deleted. It can be disabled."
+    "builtinDelete": "A built-in user cannot be deleted. It can be disabled.",
+    "mayNotCreate": "You may not create users.",
+    "selfPassword": "This is your own account: your password is changed under your account, where you are asked for the one you have.",
+    "toOwnPassword": "Change your password"
   },
   "roles": {
     "title": "Roles",
@@ -577,7 +580,9 @@
     "delete": "Delete role",
     "deleteAsk": "Delete the role {name}?",
     "deleteBody": "Everyone who holds it loses what it grants, at once. This cannot be undone.",
-    "deleted": "Deleted the role {name}."
+    "deleted": "Deleted the role {name}.",
+    "mayNotCreate": "You may not create roles.",
+    "nameDots": "A role cannot be called . or .. : its page would have no address."
   },
   "anonymous": {
     "title": "Anonymous access",
@@ -601,6 +606,7 @@
     "toUser": "Change its roles",
     "noRoles": "It holds no role.",
     "grantsNothing": "Its roles grant nothing in any repository.",
-    "onlyRepositories": "Whatever its roles say, a visitor is never allowed anything but what concerns repositories."
+    "onlyRepositories": "Whatever its roles say, a visitor is never allowed anything but what concerns repositories.",
+    "userDisabled": "The anonymous user is disabled, so nothing is given without signing in, though the switch is on. Enable the user to let visitors in."
   }
 }

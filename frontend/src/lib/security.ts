@@ -114,6 +114,7 @@ export function useCreateUser() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (wanted: UserCreate) => api.post<UserOut>("/users", wanted),
+    gcTime: 0, // what was sent has a password in it
     onSuccess: () => afterSecurityChange(client),
   });
 }

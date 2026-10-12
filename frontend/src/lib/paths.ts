@@ -17,7 +17,8 @@ export const PREFERENCES = "/account/preferences" as Route;
 export const USERS = "/admin/users" as Route;
 export const NEW_USER = "/admin/users/new" as Route;
 export const ROLES = "/admin/roles" as Route;
-export const NEW_ROLE = "/admin/roles/new" as Route;
+// Where no role's name can be: a role may be called "new", and has `~` in no name.
+export const NEW_ROLE = "/admin/roles/~new" as Route;
 export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
 
 const segments = (path: string) => path.split("/").filter((segment) => segment !== "");
@@ -70,6 +71,15 @@ export function pageOf(search: { get(name: string): string | null }): number {
 
 export function userHref(id: string): Route {
   return `${USERS}/${encodeURIComponent(id)}` as Route;
+}
+
+/**
+ * Whether something called this can have a page whose address ends in its name. A
+ * browser takes `.` and `..` for the folder itself and the one above, however they are
+ * written, so a name that is one of them has no address of its own.
+ */
+export function isAddressable(name: string): boolean {
+  return name !== "." && name !== "..";
 }
 
 export function roleHref(name: string): Route {

@@ -783,6 +783,37 @@ test("the preferences screen meets WCAG 2.1 AA in both modes", async () => {
   await expectAccessibleInBothModes();
 });
 
+test("in a narrow window the / key is taken only when the search box is there to go to", async () => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+  // Whether each press of the key was taken from the browser, noted once every listener has run.
+  await page.evaluate(() => {
+    const taken: boolean[] = [];
+    Object.assign(window, { takenKeys: taken });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "/") setTimeout(() => taken.push(event.defaultPrevented));
+    });
+  });
+  const taken = () =>
+    page.evaluate(() => (window as unknown as { takenKeys: boolean[] }).takenKeys);
+  const box = page.getByRole("searchbox", { name: "Search components" });
+
+  // The box is in the navigation, which is closed: the key would lead nowhere, and is left alone.
+  await page.keyboard.press("/");
+  await expect(box).toHaveCount(0);
+  await expect.poll(taken).toEqual([false]);
+
+  await page.getByRole("button", { name: "Open the navigation" }).click();
+  await page.keyboard.press("/");
+  await expect(box).toBeFocused();
+  await expect.poll(taken).toEqual([false, true]);
+
+  await page.keyboard.press("Tab");
+  await page.getByRole("button", { name: "Close the navigation" }).click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+});
+
 test("a token is made for a build, shown once, does what it was limited to, and is revoked", async ({
   playwright,
   baseURL,
@@ -1007,6 +1038,12 @@ test("a user who is disabled cannot sign in, and is deleted only by whoever type
   await page.getByRole("link", { name: "admin", exact: true }).click();
   await expect(page.getByText("This is your own account: you cannot delete it.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Delete user" })).toHaveCount(0);
+  // Nor is one's own password set here: set with "must choose a new one", it would end
+  // this page and ask for the password that was on it.
+  await expect(page.getByRole("button", { name: "Set password" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Change your password" }).click();
+  await expect(page).toHaveURL(/\/account\/password$/);
+  await expect(page.getByLabel("Current password")).toBeVisible();
 });
 
 test("a role is deleted after asking, and the one that makes an administrator is changed by nobody", async () => {
@@ -1026,6 +1063,31 @@ test("a role is deleted after asking, and the one that makes an administrator is
   await expect(page.getByText("It grants everything, and cannot be changed.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete role" })).toHaveCount(0);
+});
+
+test("a role may be called new, and is opened and deleted like any other", async () => {
+  await page.goto("/admin/roles");
+  await page.getByRole("link", { name: "New role" }).click();
+  // The form is where no role's name can be.
+  await expect(page).toHaveURL(/\/admin\/roles\/~new$/);
+  await page.getByLabel("Name", { exact: true }).fill("..");
+  await page.getByRole("button", { name: "Create role" }).click();
+  await expect(page.getByText("A role cannot be called . or ..")).toBeVisible();
+
+  await page.getByLabel("Name", { exact: true }).fill("new");
+  await page.getByRole("button", { name: "Create role" }).click();
+  await expect(page).toHaveURL(/\/admin\/roles\/new$/);
+  await expect(page.getByRole("heading", { level: 1, name: "new", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+  // Loaded afresh, it is still the role, and not the form for a new one.
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "new", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete role" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete role" }).click();
+  await expect(page).toHaveURL(/\/admin\/roles$/);
+  await expect(page.getByRole("link", { name: "new", exact: true })).toHaveCount(0);
+  await page.goto("/admin/anonymous-access");
 });
 
 test("anonymous access is turned on only after asking, and the page says what a visitor may do", async ({

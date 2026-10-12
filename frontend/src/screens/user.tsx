@@ -1,6 +1,7 @@
 "use client";
 
 import { Trash2 } from "lucide-react";
+import type { Route } from "next";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -21,6 +22,7 @@ import { PageHeader, Panel } from "@/components/ui/panel";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { isApiError } from "@/lib/api/client";
 import type { UserOut } from "@/lib/api/types";
+import { useAttempts } from "@/lib/focus";
 import { NEW_USER, parseUser, userHref, USERS } from "@/lib/paths";
 import { refusalsOf } from "@/lib/refusals";
 import {
@@ -33,7 +35,7 @@ import {
   useUser,
   useUserTokens,
 } from "@/lib/security";
-import { allows } from "@/lib/session/rules";
+import { allows, CHANGE_PASSWORD } from "@/lib/session/rules";
 import { useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
 
@@ -44,15 +46,6 @@ const MIN_PASSWORD = 8;
 const ANONYMOUS = "anonymous";
 
 const H2 = "mb-4 text-lg font-semibold text-fg uppercase";
-
-/** The keyboard goes to the first field that is wrong, whenever what is wrong changes. */
-function useFocusOnWrong(changed: unknown) {
-  const form = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [changed]);
-  return form;
-}
 
 /** The roles a user can be given, as ticks. Without the right to read roles: those they hold. */
 function useRoleOptions(held: string[]) {
@@ -133,7 +126,7 @@ function NewUserForm({
   const [password, setPassword] = useState("");
   const [mustChange, setMustChange] = useState(true);
   const [roles, setRoles] = useState<string[]>([]);
-  const [checked, setChecked] = useState(false);
+  const { form, tried: checked, attempt } = useAttempts(create.error);
   const choices = useRoleOptions(roles);
 
   const refused = refusalsOf(create.error, [
@@ -160,7 +153,6 @@ function NewUserForm({
         password: own.password ?? refused.at.password,
       }
     : {};
-  const form = useFocusOnWrong(`${checked}${String(create.error)}`);
   useEffect(() => {
     // The panel that said a user was made had the keyboard, and is gone.
     if (again) form.current?.querySelector("input")?.focus();
@@ -168,7 +160,7 @@ function NewUserForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setChecked(true);
+    attempt();
     create.reset();
     if (Object.values(own).some(Boolean)) return;
     create.mutate(
@@ -257,8 +249,10 @@ function NewUserForm({
 /** A new user (A6): who they are, the password they start with, and their roles. */
 export function NewUserScreen() {
   const t = useTranslations("users");
+  const session = useSession();
   const [created, setCreated] = useState<{ user: UserOut; password: string } | null>(null);
   const [again, setAgain] = useState(false);
+  const mayCreate = session.data !== undefined && allows(session.data, "admin:users:write");
   return (
     <div className="mx-auto max-w-3xl">
       <Breadcrumbs
@@ -269,7 +263,10 @@ export function NewUserScreen() {
         ]}
       />
       <PageHeader title={t("newTitle")} />
-      {created ? (
+      {!mayCreate ? (
+        // The address can be typed by anybody. The server would refuse what was filled in.
+        <Alert tone="warning">{t("mayNotCreate")}</Alert>
+      ) : created ? (
         <Created
           user={created.user}
           password={created.password}
@@ -303,7 +300,7 @@ function Details({
   const [email, setEmail] = useState(user.email ?? "");
   const [roles, setRoles] = useState(user.roles);
   const [status, setStatus] = useState(user.status);
-  const [checked, setChecked] = useState(false);
+  const { form, tried: checked, attempt } = useAttempts(update.error);
   const choices = useRoleOptions(user.roles);
 
   const refused = refusalsOf(update.error, ["display_name", "email", "roles", "status"]);
@@ -317,11 +314,10 @@ function Details({
         email: own.email ?? refused.at.email,
       }
     : {};
-  const form = useFocusOnWrong(`${checked}${String(update.error)}`);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setChecked(true);
+    attempt();
     update.reset();
     if (Object.values(own).some(Boolean)) return;
     update.mutate(
@@ -418,15 +414,14 @@ function Password({ user }: { user: UserOut }) {
   const reset = useResetPassword(user.id);
   const [password, setPassword] = useState("");
   const [mustChange, setMustChange] = useState(true);
-  const [checked, setChecked] = useState(false);
+  const { form, tried: checked, attempt } = useAttempts(reset.error);
   const refused = refusalsOf(reset.error, ["password"]);
   const short = password.length < MIN_PASSWORD ? t("passwordRule", { min: MIN_PASSWORD }) : null;
   const problem = checked ? (short ?? refused.at.password) : undefined;
-  const form = useFocusOnWrong(`${checked}${String(reset.error)}`);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setChecked(true);
+    attempt();
     reset.reset();
     if (short) return;
     reset.mutate({ password, must_change_password: mustChange });
@@ -561,7 +556,10 @@ export function UserScreen() {
 
   if (where === null) return <NothingHere />;
   if (user.isError) return <ErrorState error={user.error} onRetry={() => void user.refetch()} />;
-  if (!user.data || !session.data) return <LoadingState />;
+  // The form is filled once, when it opens, so it opens on an answer that came after
+  // the page did: what was fetched the last time the page was open may have been
+  // changed since, and saving from it would undo that.
+  if (!user.data || !user.isFetchedAfterMount || !session.data) return <LoadingState />;
 
   const found = user.data;
   const may = (permission: string) => allows(session.data, permission);
@@ -582,7 +580,19 @@ export function UserScreen() {
         {found.builtin ? <Alert tone="info">{t("builtinNote")}</Alert> : null}
       </div>
       <Details user={found} mayWrite={mayWrite} isSelf={isSelf} />
-      {mayWrite && !isAnonymous ? <Password user={found} /> : null}
+      {!mayWrite || isAnonymous ? null : isSelf ? (
+        // Set here, with "must choose a new one", it would end this page and ask for the
+        // password that was on it: an administrator could lock themselves out.
+        <Panel className="p-6">
+          <h2 className={H2}>{t("passwordTitle")}</h2>
+          <p className="mb-4 text-fg-muted">{t("selfPassword")}</p>
+          <Button asChild>
+            <AppLink href={CHANGE_PASSWORD as Route}>{t("toOwnPassword")}</AppLink>
+          </Button>
+        </Panel>
+      ) : (
+        <Password user={found} />
+      )}
       {may("admin:tokens:read") ? (
         <Tokens user={found} mayRevoke={may("admin:tokens:write")} />
       ) : null}

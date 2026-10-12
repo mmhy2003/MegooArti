@@ -81,10 +81,16 @@ describe("permissions as rows (A2)", () => {
     expect(patterns()).toEqual(["repository:maven:snapshots:delete"]);
     expect(row(1)).toHaveTextContent("Delete in the maven repository snapshots.");
 
-    // A repository of one format is not one of another: the choice of it is undone.
+    // Changing the format does not widen what the row grants to every repository of
+    // the new one: the name stays, to be chosen again, and grants nothing meanwhile.
     await user.selectOptions(within(row(1)).getByLabelText("Format"), "npm");
-    expect(patterns()).toEqual(["repository:npm:*:delete"]);
-    expect(row(1)).toHaveTextContent("Delete in every npm repository.");
+    expect(patterns()).toEqual(["repository:npm:snapshots:delete"]);
+    expect(row(1)).toHaveTextContent("Delete in the npm repository snapshots.");
+    expect(options(within(row(1)).getByLabelText("Repository"))).toEqual([
+      "Any",
+      "snapshots",
+      "npm-own",
+    ]);
   });
 
   test("offers every format, whether or not a repository of it exists", () => {

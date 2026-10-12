@@ -20,6 +20,8 @@ import { ErrorState, LoadingState } from "@/components/ui/states";
 import { isApiError } from "@/lib/api/client";
 import type { TokenCreated } from "@/lib/api/types";
 import { useRepositories } from "@/lib/content";
+import { useAttempts, usePageFocus, useWithinPages } from "@/lib/focus";
+import { endOfDay } from "@/lib/format";
 import { ACCOUNT_TOKENS, pageHref, pageOf } from "@/lib/paths";
 import { READ_ONLY } from "@/lib/patterns";
 import { refusalsOf } from "@/lib/refusals";
@@ -32,11 +34,13 @@ type Lasts = (typeof LASTS)[number];
 const LIMITS = ["everything", "read", "custom"] as const;
 type Limit = (typeof LIMITS)[number];
 
-/** The moment a token ends, as the API takes it, or null for one that does not. */
-function expiryOf(lasts: Lasts, day: string): string | null {
+/**
+ * The moment a token ends, as the API takes it: null for one that does not end, and
+ * undefined where a day was to be chosen and what is there is no day.
+ */
+function expiryOf(lasts: Lasts, day: string): string | null | undefined {
   if (lasts === "never") return null;
-  // Until the end of the day that was chosen, where the person is.
-  if (lasts === "date") return new Date(`${day}T23:59:59`).toISOString();
+  if (lasts === "date") return endOfDay(day) ?? undefined;
   return new Date(Date.now() + Number(lasts) * DAY).toISOString();
 }
 
@@ -83,9 +87,9 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
   const [day, setDay] = useState("");
   const [limit, setLimit] = useState<Limit>("everything");
   const [custom, setCustom] = useState<string[]>([]);
-  const [checked, setChecked] = useState(false);
-  const form = useRef<HTMLFormElement>(null);
+  const { form, tried: checked, attempt } = useAttempts(create.error);
 
+  const until = expiryOf(lasts, day);
   const refused = refusalsOf(create.error, ["name", "expires_at", "scopes"]);
   // A name that another of one's tokens has: said at the name.
   const taken =
@@ -93,7 +97,7 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
   const problems = {
     name: !checked ? undefined : name.trim() === "" ? t("nameNeeded") : (taken ?? refused.at.name),
     day:
-      checked && lasts === "date" && day === ""
+      checked && until === undefined
         ? t("dayNeeded")
         : lasts === "date"
           ? refused.at.expires_at
@@ -102,22 +106,14 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
       checked && limit === "custom" && custom.length === 0 ? t("customNeeded") : refused.at.scopes,
   };
 
-  // The keyboard goes to the first field that is wrong, where it is read with why.
-  useEffect(() => {
-    if (checked) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [checked, create.error]);
-
   function submit(event: FormEvent) {
     event.preventDefault();
-    setChecked(true);
+    attempt();
     create.reset();
     const scopes = limit === "everything" ? null : limit === "read" ? [...READ_ONLY] : custom;
-    if (name.trim() === "" || (lasts === "date" && day === "")) return;
+    if (name.trim() === "" || until === undefined) return;
     if (scopes !== null && (scopes.length === 0 || !patternsAreValid(scopes))) return;
-    create.mutate(
-      { name: name.trim(), expires_at: expiryOf(lasts, day), scopes },
-      { onSuccess: onCreated },
-    );
+    create.mutate({ name: name.trim(), expires_at: until, scopes }, { onSuccess: onCreated });
   }
 
   return (
@@ -145,6 +141,8 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
               <TextField
                 label={t("fields.day")}
                 type="date"
+                // A year of four digits: a field without this takes one of five.
+                max="9999-12-31"
                 required
                 value={day}
                 error={problems.day}
@@ -197,7 +195,12 @@ export function TokensScreen() {
   const tokens = useMyTokens(page);
   const revoke = useRevokeToken();
   const [made, setMade] = useState<TokenCreated | null>(null);
-  const listed = useRef<HTMLHeadingElement>(null);
+  const pages = tokens.data === undefined ? undefined : Math.ceil(tokens.data.total / AT_ONCE);
+  const hrefFor = (target: number) => pageHref(ACCOUNT_TOKENS, target);
+  // The heading of the list takes the keyboard when a page of it is turned, and when
+  // the panel of a token that was just made is closed.
+  const listed = usePageFocus<HTMLHeadingElement>(page, tokens.data !== undefined);
+  const beyond = useWithinPages(page, pages, hrefFor);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -226,7 +229,7 @@ export function TokensScreen() {
         </h2>
         {tokens.isError ? (
           <ErrorState error={tokens.error} onRetry={() => void tokens.refetch()} className="m-4" />
-        ) : !tokens.data ? (
+        ) : !tokens.data || beyond ? (
           <LoadingState />
         ) : (
           <>
@@ -239,11 +242,7 @@ export function TokensScreen() {
                 notify(t("revoked", { name: token.name }));
               }}
             />
-            <Pager
-              page={page}
-              pages={Math.ceil(tokens.data.total / AT_ONCE)}
-              hrefFor={(target) => pageHref(ACCOUNT_TOKENS, target)}
-            />
+            <Pager page={page} pages={pages ?? 1} hrefFor={hrefFor} />
           </>
         )}
       </Panel>

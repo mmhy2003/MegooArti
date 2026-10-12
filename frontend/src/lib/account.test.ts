@@ -2,8 +2,19 @@ import type { Route } from "next";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ApiError } from "@/lib/api/client";
+import { endOfDay } from "@/lib/format";
 import { ALPHABET, generatePassword } from "@/lib/passwords";
-import { pageHref, pageOf, parseRole, parseUser, roleHref, userHref, USERS } from "@/lib/paths";
+import {
+  isAddressable,
+  NEW_ROLE,
+  pageHref,
+  pageOf,
+  parseRole,
+  parseUser,
+  roleHref,
+  userHref,
+  USERS,
+} from "@/lib/paths";
 import {
   fromPattern,
   isValidPattern,
@@ -128,6 +139,19 @@ describe("a generated password", () => {
   });
 });
 
+describe("the day a token lasts until", () => {
+  test("is the end of that day, where the person is", () => {
+    expect(endOfDay("2031-05-17")).toBe(new Date("2031-05-17T23:59:59").toISOString());
+  });
+
+  test.each(["", "20261-01-01", "2031-02-31x", "not a day"])(
+    "%s is no day, and is said to be none instead of failing",
+    (typed) => {
+      expect(endOfDay(typed)).toBeNull();
+    },
+  );
+});
+
 describe("the search key", () => {
   test("is on until it is turned off, and is kept in the browser", () => {
     expect(searchKeyIsOn()).toBe(true);
@@ -141,15 +165,22 @@ describe("the search key", () => {
     expect(window.localStorage.getItem(SEARCH_KEY_STORAGE)).toBeNull();
   });
 
-  test("is on where storage cannot be read, and turning it off there breaks nothing", () => {
+  test("can be turned off where storage cannot be used: for as long as the page lives", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("denied");
     });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("denied");
     });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    expect(searchKeyIsOn()).toBe(true);
 
+    // Whoever needs the key left alone needs it whether or not the browser keeps things.
     expect(() => setSearchKey(false)).not.toThrow();
+    expect(searchKeyIsOn()).toBe(false);
+    setSearchKey(true);
     expect(searchKeyIsOn()).toBe(true);
     vi.restoreAllMocks();
   });
@@ -222,6 +253,12 @@ describe("the addresses of the account and security screens", () => {
   test("a user is addressed by its id, a role by its name, each as one segment", () => {
     expect(userHref("0190-aa")).toBe("/admin/users/0190-aa");
     expect(roleHref("deployers")).toBe("/admin/roles/deployers");
+    // A role may be called "new": the form for a new one is where no name can be.
+    expect(roleHref("new")).toBe("/admin/roles/new");
+    expect(NEW_ROLE).toBe("/admin/roles/~new");
+    expect(isAddressable("new")).toBe(true);
+    expect(isAddressable(".")).toBe(false); // a browser takes these for folders
+    expect(isAddressable("..")).toBe(false);
     expect(roleHref("odd/name?#")).toBe("/admin/roles/odd%2Fname%3F%23");
 
     expect(parseUser("/admin/users/0190-aa")).toEqual({ id: "0190-aa" });

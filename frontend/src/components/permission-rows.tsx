@@ -174,10 +174,10 @@ export function PermissionRows({
                       <SelectField
                         label={t("format")}
                         value={row.format}
-                        onChange={(event) =>
-                          // A repository of one format is not one of another.
-                          set(id, { ...row, format: event.target.value, name: ANY })
-                        }
+                        // The repository stays as it was chosen, though it is one of
+                        // another format: set to "any", the row would grant its action
+                        // in every repository of the new format, by a side effect.
+                        onChange={(event) => set(id, { ...row, format: event.target.value })}
                         choices={listed(formats, row.format, plain)}
                       />
                       <SelectField

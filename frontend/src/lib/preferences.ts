@@ -12,8 +12,13 @@ export const SEARCH_KEY_STORAGE = "megooarti-search-key";
 const OFF = "off";
 const CHANGED = "megooarti-preferences";
 
+// What was chosen on this page, where the browser keeps nothing (storage is off, or
+// full): whoever needs the key left alone needs it there too, if only until a reload.
+let unkept: boolean | null = null;
+
 /** Whether `/` goes to the search box. It does unless it was turned off. */
 export function searchKeyIsOn(): boolean {
+  if (unkept !== null) return unkept;
   try {
     return window.localStorage.getItem(SEARCH_KEY_STORAGE) !== OFF;
   } catch {
@@ -25,8 +30,9 @@ export function setSearchKey(on: boolean): void {
   try {
     if (on) window.localStorage.removeItem(SEARCH_KEY_STORAGE);
     else window.localStorage.setItem(SEARCH_KEY_STORAGE, OFF);
+    unkept = null;
   } catch {
-    // Storage is off or full. Nothing can be kept then.
+    unkept = on;
   }
   // The same window is not told of its own writes to storage.
   window.dispatchEvent(new Event(CHANGED));

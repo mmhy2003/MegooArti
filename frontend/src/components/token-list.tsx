@@ -34,8 +34,8 @@ export function TokenList({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const table = useRef<HTMLDivElement>(null);
-  // Read when a token is drawn: one that ran out while the page was open is caught by
-  // the next look at the list.
+  // Read once, when the list is first shown: a token that runs out while the page
+  // stays open is said to have expired the next time the page is opened.
   const [now] = useState(() => Date.now());
 
   // The button that was pressed goes with its row, and the dialog gives the keyboard

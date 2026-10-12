@@ -12,8 +12,8 @@ import { generatePassword } from "@/lib/passwords";
 /**
  * A password an administrator sets for someone else (A6): typed, or generated. A
  * generated one is shown, since it has to be told to its owner, and can be copied.
- * The browser is told it is a new password, so that it offers neither to fill in the
- * administrator's own nor to remember this one as theirs.
+ * The browser is told it is a new password, so that it does not fill in the
+ * administrator's own. A password manager may still offer to keep it.
  */
 export function NewPasswordField({
   label,

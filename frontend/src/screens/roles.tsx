@@ -3,7 +3,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { PermissionList, PermissionRows, patternsAreValid } from "@/components/permission-rows";
 import { Alert, StatusTag } from "@/components/ui/alert";
@@ -21,7 +21,8 @@ import { Table, Td, Th } from "@/components/ui/table";
 import { isApiError } from "@/lib/api/client";
 import type { RoleOut } from "@/lib/api/types";
 import { useRepositories } from "@/lib/content";
-import { NEW_ROLE, pageHref, pageOf, parseRole, roleHref, ROLES } from "@/lib/paths";
+import { useAttempts, usePageFocus, useWithinPages } from "@/lib/focus";
+import { isAddressable, NEW_ROLE, pageHref, pageOf, parseRole, roleHref, ROLES } from "@/lib/paths";
 import { refusalsOf } from "@/lib/refusals";
 import {
   AT_ONCE,
@@ -52,6 +53,10 @@ export function RolesScreen() {
   const page = pageOf(useSearchParams());
   const roles = useRoles(page);
   const mayWrite = useMayWrite();
+  const pages = roles.data === undefined ? undefined : Math.ceil(roles.data.total / AT_ONCE);
+  const hrefFor = (target: number) => pageHref(ROLES, target);
+  const top = usePageFocus<HTMLDivElement>(page, roles.data !== undefined);
+  const beyond = useWithinPages(page, pages, hrefFor);
 
   return (
     <>
@@ -67,47 +72,57 @@ export function RolesScreen() {
       </PageHeader>
       {roles.isError ? (
         <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />
-      ) : !roles.data ? (
+      ) : !roles.data || beyond ? (
         <Panel>
           <LoadingState />
         </Panel>
       ) : (
         <Panel>
-          <Table caption={t("title")}>
-            <thead>
-              <tr>
-                <Th>{t("columns.name")}</Th>
-                <Th>{t("columns.description")}</Th>
-                <Th>{t("columns.permissions")}</Th>
-                <Th>{t("columns.contains")}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {roles.data.items.map((role) => (
-                <tr key={role.name} className="hover:bg-raised">
-                  <Td>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <AppLink
-                        href={roleHref(role.name)}
-                        className="font-mono font-medium break-all text-ink-cyan underline-offset-4 hover:underline"
-                      >
-                        {role.name}
-                      </AppLink>
-                      {role.builtin ? <StatusTag tone="info">{t("builtin")}</StatusTag> : null}
-                    </div>
-                  </Td>
-                  <Td className="break-words text-fg-muted">{role.description}</Td>
-                  <Td className="font-mono text-xs break-all">{role.permissions.join(", ")}</Td>
-                  <Td className="font-mono text-xs break-all">{role.roles.join(", ")}</Td>
+          {/* Named, and able to take the keyboard: it is put here when a page is turned. */}
+          <div
+            ref={top}
+            tabIndex={-1}
+            role="group"
+            aria-label={t("title")}
+            className="outline-none"
+          >
+            <Table caption={t("title")}>
+              <thead>
+                <tr>
+                  <Th>{t("columns.name")}</Th>
+                  <Th>{t("columns.description")}</Th>
+                  <Th>{t("columns.permissions")}</Th>
+                  <Th>{t("columns.contains")}</Th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
-          <Pager
-            page={page}
-            pages={Math.ceil(roles.data.total / AT_ONCE)}
-            hrefFor={(target) => pageHref(ROLES, target)}
-          />
+              </thead>
+              <tbody>
+                {roles.data.items.map((role) => (
+                  <tr key={role.name} className="hover:bg-raised">
+                    <Td>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isAddressable(role.name) ? (
+                          <AppLink
+                            href={roleHref(role.name)}
+                            className="font-mono font-medium break-all text-ink-cyan underline-offset-4 hover:underline"
+                          >
+                            {role.name}
+                          </AppLink>
+                        ) : (
+                          // Made through the API with a name no page can have.
+                          <span className="font-mono font-medium text-fg">{role.name}</span>
+                        )}
+                        {role.builtin ? <StatusTag tone="info">{t("builtin")}</StatusTag> : null}
+                      </div>
+                    </Td>
+                    <Td className="break-words text-fg-muted">{role.description}</Td>
+                    <Td className="font-mono text-xs break-all">{role.permissions.join(", ")}</Td>
+                    <Td className="font-mono text-xs break-all">{role.roles.join(", ")}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+          <Pager page={page} pages={pages ?? 1} hrefFor={hrefFor} />
         </Panel>
       )}
     </>
@@ -141,23 +156,24 @@ function RoleForm({
   const [description, setDescription] = useState(role?.description ?? "");
   const [permissions, setPermissions] = useState(role?.permissions ?? []);
   const [contained, setContained] = useState(role?.roles ?? []);
-  const [checked, setChecked] = useState(false);
-  const form = useRef<HTMLFormElement>(null);
+  const { form, tried: checked, attempt } = useAttempts(error);
 
   const refused = refusalsOf(error, ["name", "description", "permissions", "roles"]);
   // A name another role has: said at the name.
   const taken = isApiError(error) && error.code === "conflict" ? error.message : null;
-  const ownName = role === null && !NAME.test(name) ? t("nameRule") : undefined;
+  const ownName =
+    role !== null
+      ? undefined
+      : !NAME.test(name)
+        ? t("nameRule")
+        : isAddressable(name)
+          ? undefined
+          : t("nameDots");
   const nameProblem = checked ? (ownName ?? taken ?? refused.at.name) : undefined;
-
-  // The keyboard goes to the first field that is wrong, where it is read with why.
-  useEffect(() => {
-    if (checked) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [checked, error]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setChecked(true);
+    attempt();
     if (ownName || !patternsAreValid(permissions)) return;
     onSave({ name, description: description.trim(), permissions, roles: contained });
   }
@@ -229,6 +245,7 @@ export function NewRoleScreen() {
   const router = useRouter();
   const notify = useNotify();
   const create = useCreateRole();
+  const mayCreate = useMayWrite();
   return (
     <div className="mx-auto max-w-4xl">
       <Breadcrumbs
@@ -239,7 +256,8 @@ export function NewRoleScreen() {
         ]}
       />
       <PageHeader title={t("newTitle")} />
-      <Panel className="p-6">
+      {mayCreate ? null : <Alert tone="warning">{t("mayNotCreate")}</Alert>}
+      <Panel className="p-6" hidden={!mayCreate}>
         <RoleForm
           role={null}
           saving={create.isPending}
@@ -314,7 +332,9 @@ export function RoleScreen() {
 
   if (where === null) return <NothingHere />;
   if (role.isError) return <ErrorState error={role.error} onRetry={() => void role.refetch()} />;
-  if (!role.data) return <LoadingState />;
+  // As for a user: the rows are filled once, from an answer that came after the page
+  // was opened. Saved from an older one, a permission that was taken away would be back.
+  if (!role.data || !role.isFetchedAfterMount) return <LoadingState />;
 
   const found = role.data;
   // The server lets nobody change the role that makes an administrator.
