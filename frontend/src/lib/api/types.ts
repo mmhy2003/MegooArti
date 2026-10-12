@@ -30,6 +30,16 @@ export type RoleOut = Schemas["RoleOut"];
 export type RoleCreate = Schemas["RoleCreate"];
 export type RoleContent = Schemas["RoleContent"];
 export type SettingsOut = Schemas["SettingsOut"];
+/** A repository as an administrator sees it: how it is set up, and a proxy's state. */
+export type RepositoryOut = Schemas["RepositoryOut"];
+export type RepositoryCreate = Schemas["RepositoryCreate"];
+export type RepositoryUpdate = Schemas["RepositoryUpdate"];
+export type ProxyStatus = Schemas["ProxyStatus"];
+export type IndexRebuilt = Schemas["IndexRebuilt"];
+export type BlobStoreOut = Schemas["BlobStoreOut"];
+export type BlobStoreCreate = Schemas["BlobStoreCreate"];
+/** What is running: version, schema, runtime, database. */
+export type Information = Schemas["Information"];
 
 /** A page of a list, as every list endpoint answers. */
 export type Page<T> = { items: T[]; total: number; limit: number; offset: number };

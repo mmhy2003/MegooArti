@@ -286,8 +286,9 @@ describe("uploading to a Maven repository", () => {
     );
     expect(screen.queryByRole("alert", { name: /refused/ })).toBeNull();
     // The first field that is wrong gets the keyboard: a screen reader then reads the
-    // field and what is wrong with it. An error that only appears is not heard.
-    expect(screen.getByLabelText(/^Version/)).toHaveFocus();
+    // field and what is wrong with it. An error that only appears is not heard. (It is
+    // given once the refusal is drawn, which on a busy machine is a moment after.)
+    await waitFor(() => expect(screen.getByLabelText(/^Version/)).toHaveFocus());
   });
 });
 

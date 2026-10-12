@@ -20,6 +20,11 @@ export const ROLES = "/admin/roles" as Route;
 // Where no role's name can be: a role may be called "new", and has `~` in no name.
 export const NEW_ROLE = "/admin/roles/~new" as Route;
 export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
+export const MANAGE_REPOSITORIES = "/admin/repositories" as Route;
+// As for a role: a repository may be called "new", and has `~` in no name.
+export const NEW_REPOSITORY = "/admin/repositories/~new" as Route;
+export const BLOB_STORES = "/admin/blob-stores" as Route;
+export const SYSTEM = "/admin/system" as Route;
 
 const segments = (path: string) => path.split("/").filter((segment) => segment !== "");
 const encoded = (path: string) => segments(path).map(encodeURIComponent).join("/");
@@ -141,6 +146,11 @@ export function parseUpload(pathname: string): { repository: string } | null {
   return found?.length === 1 && repository ? { repository } : null;
 }
 
+/** The settings of a repository, as an administrator sees them. */
+export function repositorySettingsHref(name: string): Route {
+  return `${MANAGE_REPOSITORIES}/${encodeURIComponent(name)}` as Route;
+}
+
 /** The one thing an address under a list names: a user's id, a role's name. Null if none. */
 function one(pathname: string, list: string): string | null {
   const found = after(pathname, list);
@@ -156,5 +166,11 @@ export function parseUser(pathname: string): { id: string } | null {
 
 export function parseRole(pathname: string): { name: string } | null {
   const name = one(pathname, ROLES);
+  return name === null ? null : { name };
+}
+
+/** The repository whose settings an address is about. */
+export function parseRepositorySettings(pathname: string): { name: string } | null {
+  const name = one(pathname, MANAGE_REPOSITORIES);
   return name === null ? null : { name };
 }

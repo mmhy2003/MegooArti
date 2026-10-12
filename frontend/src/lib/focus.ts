@@ -24,13 +24,20 @@ export function useAttempts(refused: unknown): {
   form: RefObject<HTMLFormElement | null>;
   tried: boolean;
   attempt: () => void;
+  /** The form starts over, as after it was sent and emptied: nothing is wrong with it yet. */
+  forget: () => void;
 } {
   const form = useRef<HTMLFormElement>(null);
   const [attempts, setAttempts] = useState(0);
   useEffect(() => {
     if (attempts > 0) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
   }, [attempts, refused]);
-  return { form, tried: attempts > 0, attempt: () => setAttempts((made) => made + 1) };
+  return {
+    form,
+    tried: attempts > 0,
+    attempt: () => setAttempts((made) => made + 1),
+    forget: () => setAttempts(0),
+  };
 }
 
 /**

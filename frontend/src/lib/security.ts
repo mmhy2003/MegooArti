@@ -33,6 +33,8 @@ const TOKENS = "tokens";
 const USERS = "users";
 const ROLES = "roles";
 const SETTINGS = "settings";
+/** Where the settings are kept among what was fetched: whoever changes one puts the answer there. */
+export const SETTINGS_KEY = [SETTINGS] as const;
 
 const paged = (page: number) => ({ limit: AT_ONCE, offset: (page - 1) * AT_ONCE });
 const user = (id: string) => `/users/${encodeURIComponent(id)}`;
