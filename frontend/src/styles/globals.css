@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/*
+ * The utilities components may use. Tailwind's own palette, shadows and radii are
+ * taken out, so a class that names one of its colours does not exist: what is left is
+ * made from the tokens.
+ */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-page: var(--mg-page);
+  --color-panel: var(--mg-panel);
+  --color-raised: var(--mg-raised);
+  --color-field: var(--mg-field);
+  --color-line: var(--mg-line);
+  --color-line-strong: var(--mg-line-strong);
+  --color-fg: var(--mg-fg);
+  --color-fg-muted: var(--mg-fg-muted);
+  --color-fg-subtle: var(--mg-fg-subtle);
+  --color-primary: var(--mg-primary);
+  --color-on-primary: var(--mg-on-primary);
+  --color-danger: var(--mg-danger);
+  --color-on-danger: var(--mg-on-danger);
+  --color-neon-cyan: var(--mg-neon-cyan);
+  --color-ink-cyan: var(--mg-ink-cyan);
+  --color-neon-magenta: var(--mg-neon-magenta);
+  --color-ink-magenta: var(--mg-ink-magenta);
+  --color-neon-acid: var(--mg-neon-acid);
+  --color-ink-acid: var(--mg-ink-acid);
+  --color-ok: var(--mg-ok);
+  --color-ink-ok: var(--mg-ink-ok);
+  --color-warn: var(--mg-warn);
+  --color-ink-warn: var(--mg-ink-warn);
+  --color-bad: var(--mg-bad);
+  --color-ink-bad: var(--mg-ink-bad);
+  --color-focus: var(--mg-focus);
+
+  --shadow-*: initial;
+  --shadow-glow-sm: var(--mg-glow-sm);
+  --shadow-glow: var(--mg-glow-md);
+
+  --radius-*: initial;
+  --radius-sm: var(--mg-radius);
+
+  --font-display: var(--font-oxanium), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --default-transition-duration: var(--mg-duration-fast);
+}
+
+@layer base {
+  html {
+    background-color: var(--mg-page);
+    color: var(--mg-fg);
+    font-family: var(--font-sans);
+  }
+
+  body {
+    min-height: 100dvh;
+    /* A faint grid, as on a technical drawing. */
+    background-image:
+      linear-gradient(var(--mg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--mg-grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--mg-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--mg-ink-magenta);
+    color: var(--mg-page);
+  }
+}
+
+/* A cut corner where the browser can draw one, a square one elsewhere. */
+@utility bevel {
+  border-radius: var(--mg-radius);
+  @supports (corner-shape: bevel) {
+    border-radius: var(--mg-bevel);
+    corner-shape: bevel;
+  }
+}
+
+/* Navigation and small headings: the display face, in capitals, widely spaced. */
+@utility label-caps {
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
