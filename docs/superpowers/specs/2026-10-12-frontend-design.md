@@ -193,13 +193,58 @@ Changed after the whole-branch review:
 - **A field that is wrong gets the keyboard**, so that a screen reader reads it and why. **Each screen names the page** ("Repositories · MegooArti").
 - **The policy also forbids frames and a base address**, as section 9 says.
 
-## 12. The screens of plan 10 (outline)
+## 12. The screens (plan 10)
 
-| Area | Screens |
+Delivered as three plans.
+
+| Plan | Contents |
 | --- | --- |
-| Browsing | A repository as folders and files, with file and component details and usage snippets; search; upload; delete, with confirmation |
-| Account | API tokens |
-| Administration | Repositories (create, edit, delete, rebuild index); blob stores; users; roles; anonymous access; base URL; system information |
+| **10a** | Browsing a repository, a component and its usage, search, upload, delete |
+| **10b** | A person's own API tokens; users, roles and anonymous access |
+| **10c** | Repositories, blob stores, the base URL and system information |
+
+### 12.1 Decisions
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| S1 | A repository is browsed as one folder at a time: a path of breadcrumbs, and under it the folder's entries as a list. Choosing a file shows its details beside the list, or below it on a narrow screen. | Chosen by the product owner. Only one folder is ever listed, so a folder of a million entries opens as fast as one of ten, which is what the API's tree was built for. |
+| S2 | Every folder and every file has an address: `/browse/<repository>/<folders...>`, with `?file=<name>` for a file chosen in it. | A link can be shared, and the browser's back button works. |
+| S3 | A list that the API pages with a cursor (a folder) grows with "Show more". A list it pages with a total (search results, and the administration lists) has numbered pages. | A folder has no total. A page of results has. |
+| S4 | Search is a box in the header on every screen, with `/` as its key, and a results page that has the filters: format, repository, group, name, version, and a checksum. | Chosen by the product owner. Finding a package is what most visitors come for. |
+| S5 | A checksum is typed into one field. Its length says which it is. | Nobody knows whether what they copied is called `sha1`. |
+| S6 | A component has a page of its own: its coordinates, its files, and how to use it, each snippet with a button that copies it. A file's details link to its component. | CMP-4. Search results are components. |
+| S7 | Uploading is a page for one repository, with the fields its format needs, reached from the repository and from the navigation. Files are dropped onto it or chosen. While they are sent it shows how much has gone, and it can be stopped. | CMP-7. An artifact can be gigabytes. |
+| S8 | What a caller may not do is not offered: no upload without `add` or `edit` on the repository, no delete without `delete`. A download is always offered: it is a link, and the server decides. | UI-2. The patterns a signed-in person holds do not include what is public, so hiding a download could hide what they may fetch. |
+| S9 | Deleting a file or one version asks in a dialog, with Cancel focused. Deleting a folder, a repository, a blob store or a user asks for its name to be typed first, and says what goes with it. | Chosen by the product owner. A slip then cannot remove a repository. |
+| S10 | Deleting a folder is done in the pieces the API does it in, with a count that grows, and can be stopped between pieces. | The API removes at most a thousand files a request. |
+| S11 | What was done is said in a notification that a screen reader hears, and that goes by itself. What failed stays on the screen until it is dismissed. | After a delete, the thing that was acted on is gone: there is nowhere beside it to say so. |
+| S12 | A time is shown as how long ago, with the exact time, in the reader's own zone, on hover and for a screen reader. A size is in binary units. | A person reads "3 days ago"; a log needs the minute. |
+| S13 | A repository is created on one page that grows: the format and the type are chosen at its top, and the fields for that combination follow. Editing is the same page with the two fixed. | Chosen by the product owner. Everything is in view before it is saved. |
+
+### 12.2 Browsing (plan 10a)
+
+| Address | What it shows |
+| --- | --- |
+| `/` | The repositories a caller may browse. Each leads to its folders. |
+| `/browse/<repository>/<folders...>` | Breadcrumbs, the folder's entries, and, with `?file=`, a file's details. For a group: its members, each a link. |
+| `/components/<repository>/<id>` | A component: coordinates, files, usage, and deleting the version. |
+| `/search` | The filters and a page of results. |
+| `/upload` | The hosted repositories the caller may upload to. |
+| `/upload/<repository>` | The upload form for that repository's format. |
+
+- **A folder's entries** are folders and files in the order the API gives them. A file shows its size and when it changed.
+- **A file's details** are everything the API says of it: size, content type, the four checksums (each with a copy button), blob store, who stored it and when, when it was last downloaded, the component it belongs to, and a download link.
+- **A proxy** is browsed for what it has cached, and says so. **A group** lists its members.
+- **Upload forms:** Raw has a directory (filled in from where the upload was started) and files. Maven has group, artifact, version, packaging, whether to write a POM, the artifact, an optional POM, and further files each with a classifier. npm has one tarball and a tag. PyPI has files, and optionally a summary, the Python it requires and keywords. A refusal by the API is put at the field it names.
+- **Names and paths are text.** A path is put into an address one segment at a time, each encoded; nothing from the API is put into the page as markup.
+
+### 12.3 Account and security (plan 10b, outline)
+
+A person's API tokens (create, with the secret shown once; revoke). Users (create, edit, disable, set a password, revoke tokens, delete). Roles (create, edit, delete; permissions as patterns, with help for writing them). Anonymous access (on or off).
+
+### 12.4 Repositories and the system (plan 10c, outline)
+
+Repositories (create and edit as S13 says, delete, invalidate a proxy's cache, rebuild an index). Blob stores (create, delete, what they hold). The base URL. System information: the version, the schema's revision and the blob stores' state, which needs a small addition to the API.
 
 ## 13. Requirement coverage
 
