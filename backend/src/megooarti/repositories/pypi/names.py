@@ -91,6 +91,24 @@ def _version_in(project: str, filename: str) -> str | None:
     return None
 
 
+def named(filename: str) -> tuple[str, str] | None:
+    """The project, as it is written, and the version that a file's name gives.
+
+    For a file that comes with nothing said about it. A wheel's name has five or six
+    parts, of which these are the first two. A source distribution's is the project,
+    a hyphen and the version, and a version has no hyphen in it (PEP 625), so the last
+    one divides them. None for a name that is neither, or is not one that is uploaded.
+    """
+    if filename.endswith(".whl"):
+        parts = filename[: -len(".whl")].split("-")
+        return (parts[0], parts[1]) if len(parts) in (5, 6) else None
+    extension = next((known for known in UPLOADABLE if filename.endswith(known)), None)
+    if extension is None:
+        return None
+    name, hyphen, version = filename[: -len(extension)].rpartition("-")
+    return (name, version) if hyphen and name and version else None
+
+
 def classify(path: str) -> PypiPath:
     """What a request path is. One trailing slash is ignored, and remembered."""
     if path == "":

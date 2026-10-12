@@ -32,8 +32,17 @@ from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.repositories import group, proxy
 from megooarti.repositories.content import PackageFile, RepositoryContext, Stored
-from megooarti.repositories.formats import ComponentKey, Format, Serve, register
+from megooarti.repositories.formats import (
+    ComponentKey,
+    Format,
+    Serve,
+    invalid_upload,
+    only_fields,
+    register,
+)
+from megooarti.repositories.forms import UploadForm
 from megooarti.repositories.pypi import names, pages, upload
+from megooarti.storage.backends import StagedBlob
 
 _FILE = "application/octet-stream"
 _METADATA = "text/plain; charset=utf-8"
@@ -161,23 +170,29 @@ async def _upload(context: RepositoryContext, request: Request) -> Response:
     if wrong:
         await context.discard(staged)
         raise ApiError(400, "checksum_mismatch", f"The {wrong[0]} digest does not match the file.")
+    await _keep(context, sent, staged)
+    return Response(status_code=200, headers=_PROTECTIVE)
 
+
+async def _keep(context: RepositoryContext, sent: upload.Declared, staged: StagedBlob) -> str:
+    """Store a file with what was said about it. Returns where it is."""
     release = {"name": sent.name, "version": sent.version, "summary": sent.summary}
     if sent.keywords:
         release["keywords"] = sent.keywords
-    # The facade checks `add` or `edit` and the deployment policy, under the path's lock.
     # The path has the version in the file's name, not the one declared: a file name
     # then has one address in its project, and declaring another version cannot put a
     # second file of that name beside the first.
+    path = names.file_path(sent.project, sent.file_version, sent.filename)
+    # The facade checks `add` or `edit` and the deployment policy, under the path's lock.
     await context.store(
-        names.file_path(sent.project, sent.file_version, sent.filename),
+        path,
         staged,
         content_type=_FILE,
         # A page says what each file requires, so that is kept with the file.
         attributes={_DECLARED: {"requires_python": sent.requires_python}},
         component_attributes={_DECLARED: release},
     )
-    return Response(status_code=200, headers=_PROTECTIVE)
+    return path
 
 
 async def _file(context: RepositoryContext, request: Request, path: str) -> Response:
@@ -392,6 +407,37 @@ class PypiFormat(Format):
         said = [declared.get("summary"), declared.get("keywords")]
         words = [super().search_text(key, attributes)]
         return " ".join(words + [text for text in said if isinstance(text, str)])
+
+    async def upload(self, context: RepositoryContext, form: UploadForm) -> list[str]:
+        """Store wheels and source distributions as an upload by twine would.
+
+        twine says which project and version a file is of. Here the file's name does,
+        and what the form says besides is said of every file in it.
+        """
+        only_fields(form, ("summary", "requires_python", "keywords"))
+        if not form.files:
+            raise invalid_upload("file", "At least one wheel or source distribution is needed.")
+        declared: list[upload.Declared] = []
+        for file in form.files:
+            if file.field != "file":
+                raise invalid_upload(file.field, "A file is sent as `file`.")
+            named = names.named(file.filename)
+            if named is None:
+                raise _invalid(
+                    f"the name {file.filename} is not a wheel's or a source distribution's"
+                )
+            said = {**form.fields, ":action": "file_upload", "name": named[0], "version": named[1]}
+            try:
+                sent = upload.declared(said, file.filename, 1)
+            except upload.InvalidUpload as error:
+                raise _invalid(f"{file.filename}: {error}") from None
+            if any(sent.filename == other.filename for other in declared):
+                raise invalid_upload("file", f"Two files are named {file.filename}.")
+            declared.append(sent)
+        return [
+            await _keep(context, sent, file.staged)
+            for sent, file in zip(declared, form.files, strict=True)
+        ]
 
     def describe_component(self, path: str) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""

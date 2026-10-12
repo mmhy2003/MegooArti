@@ -174,3 +174,25 @@ def test_stored_paths():
     assert classify(names.file_path("requests", "2.31.0", "requests-2.31.0.tar.gz")).kind == "file"
     assert names.page_path("requests") == "simple/requests"
     assert classify(names.page_path("requests")) == PypiPath("page", project="requests")
+
+
+@pytest.mark.parametrize(
+    ("filename", "named"),
+    [
+        ("greeter-1.0-py3-none-any.whl", ("greeter", "1.0")),
+        ("My_Package-2.0.post1-7-cp313-cp313-win_amd64.whl", ("My_Package", "2.0.post1")),
+        ("greeter-1.0.tar.gz", ("greeter", "1.0")),
+        ("my-package-1.0rc1.tar.gz", ("my-package", "1.0rc1")),
+        ("my_package-2!1.0+local.zip", ("my_package", "2!1.0+local")),
+        ("greeter.tar.gz", None),
+        ("-1.0.tar.gz", None),
+        ("greeter-.tar.gz", None),
+        ("greeter-1.0-py3-none.whl", None),
+        ("greeter-1.0.tar.bz2", None),
+        ("greeter-1.0.egg", None),
+        ("notes.txt", None),
+        ("", None),
+    ],
+)
+def test_a_files_name_says_its_project_and_version(filename, named):
+    assert names.named(filename) == named
