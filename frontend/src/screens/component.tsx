@@ -28,8 +28,12 @@ export function ComponentScreen() {
   const session = useSession();
   const where = parseComponent(usePathname());
   const repository = useRepository(where?.repository ?? "");
-  const component = useComponent(where?.repository ?? "", where?.id ?? null);
   const remove = useDeleteComponent(where?.repository ?? "");
+  // Once it is deleted it is not asked for again: the answer would be that there is none.
+  const component = useComponent(
+    where?.repository ?? "",
+    remove.isSuccess ? null : (where?.id ?? null),
+  );
   const [asking, setAsking] = useState(false);
 
   if (where === null) return <NothingHere />;

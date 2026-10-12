@@ -163,8 +163,10 @@ function FileDetails({
   const notify = useNotify();
   const session = useSession();
   const path = folder ? `${folder}/${name}` : name;
-  const asset = useAsset(repository.name, path);
   const remove = useDeleteAsset(repository.name);
+  // Once it is deleted it is not asked for again: the answer would be an error, shown
+  // here for the moment before the screen returns to the folder.
+  const asset = useAsset(repository.name, remove.isSuccess ? null : path);
   const [asking, setAsking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
 
@@ -444,7 +446,10 @@ function FolderView({
           </Panel>
         )}
       </div>
-      {file !== null ? <FileDetails repository={repository} folder={folder} name={file} /> : null}
+      {/* Keyed by the file: what was asked, or went wrong, of one file is not the next one's. */}
+      {file !== null ? (
+        <FileDetails key={file} repository={repository} folder={folder} name={file} />
+      ) : null}
     </div>
   );
 }

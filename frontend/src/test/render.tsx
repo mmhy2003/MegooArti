@@ -1,7 +1,7 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { render, type RenderResult } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { NotificationsProvider } from "@/components/ui/notifications";
@@ -54,14 +54,17 @@ export function renderUi(ui: ReactElement, options: { session?: SessionInfo } = 
   // what did not arrive is left out: a test says what arrives.
   const client = createQueryClient({ retry: false });
   if (options.session) client.setQueryData(SESSION_KEY, options.session);
-  const result = render(
+  const around = (screen: ReactNode) => (
     <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
       <QueryClientProvider client={client}>
         <ThemeProvider>
-          <NotificationsProvider>{ui}</NotificationsProvider>
+          <NotificationsProvider>{screen}</NotificationsProvider>
         </ThemeProvider>
       </QueryClientProvider>
-    </NextIntlClientProvider>,
+    </NextIntlClientProvider>
   );
-  return { ...result, client };
+  const result = render(around(ui));
+  // Rendering again keeps what is around the screen and what was fetched: it is how a
+  // test moves the visitor to another address (`navigation.at`, then `rerender`).
+  return { ...result, client, rerender: (next) => result.rerender(around(next)) };
 }

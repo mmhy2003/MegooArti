@@ -376,6 +376,12 @@ describe("deleting", () => {
     expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
       "Deleted app-1.0.jar.",
     );
+    // It is gone, and is not asked for again while the screen returns to the folder: the
+    // answer would be that there is no such file, shown where its details were.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const since = calls.slice(calls.findIndex((call) => call.method === "DELETE") + 1);
+    expect(since.filter((call) => call.path.startsWith("/content/releases/asset"))).toEqual([]);
+    expect(within(details).queryByRole("alert")).toBeNull();
   });
 
   test("a file the format keeps is not deleted, and the screen says why", async () => {
@@ -387,7 +393,7 @@ describe("deleting", () => {
         "A package's dist-tags are the registry's. They go with its last version.",
       ),
     });
-    at(`/browse/releases/${VERSION}?file=app-1.0.jar`);
+    const { rerender } = at(`/browse/releases/${VERSION}?file=app-1.0.jar`);
     const details = await screen.findByRole("region", { name: "Details of app-1.0.jar" });
 
     await user.click(await within(details).findByRole("button", { name: "Delete" }));
@@ -399,6 +405,13 @@ describe("deleting", () => {
       "They go with its last version.",
     );
     expect(navigation.router.replace).not.toHaveBeenCalled();
+
+    // It is said of that file, and not of the next one that is chosen.
+    navigation.at(`/browse/releases/${VERSION}?file=app-1.0.pom`);
+    rerender(<BrowseScreen />);
+    const next = await screen.findByRole("region", { name: "Details of app-1.0.pom" });
+    await within(next).findByText("application/java-archive");
+    expect(within(next).queryByRole("alert")).toBeNull();
   });
 
   test("a folder asks for its name, deletes in pieces, and says how many went", async () => {
@@ -531,6 +544,10 @@ describe("a component", () => {
     expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
       "Deleted app 1.0.",
     );
+    // Nor is the version asked for again: it is gone.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const since = calls.slice(calls.findIndex((call) => call.method === "DELETE") + 1);
+    expect(since.filter((call) => call.path.includes("/components/"))).toEqual([]);
   });
 
   test("offers no delete to whoever may only look", async () => {
