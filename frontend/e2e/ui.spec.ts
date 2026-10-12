@@ -9,6 +9,11 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 const INITIAL_PASSWORD = process.env.MEGOOARTI_INITIAL_PASSWORD ?? "";
 const PASSWORD = "chosen-in-the-browser-test";
 const REPOSITORY = "browser-test-files";
+const RELEASES = "browser-test-releases";
+const GROUP = "browser-test-all";
+// A name with what an address gives a meaning to: a space, a fragment, an escape.
+const ODD = "a b#c%.txt";
+const UPLOADS = "**/api/v1/content/*/upload";
 
 test.describe.configure({ mode: "serial" });
 
@@ -47,16 +52,34 @@ async function expectAccessible() {
   expect(found).toEqual([]);
 }
 
-/** The same check in each mode, leaving the page in the dark one. */
-async function expectAccessibleInBothModes() {
+/**
+ * The same check in each mode, leaving the page in the dark one. `ready` waits for
+ * what the screen fetches, so that it is the screen that is checked and not its loading.
+ */
+async function expectAccessibleInBothModes(ready: () => Promise<void> = async () => {}) {
   for (const mode of ["light", "dark"] as const) {
     await page.evaluate((chosen) => localStorage.setItem("megooarti-theme", chosen), mode);
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await ready();
     expect(await shownMode()).toBe(mode);
     await expectAccessible();
   }
 }
+
+/** What an administrator sets up through the API: its screens come with plan 10c. */
+async function asAdministrator(method: "post" | "put", address: string, data: unknown) {
+  const session = await (await page.request.get("/api/v1/auth/session")).json();
+  const answer = await page.request[method](address, {
+    headers: { "X-CSRF-Token": session.csrf_token },
+    data,
+  });
+  expect(answer.ok(), `${method} ${address}: ${answer.status()}`).toBe(true);
+}
+
+const createRepository = (data: unknown) => asAdministrator("post", "/api/v1/repositories", data);
+const setAnonymousAccess = (enabled: boolean) =>
+  asAdministrator("put", "/api/v1/settings/anonymous-access", { enabled });
 
 async function signIn(password: string) {
   await page.getByLabel("User name").fill("admin");
@@ -200,12 +223,7 @@ test("choosing a password leads on to the repositories, of which there are none 
 });
 
 test("a repository made through the API is listed, and its address can be copied", async () => {
-  const session = await (await page.request.get("/api/v1/auth/session")).json();
-  const created = await page.request.post("/api/v1/repositories", {
-    headers: { "X-CSRF-Token": session.csrf_token },
-    data: { name: REPOSITORY, format: "raw", type: "hosted" },
-  });
-  expect(created.status()).toBe(201);
+  await createRepository({ name: REPOSITORY, format: "raw", type: "hosted" });
 
   await page.reload();
   const row = page.getByRole("row", { name: new RegExp(REPOSITORY) });
@@ -281,6 +299,360 @@ test("an address with nothing at it says so", async () => {
   await expect(page).toHaveURL(/\/$/);
 });
 
+test("a repository is entered from the list, and is empty to begin with", async () => {
+  await page.getByRole("link", { name: REPOSITORY, exact: true }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}$`));
+  const title = page.getByRole("heading", { level: 1, name: REPOSITORY });
+  await expect(title).toBeVisible();
+  // A name tells capitals from small letters: it is not put in capitals as other titles are.
+  await expect(title).toHaveCSS("text-transform", "none");
+  await expect(page).toHaveTitle(`${REPOSITORY} · MegooArti`);
+  await expect(page.getByRole("heading", { name: "Nothing here yet" })).toBeVisible();
+  // Browsing a repository is being among the repositories.
+  await expect(
+    page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Repositories" }),
+  ).toHaveAttribute("aria-current", "page");
+});
+
+test("files are uploaded through the UI, which shows them going and says what was stored", async () => {
+  await page.getByRole("link", { name: "Upload here" }).first().click();
+  await expect(page).toHaveURL(new RegExp(`/upload/${REPOSITORY}$`));
+  await expect(page).toHaveTitle(`Upload to ${REPOSITORY} · MegooArti`);
+  const send = page.getByRole("button", { name: "Upload" });
+  await expect(send).toBeDisabled(); // there is nothing to send yet
+
+  await page.getByLabel("Directory").fill("docs/v1");
+  await page.getByLabel("Files").setInputFiles([
+    { name: "guide.md", mimeType: "text/markdown", buffer: Buffer.from("# Guide\n") },
+    { name: ODD, mimeType: "text/plain", buffer: Buffer.from("odd name") },
+  ]);
+  // The answer is held back for a moment, so that what is shown meanwhile can be seen.
+  await page.route(UPLOADS, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
+  // The list under the field says what is chosen. The browser's own words beside its
+  // button ("No file chosen", always, as the field is emptied to take more) are not shown.
+  await expect(
+    page.getByRole("list", { name: "Chosen for Files" }).getByRole("listitem"),
+  ).toHaveCount(2);
+  await expect(page.getByLabel("Files", { exact: true })).toHaveCSS("color", "rgba(0, 0, 0, 0)");
+  await send.click();
+
+  await expect(page.getByRole("progressbar")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByText("2 files stored")).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+  await page.unroute(UPLOADS);
+});
+
+test("a file with a name full of an address's own characters is found, and downloads as it was sent", async () => {
+  await page.getByRole("link", { name: `docs/v1/${ODD}` }).click();
+  const details = page.getByRole("region", { name: `Details of ${ODD}` });
+
+  await expect(details.getByText("text/plain")).toBeVisible();
+  await expect(details.getByText("8 B")).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/browse/${REPOSITORY}/docs/v1`);
+  expect(new URL(page.url()).searchParams.get("file")).toBe(ODD);
+  // The folder is still there beside it, with the file marked.
+  await expect(page.getByRole("link", { name: `File ${ODD}` })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  const address = await details.getByRole("link", { name: "Download" }).getAttribute("href");
+  const downloaded = await page.request.get(address ?? "");
+  expect(await downloaded.text()).toBe("odd name");
+
+  await details.getByRole("button", { name: "Copy SHA-256" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^[0-9a-f]{64}$/);
+});
+
+test("a folder is reached through the ones above it by keyboard, and the path leads back", async () => {
+  await page.goto(`/browse/${REPOSITORY}`);
+  await page.getByRole("link", { name: "Folder docs" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs$`));
+  await page.getByRole("link", { name: "Folder v1" }).focus();
+  await page.keyboard.press("Enter");
+
+  await expect(
+    page.getByRole("table", { name: "What is in docs/v1" }).getByRole("row"),
+  ).toHaveCount(3);
+  await page.getByRole("link", { name: "File guide.md" }).focus();
+  await page.keyboard.press("Enter");
+  const details = page.getByRole("region", { name: "Details of guide.md" });
+  // The keyboard is taken to what was asked for.
+  await expect(details.getByRole("heading", { name: "guide.md" })).toBeFocused();
+  await expect(details.getByText("text/markdown")).toBeVisible();
+
+  // The back button closes the details: the file that is chosen is in the address.
+  await page.goBack();
+  await expect(details).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Path" }).getByRole("link", { name: "docs" }).click();
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs$`));
+  await expect(page.getByRole("link", { name: "Folder v1" })).toBeVisible();
+});
+
+test("the browse screen meets WCAG 2.1 AA in both modes", async () => {
+  await page.goto(`/browse/${REPOSITORY}/docs/v1?file=guide.md`);
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText("text/markdown")).toBeVisible();
+  });
+});
+
+test("the upload screen meets WCAG 2.1 AA in both modes", async () => {
+  await createRepository({ name: RELEASES, format: "maven", type: "hosted" });
+  await page.goto(`/upload/${RELEASES}`);
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByLabel("Artifact", { exact: true })).toBeAttached();
+  });
+});
+
+test("a Maven upload that is refused says why at its field, and goes through once it is put right", async () => {
+  await page.getByLabel("Group", { exact: true }).fill("com.acme");
+  await page.getByLabel("Artifact name").fill("app");
+  await page.getByLabel("Version", { exact: true }).fill("2.0-SNAPSHOT");
+  await page.getByLabel("Artifact", { exact: true }).setInputFiles({
+    name: "build-output.jar",
+    mimeType: "application/java-archive",
+    buffer: Buffer.from("PK jar"),
+  });
+  await page.getByRole("button", { name: "Add another file" }).click();
+  await page.getByLabel("Classifier").fill("sources");
+  await page.getByLabel("File", { exact: true }).setInputFiles({
+    name: "s.jar",
+    mimeType: "application/java-archive",
+    buffer: Buffer.from("PK sources"),
+  });
+  await page.getByRole("button", { name: "Upload" }).click();
+
+  const version = page.getByLabel("Version", { exact: true });
+  await expect(version).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("A snapshot is deployed by a build")).toBeVisible();
+
+  // What was chosen is still chosen: only the version is typed again.
+  await version.fill("1.0");
+  await page.getByRole("button", { name: "Upload" }).click();
+
+  await expect(page.getByText("3 files stored")).toBeVisible();
+  for (const stored of ["app-1.0.jar", "app-1.0-sources.jar", "app-1.0.pom"]) {
+    await expect(page.getByRole("link", { name: `com/acme/app/1.0/${stored}` })).toBeVisible();
+  }
+});
+
+test("a component's page says what it is and how to use it, ready to copy", async () => {
+  await page.getByRole("link", { name: "com/acme/app/1.0/app-1.0.jar" }).click();
+  const details = page.getByRole("region", { name: "Details of app-1.0.jar" });
+  await details.getByRole("link", { name: "com.acme : app : 1.0" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "app 1.0" })).toBeVisible();
+  await expect(page).toHaveTitle(`${RELEASES} · MegooArti`);
+  await expect(page.getByRole("table", { name: "Files" }).getByRole("row")).toHaveCount(4);
+  await expect(page.getByText('implementation("com.acme:app:1.0")')).toBeVisible();
+
+  await page.getByRole("button", { name: "Copy Maven" }).click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain("<groupId>com.acme</groupId>");
+  expect(copied).toContain("<artifactId>app</artifactId>");
+  expect(copied).toContain("<version>1.0</version>");
+});
+
+test("the component screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText('implementation("com.acme:app:1.0")')).toBeVisible();
+  });
+});
+
+test("search is one key away on every screen, and finds by words and by a file's checksum", async () => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+  await page.keyboard.press("/");
+  await expect(page.getByRole("searchbox", { name: "Search components" })).toBeFocused();
+  await page.keyboard.type("app");
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/\/search\?q=app$/);
+  await expect(page).toHaveTitle("Search · MegooArti");
+  await expect(page.getByText("1 component found.")).toBeVisible();
+  const results = page.getByRole("table", { name: "Results" });
+  await expect(results.getByRole("row").nth(1)).toContainText("com.acme");
+
+  // A checksum, of any of the four kinds, is one field: here the SHA-1 of the jar.
+  const asset = await page.request.get(
+    `/api/v1/content/${RELEASES}/asset?path=com/acme/app/1.0/app-1.0.jar`,
+  );
+  const { sha1 } = await asset.json();
+  const form = page.getByRole("search", { name: "Search", exact: true });
+  await form.getByLabel("Words").fill("");
+  await form.getByLabel("Checksum of a file").fill(sha1);
+  await form.getByRole("button", { name: "Search" }).click();
+  await expect(page).toHaveURL(new RegExp(`/search\\?checksum=${sha1}$`));
+  await expect(results.getByRole("link", { name: "app", exact: true })).toBeVisible();
+
+  await form.getByLabel("Checksum of a file").fill("");
+  await form.getByLabel("Words").fill("no-such-thing-anywhere");
+  await form.getByLabel("Words").press("Enter");
+  await expect(page.getByRole("heading", { name: "Nothing found" })).toBeVisible();
+
+  // What was searched for is in the address: the back button returns to the search before.
+  await page.goBack();
+  await expect(form.getByLabel("Checksum of a file")).toHaveValue(sha1);
+  await results.getByRole("link", { name: "app", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "app 1.0" })).toBeVisible();
+});
+
+test("the search screen meets WCAG 2.1 AA in both modes", async () => {
+  await page.goto("/search?q=app");
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText("1 component found.")).toBeVisible();
+  });
+});
+
+test("on a narrow screen a file's details come under its folder, and nothing overflows", async () => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await page.goto(`/browse/${RELEASES}/com/acme/app/1.0?file=app-1.0-sources.jar`);
+  const details = page.getByRole("region", { name: "Details of app-1.0-sources.jar" });
+  await expect(details.getByText("application/java-archive")).toBeVisible();
+
+  const table = page.getByRole("table", { name: "What is in com/acme/app/1.0" });
+  const [above, below] = [await table.boundingBox(), await details.boundingBox()];
+  expect(below?.y ?? 0).toBeGreaterThan((above?.y ?? 0) + (above?.height ?? 0) - 1);
+  // A checksum is 128 characters without a space in it: it breaks, and widens nothing.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  // The search box is in the navigation, where there is room for it.
+  await expect(page.getByRole("searchbox", { name: "Search components" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open the navigation" }).click();
+  await expect(page.getByRole("searchbox", { name: "Search components" })).toBeVisible();
+  await page.getByRole("button", { name: "Close the navigation" }).click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+});
+
+test("a visitor who may only look is offered a download, and nothing that changes anything", async ({
+  browser,
+  baseURL,
+}) => {
+  await setAnonymousAccess(true);
+  const fresh = await browser.newContext({ baseURL, colorScheme: "dark" });
+  const visitor = await fresh.newPage();
+  await visitor.goto(`/browse/${REPOSITORY}/docs/v1?file=guide.md`);
+  const details = visitor.getByRole("region", { name: "Details of guide.md" });
+
+  await expect(details.getByText("text/markdown")).toBeVisible();
+  await expect(details.getByRole("link", { name: "Download" })).toBeVisible();
+  await expect(details.getByRole("button", { name: "Delete" })).toHaveCount(0);
+  await expect(visitor.getByRole("button", { name: "Delete folder" })).toHaveCount(0);
+  await expect(visitor.getByRole("link", { name: "Upload here" })).toHaveCount(0);
+  await expect(visitor.getByRole("link", { name: "Sign in" })).toBeVisible();
+
+  // The address of the form can be typed all the same. The screen says no, as the API would.
+  await visitor.goto(`/upload/${REPOSITORY}`);
+  await expect(
+    visitor.getByText("You do not have permission to add to this repository."),
+  ).toBeVisible();
+  await expect(visitor.getByRole("button", { name: "Upload" })).toHaveCount(0);
+  await visitor.goto("/upload");
+  await expect(visitor.getByRole("heading", { name: "Nowhere to upload to" })).toBeVisible();
+
+  await setAnonymousAccess(false);
+  await visitor.goto(`/browse/${REPOSITORY}`);
+  await expect(visitor).toHaveURL(/\/login\?next=/);
+  await fresh.close();
+});
+
+test("a group shows who is behind it, and takes no upload", async () => {
+  await createRepository({
+    name: GROUP,
+    format: "raw",
+    type: "group",
+    group: { members: [REPOSITORY] },
+  });
+  await page.goto(`/browse/${GROUP}`);
+
+  await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Upload here" })).toHaveCount(0);
+  await page.goto(`/upload/${GROUP}`);
+  await expect(page.getByText("Only a hosted repository takes an upload.")).toBeVisible();
+
+  await page.goto(`/browse/${GROUP}`);
+  await page.getByRole("main").getByRole("link", { name: REPOSITORY, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}$`));
+  await expect(page.getByRole("link", { name: "Folder docs" })).toBeVisible();
+});
+
+test("a file is deleted only after asking, and the screen says that it is gone", async () => {
+  await page.goto(`/browse/${REPOSITORY}/docs/v1?file=guide.md`);
+  const details = page.getByRole("region", { name: "Details of guide.md" });
+  const opener = details.getByRole("button", { name: "Delete" });
+  await opener.click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete guide.md?" });
+
+  // Asked, and answered no: nothing happens, and the keyboard is back where it was.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await expect(page.getByRole("link", { name: "File guide.md" })).toBeVisible();
+
+  await opener.click();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "Deleted guide.md.",
+  );
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs/v1$`));
+  await expect(page.getByRole("link", { name: "File guide.md" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: `File ${ODD}` })).toBeVisible();
+});
+
+test("a folder is deleted only by whoever types its name", async () => {
+  await page.getByRole("button", { name: "Delete folder" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete the folder v1?" });
+  const confirm = dialog.getByRole("button", { name: "Delete folder" });
+
+  await expect(dialog).toContainText("Every file under docs/v1 is deleted.");
+  await expect(confirm).toBeDisabled();
+  // What is to be typed is shown as it is to be typed.
+  await expect(dialog.getByText("Type v1 to go on")).toHaveCSS("text-transform", "none");
+  await expect(dialog.getByRole("heading")).toHaveCSS("text-transform", "none");
+  await dialog.getByLabel("Type v1 to go on").fill("V1");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel("Type v1 to go on").fill("v1");
+  await confirm.click();
+
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "Deleted 1 file under v1.",
+  );
+  // The folder above held nothing else, so it went too: the screen says so, and leads on.
+  await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs$`));
+  await expect(page.getByRole("heading", { name: "No such folder" })).toBeVisible();
+  await page.getByRole("link", { name: `Go to the top of ${REPOSITORY}` }).click();
+  await expect(page.getByRole("heading", { name: "Nothing here yet" })).toBeVisible();
+});
+
+test("a version is deleted from its page, and is then not found", async () => {
+  await page.goto("/search?q=app");
+  await page
+    .getByRole("table", { name: "Results" })
+    .getByRole("link", { name: "app", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Delete this version" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete app 1.0?" });
+  await expect(dialog).toContainText("Its 3 files are deleted");
+  await dialog.getByRole("button", { name: "Delete this version" }).click();
+
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "Deleted app 1.0.",
+  );
+  await expect(page).toHaveURL(new RegExp(`/browse/${RELEASES}$`));
+  await page.goto("/search?q=app");
+  await expect(page.getByRole("heading", { name: "Nothing found" })).toBeVisible();
+});
+
 test("signing out ends the session, and signing in again returns to where one was going", async () => {
   await page.getByRole("button", { name: /^Account of/ }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
@@ -330,10 +702,11 @@ test("through all of it, nothing was asked of another host, and the browser had 
 
   expect(requested.length).toBeGreaterThan(50);
   expect(elsewhere).toEqual([]);
-  // The two complaints there should be: the browser itself logs the sign-in that was
-  // refused (401) and the address that had nothing at it (404). Anything else, such as
-  // something the content security policy stopped, fails this.
-  const unexpected = complaints.filter((text) => !/status of 40[14]/.test(text));
+  // The complaints there should be: the browser itself logs the sign-in that was refused
+  // (401), the address and the folder that had nothing at them (404), and the upload that
+  // was refused (422). Anything else, such as something the content security policy
+  // stopped, fails this.
+  const unexpected = complaints.filter((text) => !/status of (401|404|422)/.test(text));
   // In particular not of the site the return paths named. (Its name is in the query of
   // addresses that were asked for, which is as far as it got.)
   expect(requested.filter((address) => new URL(address).hostname.includes("evil"))).toEqual([]);
