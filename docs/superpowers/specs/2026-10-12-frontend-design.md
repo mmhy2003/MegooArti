@@ -234,9 +234,23 @@ Delivered as three plans.
 
 - **A folder's entries** are folders and files in the order the API gives them. A file shows its size and when it changed.
 - **A file's details** are everything the API says of it: size, content type, the four checksums (each with a copy button), blob store, who stored it and when, when it was last downloaded, the component it belongs to, and a download link.
-- **A proxy** is browsed for what it has cached, and says so. **A group** lists its members.
+- **A proxy** is browsed for what it has cached, and says so under its name. **A group** lists its members, those the caller may browse, each a link: the API refuses to list a group's own folders, as it holds none.
 - **Upload forms:** Raw has a directory (filled in from where the upload was started) and files. Maven has group, artifact, version, packaging, whether to write a POM, the artifact, an optional POM, and further files each with a classifier. npm has one tarball and a tag. PyPI has files, and optionally a summary, the Python it requires and keywords. A refusal by the API is put at the field it names.
 - **Names and paths are text.** A path is put into an address one segment at a time, each encoded; nothing from the API is put into the page as markup.
+
+#### Settled while building plan 10a
+
+| # | What | Why |
+| --- | --- | --- |
+| B1 | A name someone chose (a repository, a folder, a version) is never put in capitals: not in a screen's title, not in a dialog's title, and not in the label that asks for it to be typed. Titles that are the UI's own words stay in capitals. | Names tell capitals from small letters, and the name typed to confirm is compared exactly. A label that showed `V1` for `v1` asked for the wrong thing. |
+| B2 | A folder that is not there says so and leads to the top of its repository. | Folders are not things of their own: deleting the last file of one removes it, and the folders above it that held nothing else. The screen a delete returns to can therefore be such a folder. |
+| B3 | A folder or a file in a list is named to a screen reader with its kind: "Folder docs", "File guide.md". | The icon that tells them apart is not read. |
+| B4 | The upload is the one request made with `XMLHttpRequest`. | `fetch` cannot say how much of a body has been sent (S7). Its failures are the same `ApiError` as every other request's. |
+| B5 | The file field is emptied after each choice, so that files add up and one that was taken out can be chosen again. The browser's own "No file chosen" beside it is not shown: the list under the field says what is chosen. | The two contradicted each other. |
+| B6 | What was fetched of a repository is forgotten after an upload or a delete in it: its folders are asked for again, and its files' and components' details are dropped. | An index or a metadata file can change with any of them. |
+| B7 | A screen inside the shell that is given an address it cannot read says that nothing is there, inside the shell. The page for an address no route answers is a different one, with no shell. | Two `main` landmarks otherwise. |
+| B8 | The lint refuses text written into a property that is read out (`aria-label`, `title`, `alt`, `placeholder`, `label`, `hint`), as it refuses text in markup. | Left open by plan 9: UI-4 is about every text a person meets. |
+| B9 | A button that is busy keeps the keyboard: it is marked `aria-disabled` and ignores a press, where it used to be disabled. | A disabled button loses focus, and with it a keyboard user's place, each time something is sent. Left open by plan 9. |
 
 ### 12.3 Account and security (plan 10b, outline)
 

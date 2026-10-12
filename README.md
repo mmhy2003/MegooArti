@@ -863,11 +863,36 @@ curl -u alice 'https://repo.example.com/api/v1/search?sha1=2ef7bde608ce5404e97d5
 
 ## The web UI
 
-The UI is at the root of the installation's address. For now it has the foundation
-every screen will stand on, and three screens: signing in, changing your password,
-and the repositories you may browse. Browsing, search, upload and administration
-follow.
+The UI is at the root of the installation's address. It has what a person who uses
+the repositories needs: browsing them, search, upload and delete. Administration
+(users, roles, repositories, blob stores) is done through the API for now, and its
+screens follow.
 
+- **Browsing.** A repository opens one folder at a time, with the way there as a path
+  above it. Choosing a file shows everything known of it beside the folder: its size,
+  type and four checksums (each with a button that copies it), who stored it and when,
+  and a download link. Every folder and file has an address of its own, so a link to
+  one can be shared. A group lists its members. A proxy shows what has been fetched
+  through it so far.
+- **A component's page** says what a package version is, lists its files, and gives
+  what to paste into a build or a shell to use it (for Maven, the dependency for
+  Maven and for Gradle), each with a copy button.
+- **Search** is a box in the header of every screen: press `/` to reach it. The
+  results page filters by format, repository, group, name and version, and by a
+  file's checksum: paste an MD5, SHA-1, SHA-256 or SHA-512, and its length says which
+  it is. A search is in the address, so it can be shared and gone back to.
+- **Upload** is offered for a hosted Raw, Maven, npm or PyPI repository to whoever
+  may add to it, from the repository ("Upload here") and from the navigation. The
+  form has the fields the format needs. Files are chosen or dropped onto it. It shows
+  how much has been sent, and can be stopped. What the server refuses is said at the
+  field it is about. A Docker image is pushed with a container client.
+- **Delete** is offered to whoever may delete in the repository. A file or one
+  version is deleted after a question. A folder is deleted, with everything under
+  it, only after its name is typed. Each is removed as the format's own client would
+  remove it, so the indexes stay right.
+- **What you may not do is not offered.** Without the permission to add there is no
+  upload, without the permission to delete no delete. The server decides in every
+  case: the screens only leave out what it would refuse.
 - **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
   browser keeps it over HTTPS, and over plain HTTP only on the machine itself
   (`localhost`). If you reach the UI over plain HTTP at another name or address,
@@ -1011,13 +1036,16 @@ at port 3000, without an API beside it.
 - **Tests in a real browser** are in `frontend/e2e/`. They are run by
   `uv run pytest -m docker` in `backend/`, which starts a fresh stack for them: they
   begin with the first sign-in of a new installation. They sign in, change the
-  password, use every screen by keyboard, check each screen against WCAG 2.1 AA in
-  both modes, and fail if the browser asked anything of another host or reported a
-  violation of the content security policy.
+  password, upload through the forms, browse, search and delete, use every screen by
+  keyboard, check each screen against WCAG 2.1 AA in both modes, and fail if the
+  browser asked anything of another host or reported a violation of the content
+  security policy.
 - **A colour is written in one file**, `src/styles/tokens.css`, once for each mode. A
   test fails on a colour anywhere else, and another computes the contrast of every
   text tone on every surface.
-- **Text is in `messages/en.json`.** ESLint refuses text written into markup.
+- **Text is in `messages/en.json`.** ESLint refuses text written into markup, or into
+  a property that is read out (`aria-label`, `title`, `alt`, `placeholder`, and the
+  `label` and `hint` of the UI's own fields).
 - **The API's types are generated.** `frontend/openapi.json` is a copy of the
   backend's API document, and a backend test fails when it is out of date. After a
   change to the API:
