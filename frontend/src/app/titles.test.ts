@@ -1,6 +1,15 @@
 import { expect, test } from "vitest";
 
 import { metadata as password } from "./(shell)/account/password/page";
+import { metadata as preferences } from "./(shell)/account/preferences/page";
+import { metadata as tokens } from "./(shell)/account/tokens/page";
+import { metadata as anonymousAccess } from "./(shell)/admin/anonymous-access/page";
+import { metadata as role } from "./(shell)/admin/roles/[name]/page";
+import { metadata as newRole } from "./(shell)/admin/roles/new/page";
+import { metadata as roles } from "./(shell)/admin/roles/page";
+import { metadata as user } from "./(shell)/admin/users/[id]/page";
+import { metadata as newUser } from "./(shell)/admin/users/new/page";
+import { metadata as users } from "./(shell)/admin/users/page";
 import { generateMetadata as browse } from "./(shell)/browse/[repository]/[[...path]]/page";
 import { generateMetadata as component } from "./(shell)/components/[repository]/[id]/page";
 import { metadata as home } from "./(shell)/page";
@@ -29,6 +38,13 @@ test("each screen has a title of its own", () => {
     "Search",
     "Upload",
   ]);
+});
+
+test("the screens of the account and of the administration have titles of their own", () => {
+  expect([tokens.title, preferences.title]).toEqual(["API tokens", "Preferences"]);
+  expect([users.title, newUser.title, user.title]).toEqual(["Users", "New user", "User"]);
+  expect([roles.title, newRole.title, role.title]).toEqual(["Roles", "New role", "Role"]);
+  expect(anonymousAccess.title).toBe("Anonymous access");
 });
 
 test("a screen about one repository is titled by it, as the address names it", async () => {
