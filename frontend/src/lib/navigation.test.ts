@@ -82,12 +82,23 @@ describe("the navigation as it is", () => {
       ["users", "/admin/users"],
       ["roles", "/admin/roles"],
       ["anonymousAccess", "/admin/anonymous-access"],
+      ["manageRepositories", "/admin/repositories"],
+      ["blobStores", "/admin/blob-stores"],
+      ["system", "/admin/system"],
     ]);
     expect(administration({ ...ADMIN, permissions: ["admin:roles:read"] })).toEqual([
       ["roles", "/admin/roles"],
     ]);
+    // Anonymous access and the system page are both settings.
     expect(administration({ ...ADMIN, permissions: ["admin:settings"] })).toEqual([
       ["anonymousAccess", "/admin/anonymous-access"],
+      ["system", "/admin/system"],
+    ]);
+    expect(administration({ ...ADMIN, permissions: ["admin:repositories:read"] })).toEqual([
+      ["manageRepositories", "/admin/repositories"],
+    ]);
+    expect(administration({ ...ADMIN, permissions: ["admin:blobstores:*"] })).toEqual([
+      ["blobStores", "/admin/blob-stores"],
     ]);
     expect(administration({ ...ADMIN, permissions: ["repository:*:*:*"] })).toEqual([]);
     // Whatever the anonymous user holds, nobody administers without signing in.
@@ -104,6 +115,11 @@ describe("the navigation as it is", () => {
     expect(current("/admin/users/new")).toEqual(["users"]);
     expect(current("/admin/roles/deployers")).toEqual(["roles"]);
     expect(current("/admin/anonymous-access")).toEqual(["anonymousAccess"]);
+    // The settings of a repository are among those that are managed, not those that are browsed.
+    expect(current("/admin/repositories/releases")).toEqual(["manageRepositories"]);
+    expect(current("/admin/repositories/~new")).toEqual(["manageRepositories"]);
+    expect(current("/admin/blob-stores")).toEqual(["blobStores"]);
+    expect(current("/admin/system")).toEqual(["system"]);
     expect(current("/account/tokens")).toEqual([]);
   });
 

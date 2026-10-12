@@ -20,7 +20,10 @@
       "upload": "Upload",
       "users": "Users",
       "roles": "Roles",
-      "anonymousAccess": "Anonymous access"
+      "anonymousAccess": "Anonymous access",
+      "manageRepositories": "Manage repositories",
+      "blobStores": "Blob stores",
+      "system": "System"
     }
   },
   "theme": {
@@ -194,7 +197,8 @@
     "deleteFolderBody": "Every file under {folder} is deleted. It cannot be brought back.",
     "deletedSoFar": "{deleted, plural, one {# file deleted so far} other {# files deleted so far}}…",
     "folderDeleted": "Deleted {deleted, plural, one {# file} other {# files}} under {name}.{skipped, plural, =0 {} one { # file is kept by the format.} other { # files are kept by the format.}}",
-    "folderStopped": "Stopped. {deleted, plural, one {# file} other {# files}} under {name} had been deleted."
+    "folderStopped": "Stopped. {deleted, plural, one {# file} other {# files}} under {name} had been deleted.",
+    "settings": "Settings"
   },
   "component": {
     "path": "Path",
@@ -608,5 +612,228 @@
     "grantsNothing": "Its roles grant nothing in any repository.",
     "onlyRepositories": "Whatever its roles say, a visitor is never allowed anything but what concerns repositories.",
     "userDisabled": "The anonymous user is disabled, so nothing is given without signing in, though the switch is on. Enable the user to let visitors in."
+  },
+  "members": {
+    "none": "It has no member yet, and so answers nothing.",
+    "up": "Move {name} up",
+    "down": "Move {name} down",
+    "remove": "Take {name} out",
+    "candidate": "A repository to add",
+    "add": "Add it",
+    "nothingToAdd": "There is no other repository of this format to add.",
+    "nowAt": "{name} is now number {place} of {of}.",
+    "added": "{name} was added as number {place}.",
+    "removed": "{name} was taken out."
+  },
+  "manage": {
+    "title": "Manage repositories",
+    "titleOf": "Settings of {repository}",
+    "newTitle": "New repository",
+    "intro": "Every repository as it is set up. To use one, browse it.",
+    "newIntro": "The format and the type decide what else there is to set. Neither can be changed later.",
+    "settingsOf": "How this repository is set up.",
+    "path": "Path",
+    "new": "New repository",
+    "emptyTitle": "No repository yet",
+    "empty": "A repository is where packages are stored, fetched through, or presented from.",
+    "columns": {
+      "name": "Name",
+      "format": "Format",
+      "type": "Type",
+      "state": "State",
+      "blobStore": "Blob store"
+    },
+    "online": "Online",
+    "offline": "Offline",
+    "browse": "Browse it",
+    "fields": {
+      "format": "Format",
+      "name": "Name",
+      "type": "Type",
+      "online": "Online",
+      "blobStore": "Blob store",
+      "address": "Address",
+      "deploymentPolicy": "Deployment policy",
+      "remoteUrl": "Remote address",
+      "authType": "Signs in to the remote with",
+      "authUsername": "User name",
+      "password": "Password",
+      "token": "Token",
+      "contentMaxAge": "Trust a cached file for (minutes)",
+      "metadataMaxAge": "Trust cached metadata for (minutes)",
+      "negativeCache": "Remember what the remote does not have",
+      "negativeCacheTtl": "Remember it for (minutes)",
+      "autoBlock": "Leave the remote alone after it fails",
+      "blocked": "Blocked: do not contact the remote at all",
+      "members": "Members, in the order they are asked",
+      "versionPolicy": "Version policy",
+      "layoutPolicy": "Layout policy"
+    },
+    "hints": {
+      "name": "Letters, digits and . _ - , up to 64. It is part of every address, and cannot be changed later.",
+      "online": "Offline, package clients are refused. It can still be browsed and set up here.",
+      "blobStore": "Where its files are kept. It cannot be changed later.",
+      "blobStoreUnreadable": "You may not see the blob stores, so the default one is used.",
+      "remoteUrl": "An http or https address, without a user name, a password, a query or a fragment.",
+      "secret": "It is sealed before it is stored, and shown to nobody again.",
+      "secretStored": "One is stored. Leave this empty to keep it, or type another to replace it.",
+      "maxAge": "After that it is checked with the remote again. 0 checks every time, -1 never again.",
+      "metadataMaxAge": "Indexes and listings: what says which versions there are. 0 checks every time, -1 never again.",
+      "negativeCache": "A path the remote did not have is not asked for again for a while.",
+      "autoBlock": "A minute at first, doubling with each further failure up to an hour. Meanwhile what is cached is served.",
+      "blocked": "Only what is cached is served, until this is unticked.",
+      "members": "The first that has what is asked for answers. Offline members, and proxies whose remote is unavailable, are passed over."
+    },
+    "sections": {
+      "hosted": "What it takes",
+      "remote": "The remote",
+      "cache": "What it cached",
+      "blocking": "When the remote fails",
+      "maven": "Maven"
+    },
+    "types": {
+      "hosted": "Hosted",
+      "proxy": "Proxy",
+      "group": "Group"
+    },
+    "typesHints": {
+      "hosted": "Stores what is uploaded or deployed to it.",
+      "proxy": "Fetches from a remote repository, and keeps what it fetched.",
+      "group": "Presents several repositories at one address. It stores nothing of its own."
+    },
+    "policies": {
+      "allow_redeploy": "Allow redeploy",
+      "disable_redeploy": "Disable redeploy",
+      "read_only": "Read only"
+    },
+    "policiesHints": {
+      "allow_redeploy": "A version that is there can be stored again, replacing it.",
+      "disable_redeploy": "A version that is there is refused. What is new is taken.",
+      "read_only": "Nothing is taken and nothing is deleted."
+    },
+    "auth": {
+      "none": "Nothing",
+      "basic": "A user name and a password",
+      "bearer": "A token"
+    },
+    "versions": {
+      "release": "Release",
+      "snapshot": "Snapshot",
+      "mixed": "Mixed"
+    },
+    "versionsHints": {
+      "release": "Only versions that are not snapshots.",
+      "snapshot": "Only versions that end in -SNAPSHOT.",
+      "mixed": "Both."
+    },
+    "layouts": {
+      "strict": "Strict",
+      "permissive": "Permissive"
+    },
+    "layoutsHints": {
+      "strict": "Only paths that are laid out as Maven lays them out.",
+      "permissive": "Any path."
+    },
+    "problems": {
+      "nameRule": "A repository's name is 1 to 64 letters, digits or . _ -",
+      "nameDots": "A repository cannot be called . or .. : it would have no address.",
+      "dockerNameRule": "A Docker repository's name is the first part of its images' names: lower-case letters and digits, with single . _ __ or - between them.",
+      "remoteRule": "Give an http or https address with a host, and without credentials, a query or a fragment.",
+      "ageRule": "A whole number of minutes, -1 or more.",
+      "ttlRule": "A whole number of minutes, 1 or more.",
+      "usernameNeeded": "Give the user name.",
+      "secretNeeded": "Give it: none is stored."
+    },
+    "mayNotCreate": "You may not create repositories.",
+    "create": "Create repository",
+    "created": "Created the repository {name}.",
+    "save": "Save",
+    "saved": "Saved the repository {name}.",
+    "stateTitle": "The remote",
+    "state": {
+      "remote": "State",
+      "reachable": "In use",
+      "blocked": "Blocked",
+      "waiting": "Left alone after a failure",
+      "until": "Asked again",
+      "failures": "Failures in a row",
+      "lastError": "Last error"
+    },
+    "checkAgainIntro": "What was cached is served without asking the remote until its time is up. This makes all of it be checked again at its next use.",
+    "checkAgain": "Check everything again",
+    "checkedAgain": "{name} will check everything with its remote again.",
+    "rebuildTitle": "Rebuild the index",
+    "rebuildIntro": "Goes through every file again: which component it belongs to, and the words it is found by. It repairs what an older version stored differently, and can take a while.",
+    "rebuild": "Rebuild the index",
+    "rebuilt": "The index is rebuilt",
+    "rebuiltFound": "{files, plural, one {# file} other {# files}} looked at, {moved} given to another component. {components, plural, one {# component} other {# components}} looked at, {removed} removed for having no file left.",
+    "deleteTitle": "Delete this repository",
+    "deleteIntro": "Everything stored in it is deleted with it.",
+    "deleteIntroGroup": "Its members stay as they are: a group stores nothing of its own.",
+    "delete": "Delete repository",
+    "deleteAsk": "Delete the repository {name}?",
+    "deleteBody": "Every component and file in it is deleted, and every client that uses its address is refused. This cannot be undone.",
+    "deleteBodyGroup": "Every client that uses its address is refused. Its members are not touched. This cannot be undone.",
+    "deleted": "Deleted the repository {name}."
+  },
+  "blobStores": {
+    "title": "Blob stores",
+    "intro": "Where the files of the repositories are kept.",
+    "columns": {
+      "name": "Name",
+      "directory": "Directory",
+      "blobs": "Blobs",
+      "size": "Size",
+      "available": "Space left",
+      "actions": "Delete"
+    },
+    "unknown": "Not known",
+    "createTitle": "New blob store",
+    "fields": {
+      "name": "Name",
+      "directory": "Directory"
+    },
+    "hints": {
+      "name": "Letters, digits and . _ - , up to 64.",
+      "directory": "Optional. Under the data directory unless it starts at the root. Without one, the store's name is used."
+    },
+    "nameRule": "A blob store's name is 1 to 64 letters, digits or . _ -",
+    "create": "Create blob store",
+    "created": "Created the blob store {name}.",
+    "delete": "Delete",
+    "deleteNamed": "Delete {name}",
+    "deleteStore": "Delete blob store",
+    "deleteAsk": "Delete the blob store {name}?",
+    "deleteBody": "The server forgets the store. Its files stay on the disk, for you to remove. A store that a repository uses is not deleted.",
+    "deleted": "Deleted the blob store {name}."
+  },
+  "system": {
+    "title": "System",
+    "intro": "What is running here, and the address it gives out as its own.",
+    "runningTitle": "What is running",
+    "facts": {
+      "version": "Version",
+      "schema": "Schema",
+      "started": "Started",
+      "python": "Python",
+      "platform": "Runs on",
+      "database": "Database"
+    },
+    "neverMigrated": "Never migrated",
+    "schemaCurrent": "As this version expects",
+    "schemaOther": "This version expects {expected}",
+    "baseUrlTitle": "Base URL",
+    "fields": {
+      "baseUrl": "The address of this server, as its clients reach it"
+    },
+    "hints": {
+      "baseUrl": "Used in every address the server gives out. Leave it empty to use the address each request came to. Set it when the server is behind a proxy that does not pass the address on."
+    },
+    "baseUrlRule": "Give an http or https address, without a query or a fragment.",
+    "saveBaseUrl": "Save",
+    "baseUrlSaved": "The base URL is saved.",
+    "baseUrlCleared": "The base URL is cleared.",
+    "storesTitle": "Blob stores",
+    "toStores": "Manage the blob stores"
   }
 }

@@ -63,7 +63,7 @@ describe("the shell", () => {
     expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
   });
 
-  test("leads an administrator to the users, the roles and anonymous access", () => {
+  test("leads an administrator to everything there is to administer", () => {
     navigation.at("/admin/users/0190-aa");
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
     const [wide] = screen.getAllByRole("navigation", { name: "Main" });
@@ -76,9 +76,20 @@ describe("the shell", () => {
       ["Users", "/admin/users"],
       ["Roles", "/admin/roles"],
       ["Anonymous access", "/admin/anonymous-access"],
+      // Not "Repositories": that is the list for browsing, in the same navigation (R14).
+      ["Manage repositories", "/admin/repositories"],
+      ["Blob stores", "/admin/blob-stores"],
+      ["System", "/admin/system"],
     ]);
     // One user's page is among the users.
-    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
+    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual([
+      "page",
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 
   test("has the navigation in a row of its own, which wraps where it does not fit", () => {

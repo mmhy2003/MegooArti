@@ -2,15 +2,42 @@
  * The navigation, as data. A screen is put into the navigation by adding an item here,
  * with the permission its API needs: the item is then shown only to those who hold it.
  */
-import { Boxes, Search, ShieldCheck, Unlock, Upload, Users, type LucideIcon } from "lucide-react";
+import {
+  Boxes,
+  HardDrive,
+  Search,
+  Server,
+  ShieldCheck,
+  Unlock,
+  Upload,
+  Users,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import type { Route } from "next";
 
 import type { SessionInfo } from "@/lib/api/types";
-import { ANONYMOUS_ACCESS, ROLES, USERS } from "@/lib/paths";
+import {
+  ANONYMOUS_ACCESS,
+  BLOB_STORES,
+  MANAGE_REPOSITORIES,
+  ROLES,
+  SYSTEM,
+  USERS,
+} from "@/lib/paths";
 import { allows, allowsSome } from "@/lib/session/rules";
 
 export type AreaKey = "browse" | "administration";
-export type ItemKey = "repositories" | "search" | "upload" | "users" | "roles" | "anonymousAccess";
+export type ItemKey =
+  | "repositories"
+  | "search"
+  | "upload"
+  | "users"
+  | "roles"
+  | "anonymousAccess"
+  | "manageRepositories"
+  | "blobStores"
+  | "system";
 
 export type NavItem = {
   /** Its name is the message `nav.items.<key>`. */
@@ -61,6 +88,19 @@ export const NAVIGATION: readonly NavArea[] = [
         icon: Unlock,
         permission: "admin:settings:read",
       },
+      {
+        key: "manageRepositories",
+        href: MANAGE_REPOSITORIES,
+        icon: Wrench,
+        permission: "admin:repositories:read",
+      },
+      {
+        key: "blobStores",
+        href: BLOB_STORES,
+        icon: HardDrive,
+        permission: "admin:blobstores:read",
+      },
+      { key: "system", href: SYSTEM, icon: Server, permission: "admin:settings:read" },
     ],
   },
 ];
