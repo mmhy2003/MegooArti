@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, File, Folder, Search, Trash2, Upload, X } from "lucide-react";
+import { Download, File, Folder, Search, Trash2, Upload, Wrench, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -38,10 +38,12 @@ import {
   httpAddress,
   parentOf,
   parseBrowse,
+  repositorySettingsHref,
   searchHref,
   split,
   uploadHref,
 } from "@/lib/paths";
+import { allows } from "@/lib/session/rules";
 import { askAgainIfChanged, useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
 
@@ -508,6 +510,7 @@ export function BrowseScreen() {
   const typeName = useTypeName();
   const where = parseBrowse(usePathname());
   const file = useSearchParams().get("file");
+  const session = useSession();
   const repository = useRepository(where?.repository ?? "");
 
   // Entering a folder replaces the list the link that was followed was in, and what had
@@ -548,6 +551,14 @@ export function BrowseScreen() {
           type: typeName(found.type),
         })}
       >
+        {session.data !== undefined && allows(session.data, "admin:repositories:read") ? (
+          <Button asChild size="sm" variant="ghost">
+            <AppLink href={repositorySettingsHref(found.name)}>
+              <Wrench aria-hidden="true" className="size-4" />
+              {t("settings")}
+            </AppLink>
+          </Button>
+        ) : null}
         {/* Not for a group: search looks in what holds components, and a group holds none. */}
         {found.type === "group" ? null : (
           <Button asChild size="sm" variant="ghost">

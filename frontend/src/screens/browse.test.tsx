@@ -270,6 +270,20 @@ describe("a group", () => {
     await expectAccessible();
   });
 
+  test("leads to its settings for whoever may see them, and for nobody else (R1)", async () => {
+    server();
+    const administrator = at("/browse/releases");
+    expect(await screen.findByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/admin/repositories/releases",
+    );
+    administrator.unmount();
+
+    at("/browse/releases", READER);
+    await screen.findByRole("heading", { level: 1, name: "releases" });
+    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+  });
+
   test("of any other kind offers a search in it", async () => {
     server();
     at("/browse/releases");
