@@ -20,6 +20,8 @@ const MADE = "browser-test-made";
 const MIRROR = "browser-test-mirror";
 const TOGETHER = "browser-test-together";
 const STORE = "browser-test-store";
+const ONCE = "browser-test-once";
+const STORED = "browser-test-stored";
 const REMOTE_SECRET = "the-remote-s-own-secret";
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
@@ -1364,12 +1366,25 @@ test("a blob store is made, listed with what it holds, and deleted when nothing 
   await expect(list.getByRole("row", { name: new RegExp(STORE) })).toContainText("0 B");
   await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
 
-  // The one every repository uses is not deleted, and the screen says who uses it.
-  await page.getByRole("button", { name: "Delete default" }).click();
-  const refused = page.getByRole("alertdialog", { name: "Delete the blob store default?" });
-  await refused.getByLabel("Type default to go on").fill("default");
+  // The default one is always kept: a repository that names no blob store is put in it.
+  await expect(list.getByRole("row", { name: /default/ })).toContainText("Always kept");
+  await expect(page.getByRole("button", { name: "Delete default" })).toHaveCount(0);
+  const session = await (await page.request.get("/api/v1/auth/session")).json();
+  const token = { "X-CSRF-Token": session.csrf_token };
+  const kept = await page.request.delete("/api/v1/blob-stores/default", { headers: token });
+  expect(kept.status()).toBe(409);
+
+  // One that a repository uses is not deleted, and the screen says who uses it.
+  await createRepository({ name: STORED, format: "raw", type: "hosted", blob_store: STORE });
+  await page.getByRole("button", { name: `Delete ${STORE}` }).click();
+  const refused = page.getByRole("alertdialog", { name: `Delete the blob store ${STORE}?` });
+  await refused.getByLabel(`Type ${STORE} to go on`).fill(STORE);
   await refused.getByRole("button", { name: "Delete blob store" }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("uses this blob store.");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    `The repository ${STORED} uses this blob store.`,
+  );
+  const gone = await page.request.delete(`/api/v1/repositories/${STORED}`, { headers: token });
+  expect(gone.status()).toBe(204);
 
   await page.getByRole("button", { name: `Delete ${STORE}` }).click();
   const dialog = page.getByRole("alertdialog", { name: `Delete the blob store ${STORE}?` });
@@ -1432,6 +1447,54 @@ test("the system screen meets WCAG 2.1 AA in both modes", async () => {
   await expectAccessibleInBothModes(async () => {
     await expect(page.getByText("As this version expects")).toBeVisible();
   });
+});
+
+test("a Maven repository made for releases, with nothing chosen, takes a version once", async () => {
+  await page.goto("/admin/repositories/~new");
+  // The form starts as a hosted Maven repository for releases, and shows what the
+  // server gives one: a release is deployed once.
+  await expect(page.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+  await page.getByRole("radio", { name: "Snapshot", exact: true }).check();
+  await expect(page.getByRole("radio", { name: "Allow redeploy" })).toBeChecked();
+  await page.getByRole("radio", { name: "Release", exact: true }).check();
+  await expect(page.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+  await page.getByLabel("Name", { exact: true }).fill(ONCE);
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/admin/repositories/${ONCE}$`));
+  await expect(page.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+
+  // As a build would: the version is taken, and the same version is not taken again.
+  const session = await (await page.request.get("/api/v1/auth/session")).json();
+  const jar = `/repository/${ONCE}/org/example/app/1.0/app-1.0.jar`;
+  const deploy = (built: string) =>
+    page.request.put(jar, {
+      headers: { "X-CSRF-Token": session.csrf_token },
+      data: Buffer.from(built),
+    });
+  expect((await deploy("the release")).status()).toBe(201);
+  expect((await deploy("another build")).status()).toBe(409);
+  expect(await (await page.request.get(jar)).text()).toBe("the release");
+});
+
+test("the API's documentation is drawn from this server's own files", async () => {
+  // Every request of every test is looked at by the last one: none may go elsewhere.
+  const loaded: string[] = [];
+  const listen = (response: { url(): string }) => loaded.push(new URL(response.url()).pathname);
+  page.on("response", listen);
+  await page.goto("/api/docs");
+
+  await expect(page).toHaveTitle("MegooArti API");
+  // Drawn by its script from the API's own document: an operation of the API is there.
+  await expect(page.getByText("/api/v1/auth/session", { exact: true }).first()).toBeVisible();
+  page.off("response", listen);
+  expect(loaded).toEqual(
+    expect.arrayContaining([
+      "/api/docs/assets/swagger-ui-bundle.js",
+      "/api/docs/assets/swagger-ui.css",
+      "/api/v1/openapi.json",
+    ]),
+  );
 });
 
 test("an upload refused because the session was replaced in another tab goes through at the next try", async () => {

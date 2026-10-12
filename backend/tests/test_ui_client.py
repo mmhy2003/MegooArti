@@ -44,6 +44,7 @@ def get(path: str) -> tuple[int, str, str]:
     [
         ("/api/v1/status/ready", 200, "application/json", '"status":"ok"'),
         ("/api/docs", 200, "text/html", "swagger"),
+        ("/api/docs/assets/swagger-ui.css", 200, "text/css", ".swagger-ui"),
         ("/repository/no-such-repository/file", 404, "application/json", "not_found"),
         ("/v2/", 401, "application/json", "UNAUTHORIZED"),
         ("/login", 200, "text/html", "<html"),
@@ -51,7 +52,17 @@ def get(path: str) -> tuple[int, str, str]:
         ("/healthz", 200, "text/plain", "ok"),
         ("/no/such/screen", 404, "text/html", "<html"),
     ],
-    ids=["api", "api-docs", "repository", "registry", "sign-in", "home", "health", "nothing"],
+    ids=[
+        "api",
+        "api-docs",
+        "api-docs-files",
+        "repository",
+        "registry",
+        "sign-in",
+        "home",
+        "health",
+        "nothing",
+    ],
 )
 def test_the_gateway_sends_each_kind_of_address_to_its_place(stack, path, status, kind, said):
     answered, content_type, body = get(path)
@@ -99,7 +110,7 @@ def test_the_ui_in_a_real_browser(stack):
     assert result.returncode == 0, said
     passed = re.search(r"(\d+) passed", result.stdout)
     # As many as the file has: fewer would mean that some were left out without a word.
-    assert passed is not None and int(passed[1]) >= 64, said
+    assert passed is not None and int(passed[1]) >= 66, said
     assert not re.search(r"\d+ (failed|skipped|did not run)", result.stdout), said
 
 
