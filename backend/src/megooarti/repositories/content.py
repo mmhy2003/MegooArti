@@ -649,6 +649,15 @@ class RepositoryContext:
         """Stage content that is already in memory, such as a file decoded from a body."""
         return await self.stage(_pieces(data))
 
+    async def read_staged(self, staged: StagedBlob, *, limit: int) -> bytes | None:
+        """Staged content, read into memory. None if it is longer than `limit`.
+
+        For a format that has to look inside an upload to know where it belongs.
+        """
+        if staged.size > limit:
+            return None
+        return b"".join([chunk async for chunk in self.backend.open_staged(staged)])
+
     async def discard(self, staged: StagedBlob) -> None:
         """Drop staged content that will not be stored after all."""
         await self.backend.discard(staged)

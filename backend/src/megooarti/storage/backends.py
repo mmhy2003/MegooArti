@@ -52,6 +52,8 @@ class BlobBackend(Protocol):
 
     async def discard(self, staged: StagedBlob) -> None: ...
 
+    def open_staged(self, staged: StagedBlob) -> AsyncIterator[bytes]: ...
+
     def open(self, sha256: str, start: int = 0, end: int | None = None) -> AsyncIterator[bytes]: ...
 
     async def exists(self, sha256: str) -> bool: ...
@@ -167,6 +169,15 @@ class FileBlobBackend:
 
     async def discard(self, staged: StagedBlob) -> None:
         await asyncio.to_thread(Path(staged.token).unlink, True)
+
+    async def open_staged(self, staged: StagedBlob) -> AsyncIterator[bytes]:
+        """Read content that is staged and not yet stored, for a caller that must look at it."""
+        handle = await asyncio.to_thread(open, staged.token, "rb")
+        try:
+            while chunk := await asyncio.to_thread(handle.read, CHUNK_SIZE):
+                yield chunk
+        finally:
+            handle.close()
 
     async def open(
         self, sha256: str, start: int = 0, end: int | None = None
