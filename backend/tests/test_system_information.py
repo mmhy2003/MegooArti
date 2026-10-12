@@ -60,11 +60,29 @@ async def test_it_says_so_when_the_schema_is_another_one(admin_client, db):
     assert schema == {"revision": "an-older-one", "expected": head_revision(), "current": False}
 
 
+async def test_it_says_so_when_the_database_was_never_migrated(admin_client, db):
+    # No table of revisions at all, as before the first migration was run.
+    await db.execute(text("ALTER TABLE alembic_version RENAME TO alembic_version_away"))
+    await db.commit()
+    try:
+        schema = (await admin_client.get(INFORMATION)).json()["schema"]
+    finally:
+        await db.execute(text("ALTER TABLE alembic_version_away RENAME TO alembic_version"))
+        await db.commit()
+
+    assert schema == {"revision": None, "expected": head_revision(), "current": False}
+
+
 async def test_it_gives_away_nothing_of_the_configuration(admin_client, app):
     response = await admin_client.get(INFORMATION)
     said = response.text
+    information = response.json()
 
     assert response.status_code == 200
+    # What it says is all it says: a field added to it is added here, on purpose.
+    assert set(information["schema"]) == {"revision", "expected", "current"}
+    assert set(information["runtime"]) == {"python", "platform", "started_at"}
+    assert set(information["database"]) == {"version"}
     # Not the address of the database, which has its password in it, nor a path.
     assert app.state.settings.database_url not in said
     assert "megooarti:megooarti" not in said

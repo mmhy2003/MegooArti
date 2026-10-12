@@ -1201,6 +1201,16 @@ test("a hosted repository is made on a page that grows, and then takes what its 
   // And back, from a repository's folders to its settings.
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(new RegExp(`/admin/repositories/${MADE}$`));
+
+  // The address shown is the one a client is given: what was put there is had from it.
+  const here = new URL(page.url());
+  const address = `${here.origin}/repository/${MADE}/`;
+  await expect(page.getByText(address, { exact: true })).toBeVisible();
+  expect(await (await page.request.get(`${address}d/made.txt`)).text()).toBe("made here");
+  // A registry has an address of its own, and answers nothing under the others' path.
+  await page.goto(`/admin/repositories/${IMAGES}`);
+  await expect(page.getByText(`${here.host}/${IMAGES}`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`/repository/${IMAGES}/`)).toHaveCount(0);
 });
 
 test("a proxy is set up with its remote, and its secret is shown to nobody again", async () => {

@@ -29,6 +29,7 @@ import {
 } from "@/lib/administration";
 import { isApiError } from "@/lib/api/client";
 import type { RepositoryOut } from "@/lib/api/types";
+import { useRepository } from "@/lib/content";
 import { useAttempts } from "@/lib/focus";
 import {
   browseHref,
@@ -115,7 +116,8 @@ function RepositoryForm({
   const { form, tried, attempt } = useAttempts(error);
   const storesReadable = may("admin:blobstores:read");
   const stores = useEveryBlobStore(creating && storesReadable);
-  const others = useEveryManagedRepository();
+  // Asked for only where they are chosen from: a group's members.
+  const others = useEveryManagedRepository(draft.type === "group");
 
   const own = problemsOf(draft, creating);
   const refused = refusalsOf(error, REFUSED_AT);
@@ -135,11 +137,13 @@ function RepositoryForm({
 
   const { type } = draft;
   const storeNames = Array.from(
-    new Set([DEFAULT_BLOB_STORE, ...(stores.data?.items.map((store) => store.name) ?? [])]),
+    new Set([DEFAULT_BLOB_STORE, ...(stores.data?.map((store) => store.name) ?? [])]),
   );
-  const candidates = (others.data?.items ?? [])
-    .filter((other) => other.format === draft.format && other.name !== repository?.name)
-    .map((other) => other.name);
+  // Not known until they were had: an empty list would say that there are none.
+  const candidates =
+    others.data
+      ?.filter((other) => other.format === draft.format && other.name !== repository?.name)
+      .map((other) => other.name) ?? null;
   const option = <Value extends string>(group: string, values: readonly Value[]) =>
     values.map((value) => ({
       value,
@@ -196,6 +200,9 @@ function RepositoryForm({
             <p className="text-sm text-fg-subtle">
               {storesReadable ? t("hints.blobStore") : t("hints.blobStoreUnreadable")}
             </p>
+            {stores.isError ? (
+              <ErrorState error={stores.error} onRetry={() => void stores.refetch()} />
+            ) : null}
             {refused.at.blob_store ? <Alert tone="danger">{refused.at.blob_store}</Alert> : null}
           </div>
         ) : null}
@@ -315,7 +322,7 @@ function RepositoryForm({
         ) : null}
 
         {type === "group" ? (
-          <div className="rounded-sm border border-line p-4">
+          <div className="flex flex-col gap-3 rounded-sm border border-line p-4">
             <MemberList
               legend={t("fields.members")}
               hint={t("hints.members")}
@@ -324,6 +331,11 @@ function RepositoryForm({
               candidates={candidates}
               error={refused.at["group.members"]}
             />
+            {others.isError ? (
+              <ErrorState error={others.error} onRetry={() => void others.refetch()} />
+            ) : candidates === null ? (
+              <LoadingState className="p-2" />
+            ) : null}
           </div>
         ) : null}
 
@@ -500,6 +512,9 @@ export function RepositorySettingsScreen() {
   // Once deleted, the repository is not asked for again: there is none to answer with.
   const repository = useManagedRepository(remove.isSuccess ? null : (where?.name ?? null));
   const update = useUpdateRepository(where?.name ?? "");
+  // The address its clients use is the browsing API's to say: a registry has one of its
+  // own, which the path of the others is not. Whoever may not browse it is told none.
+  const view = useRepository(remove.isSuccess ? "" : (where?.name ?? ""));
   const [asking, setAsking] = useState(false);
 
   if (where === null) return <NothingHere />;
@@ -549,9 +564,11 @@ export function RepositorySettingsScreen() {
               {String(found.format_config.version_policy ?? "")}
             </Fact>
           ) : null}
-          <Fact name={t("fields.address")} copy={found.url_path} mono>
-            {found.url_path}
-          </Fact>
+          {view.data ? (
+            <Fact name={t("fields.address")} copy={view.data.url} mono>
+              {view.data.url}
+            </Fact>
+          ) : null}
         </Facts>
         <RepositoryForm
           repository={found}

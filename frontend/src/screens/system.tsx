@@ -171,7 +171,7 @@ export function SystemScreen() {
           ) : !stores.data ? (
             <LoadingState />
           ) : (
-            <BlobStoreTable caption={t("storesTitle")} stores={stores.data.items} />
+            <BlobStoreTable caption={t("storesTitle")} stores={stores.data} />
           )}
         </Panel>
       ) : null}

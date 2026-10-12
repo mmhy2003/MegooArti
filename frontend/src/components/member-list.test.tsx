@@ -15,7 +15,7 @@ function Group({
   disabled,
 }: {
   initial: string[];
-  candidates?: string[];
+  candidates?: string[] | null;
   error?: string;
   disabled?: boolean;
 }) {
@@ -113,7 +113,34 @@ describe("the members of a group (R5)", () => {
     expect(order()).toEqual(["releases"]);
     expect(screen.getByText("There is no other repository of this format to add.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Add it" })).toBeNull();
+    // The list to add from is gone, and the keyboard is at what was added (B11).
+    expect(button("Take releases out")).toHaveFocus();
     await expectAccessible();
+  });
+
+  test("keep the keyboard when one is taken out and there is nothing to add", async () => {
+    const user = userEvent.setup();
+    // Members that are not among those that could be added: taken out, they are not offered.
+    renderUi(<Group initial={["hidden", "other"]} candidates={[]} />);
+
+    await user.click(button("Take hidden out"));
+    expect(order()).toEqual(["other"]);
+    expect(button("Take other out")).toHaveFocus();
+
+    await user.click(button("Take other out"));
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    // Nothing is left to press: the keyboard is at the members themselves.
+    expect(screen.getByRole("group", { name: "Members" })).toHaveFocus();
+  });
+
+  test("say nothing of what could be added while that is not known", () => {
+    // Still asked for, or not had: the screen says which.
+    renderUi(<Group initial={["releases"]} candidates={null} />);
+
+    expect(order()).toEqual(["releases"]);
+    expect(screen.queryByText("There is no other repository of this format to add.")).toBeNull();
+    expect(screen.queryByLabelText("A repository to add")).toBeNull();
+    expect(button("Take releases out")).toBeEnabled();
   });
 
   test("keep a member that is not among the repositories that could be added", () => {

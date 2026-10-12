@@ -23,7 +23,7 @@ import { isApiError } from "@/lib/api/client";
 import type { BlobStoreOut } from "@/lib/api/types";
 import { useAttempts, usePageFocus, useWithinPages } from "@/lib/focus";
 import { formatBytes } from "@/lib/format";
-import { BLOB_STORES, pageHref, pageOf } from "@/lib/paths";
+import { BLOB_STORES, isAddressable, pageHref, pageOf } from "@/lib/paths";
 import { refusalsOf } from "@/lib/refusals";
 import { allows } from "@/lib/session/rules";
 import { useSession } from "@/lib/session/session";
@@ -97,7 +97,13 @@ function Create() {
   // A name another store has: said at the name.
   const taken =
     isApiError(create.error) && create.error.code === "conflict" ? create.error.message : null;
-  const ownName = NAME.test(name) ? undefined : t("nameRule");
+  // The directory of a store is called as the store is, and . and .. are directories
+  // already: the server would speak of one that was never typed (R13).
+  const ownName = !NAME.test(name)
+    ? t("nameRule")
+    : isAddressable(name)
+      ? undefined
+      : t("nameDots");
 
   function submit(event: FormEvent) {
     event.preventDefault();

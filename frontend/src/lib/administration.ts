@@ -22,8 +22,8 @@ import { SETTINGS_KEY } from "@/lib/security";
 
 // As many of a list as one page shows.
 export const AT_ONCE = 50;
-// As many as one request may ask for: the choices of a form.
-const EVERY = 200;
+// As many as one request may ask for.
+const MOST = 200;
 
 const REPOSITORIES = "repositories";
 const BLOB_STORES = "blob-stores";
@@ -32,6 +32,16 @@ const BLOB_STORES = "blob-stores";
 const CONTENT = "content";
 
 const paged = (page: number) => ({ limit: AT_ONCE, offset: (page - 1) * AT_ONCE });
+
+/** All of a list, for a form to choose from: asked for again until there is no more of it. */
+async function every<Item>(path: string): Promise<Item[]> {
+  const items: Item[] = [];
+  for (;;) {
+    const page = await api.get<Page<Item>>(path, { query: { limit: MOST, offset: items.length } });
+    items.push(...page.items);
+    if (page.items.length === 0 || items.length >= page.total) return items;
+  }
+}
 const repository = (name: string) => `/repositories/${encodeURIComponent(name)}`;
 
 function afterRepositoryChange(client: QueryClient): Promise<void> {
@@ -51,11 +61,12 @@ export function useManagedRepositories(page: number) {
   });
 }
 
-/** The repositories there are, for a group's form to choose its members from. */
-export function useEveryManagedRepository() {
+/** Every repository there is, for a group's form to choose its members from. */
+export function useEveryManagedRepository(enabled = true) {
   return useQuery({
     queryKey: [REPOSITORIES, "every"],
-    queryFn: () => api.get<Page<RepositoryOut>>("/repositories", { query: { limit: EVERY } }),
+    queryFn: () => every<RepositoryOut>("/repositories"),
+    enabled,
   });
 }
 
@@ -128,11 +139,11 @@ export function useBlobStores(page: number) {
   });
 }
 
-/** The blob stores there are, for a form to choose from. `enabled` is false for who may not read them. */
+/** Every blob store there is, for a form to choose from. `enabled` is false for who may not read them. */
 export function useEveryBlobStore(enabled = true) {
   return useQuery({
     queryKey: [BLOB_STORES, "every"],
-    queryFn: () => api.get<Page<BlobStoreOut>>("/blob-stores", { query: { limit: EVERY } }),
+    queryFn: () => every<BlobStoreOut>("/blob-stores"),
     enabled,
   });
 }

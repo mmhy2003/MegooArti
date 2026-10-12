@@ -798,6 +798,7 @@
       "directory": "Optional. Under the data directory unless it starts at the root. Without one, the store's name is used."
     },
     "nameRule": "A blob store's name is 1 to 64 letters, digits or . _ -",
+    "nameDots": "A blob store cannot be called . or .. : its directory would not be its own.",
     "create": "Create blob store",
     "created": "Created the blob store {name}.",
     "delete": "Delete",

@@ -53,6 +53,15 @@ const proxy = (name: string, more: Record<string, unknown> = {}, status: object 
     },
     status: { blocked: false, auto_blocked_until: null, failures: 0, last_error: null, ...status },
   });
+/** A repository as the browsing screens have it: with the address its clients use. */
+const view = (of: { name: string; format: string; type: string }, url?: string) => ({
+  name: of.name,
+  format: of.format,
+  type: of.type,
+  online: true,
+  members: null,
+  url: url ?? `https://ui.test/repository/${of.name}/`,
+});
 const RELEASES = repository("releases");
 const CENTRAL = proxy("central");
 const ALL = repository("all", {
@@ -309,6 +318,63 @@ describe("a new repository (R2)", () => {
     });
   });
 
+  test("a group is offered every repository of its format, however many there are", async () => {
+    const user = userEvent.setup();
+    const others = Array.from({ length: 200 }, (_, index) =>
+      repository(`npm-${index}`, { format: "npm", format_config: {} }),
+    );
+    const { calls } = fresh({
+      "GET /repositories": (call) =>
+        call.path.includes("offset=200")
+          ? { json: { items: [repository("the-last")], total: 201, limit: 200, offset: 200 } }
+          : { json: { items: others, total: 201, limit: 200, offset: 0 } },
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Group" }));
+
+    // The one Maven repository is the last of them all, beyond what one request brings.
+    await waitFor(() =>
+      expect(screen.getByLabelText("A repository to add")).toHaveValue("the-last"),
+    );
+    expect(
+      calls.map((call) => call.path).filter((path) => path.startsWith("/repositories")),
+    ).toEqual(["/repositories?limit=200&offset=0", "/repositories?limit=200&offset=200"]);
+  });
+
+  test("says so when the repositories cannot be had, and not that there are none", async () => {
+    const user = userEvent.setup();
+    let fails = true;
+    fresh({
+      "GET /repositories": () =>
+        fails ? failure(500, "internal_error", "Broken.") : { json: page([RELEASES]) },
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Group" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The server met a fault.");
+    expect(screen.queryByText("There is no other repository of this format to add.")).toBeNull();
+    // Members that are there can still be put in order, and the list is asked for again.
+    fails = false;
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("A repository to add")).toHaveValue("releases"),
+    );
+  });
+
+  test("asks for the other repositories only for a group, which has members", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+    const asked = () => calls.filter((call) => call.path.startsWith("/repositories")).length;
+    await waitFor(() =>
+      expect(calls.some((call) => call.path.startsWith("/blob-stores"))).toBe(true),
+    );
+
+    expect(asked()).toBe(0);
+    await user.click(screen.getByRole("radio", { name: "Group" }));
+    await waitFor(() => expect(asked()).toBe(1));
+  });
+
   test("members of one format are none of another: changing the format empties them", async () => {
     const user = userEvent.setup();
     fresh();
@@ -429,6 +495,14 @@ describe("a new repository (R2)", () => {
     expect(calls.some((call) => call.path.startsWith("/blob-stores"))).toBe(false);
   });
 
+  test("says so when the blob stores cannot be had", async () => {
+    fresh({ "GET /blob-stores": failure(500, "internal_error", "Broken.") });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The server met a fault.");
+    // The default one is always there to be used.
+    expect(screen.getByLabelText("Blob store")).toHaveValue("default");
+  });
+
   test("is not offered to whoever may not create one, though the address be typed", () => {
     fresh({}, holding("admin:repositories:read"));
 
@@ -441,6 +515,7 @@ describe("the settings of a repository", () => {
   function settings(which = RELEASES, more: Routes = {}, session = ADMIN) {
     const api = mockApi({
       [`GET /repositories/${which.name}`]: { json: which },
+      [`GET /content/${which.name}`]: { json: view(which) },
       "GET /repositories": { json: page([ALL, CENTRAL, NPM, RELEASES]) },
       ...more,
     });
@@ -453,9 +528,11 @@ describe("the settings of a repository", () => {
     settings(repository("releases", { hosted: { deployment_policy: "read_only" } }));
 
     expect(await screen.findByRole("heading", { level: 1, name: "releases" })).toBeVisible();
-    for (const fact of ["maven", "Hosted", "default", "release", "/repository/releases/"]) {
+    for (const fact of ["maven", "Hosted", "default", "release"]) {
       expect(screen.getAllByText(fact)[0]).toBeVisible();
     }
+    // The address its clients use, whole: what is copied is what a client is given.
+    expect(await screen.findByText("https://ui.test/repository/releases/")).toBeVisible();
     // Not fields: a field that cannot be changed is one that will be tried.
     expect(screen.queryByLabelText("Name")).toBeNull();
     expect(screen.queryByLabelText("Format")).toBeNull();
@@ -469,6 +546,36 @@ describe("the settings of a repository", () => {
       "/browse/releases",
     );
     await expectAccessible();
+  });
+
+  test("show the address a registry has of its own, and none to whoever may not browse it", async () => {
+    const images = repository("images", { format: "docker", format_config: {} });
+    const first = settings(images, {
+      "GET /content/images": { json: view(images, "ui.test/images") },
+    });
+
+    expect(await screen.findByText("ui.test/images")).toBeVisible();
+    // Not the path the other formats are served under: a registry answers 404 there.
+    expect(screen.queryByText("/repository/images/")).toBeNull();
+    first.unmount();
+
+    const { calls } = settings(images, {
+      "GET /content/images": failure(404, "not_found", "No repository images."),
+    });
+    await screen.findByRole("heading", { level: 1, name: "images" });
+    await waitFor(() => expect(calls.some((call) => call.path === "/content/images")).toBe(true));
+    expect(screen.queryByText("Address")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("ask for the other repositories only for a group", async () => {
+    const { calls } = settings();
+
+    await screen.findByText("https://ui.test/repository/releases/");
+    expect(calls.map((call) => call.path).sort()).toEqual([
+      "/content/releases",
+      "/repositories/releases",
+    ]);
   });
 
   test("are saved as they stand, and say so", async () => {
@@ -762,6 +869,22 @@ describe("the blob stores (R10)", () => {
     expect(of(calls, "POST")[1]?.body).toEqual({ name: "third", type: "file", path: "/mnt/third" });
   });
 
+  test("one called . or .. is none, and is not asked for (R13)", async () => {
+    const user = userEvent.setup();
+    const { calls } = stores();
+    await screen.findByRole("table", { name: "Blob stores" });
+
+    for (const dots of [".", ".."]) {
+      await user.clear(screen.getByLabelText("Name"));
+      await user.type(screen.getByLabelText("Name"), dots);
+      await user.click(create());
+      expect(screen.getByLabelText("Name")).toHaveAccessibleDescription(
+        "A blob store cannot be called . or .. : its directory would not be its own.",
+      );
+    }
+    expect(of(calls, "POST")).toHaveLength(0);
+  });
+
   test("says what the server refuses of a new one where it belongs", async () => {
     const user = userEvent.setup();
     const first = stores({
@@ -906,6 +1029,31 @@ describe("the system (R11)", () => {
     expect(await screen.findByText("This version expects 0007")).toBeVisible();
     expect(screen.getByText("0005")).toBeVisible();
     expect(screen.queryByText("As this version expects")).toBeNull();
+  });
+
+  test("says so when the database was never migrated", async () => {
+    system({
+      "GET /system/information": {
+        json: { ...INFORMATION, schema: { revision: null, expected: "0007", current: false } },
+      },
+    });
+
+    expect(await screen.findByText("Never migrated")).toBeVisible();
+    expect(screen.getByText("This version expects 0007")).toBeVisible();
+  });
+
+  test("shows every blob store, however many there are", async () => {
+    const many = Array.from({ length: 200 }, (_, index) => store(`store-${index}`));
+    system({
+      "GET /blob-stores": (call) =>
+        call.path.includes("offset=200")
+          ? { json: { items: [store("the-last")], total: 201, limit: 200, offset: 200 } }
+          : { json: { items: many, total: 201, limit: 200, offset: 0 } },
+    });
+
+    const table = await screen.findByRole("table", { name: "Blob stores" });
+    expect(within(table).getAllByRole("row")).toHaveLength(202);
+    expect(within(table).getAllByText("the-last")[0]).toBeVisible();
   });
 
   test("sets the base URL, as the server then keeps it", async () => {

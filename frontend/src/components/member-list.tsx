@@ -29,15 +29,19 @@ export function MemberList({
   hint?: string;
   members: string[];
   onChange: (members: string[]) => void;
-  /** The repositories that could be added: of the group's format, the group itself left out. */
-  candidates: string[];
+  /**
+   * The repositories that could be added: of the group's format, the group itself left
+   * out. Null while that is not known, which the screen says: nothing is then offered,
+   * and nothing is said to be missing.
+   */
+  candidates: string[] | null;
   error?: string | null;
   disabled?: boolean;
 }) {
   const t = useTranslations("members");
   const id = useId();
-  const list = useRef<HTMLDivElement>(null);
-  const free = candidates.filter((name) => !members.includes(name));
+  const list = useRef<HTMLFieldSetElement>(null);
+  const free = (candidates ?? []).filter((name) => !members.includes(name));
   // The one that the list to add from shows. It follows what there is to add.
   const [chosen, setChosen] = useState("");
   const adding = free.includes(chosen) ? chosen : (free[0] ?? "");
@@ -53,7 +57,12 @@ export function MemberList({
     asked.current = null;
     const within = list.current;
     if ("add" in wanted) {
-      within?.querySelector<HTMLElement>("select, [data-add]")?.focus();
+      // The list to add from is not there when nothing is left to add: then the last
+      // member's own button, and with no member either, the members themselves.
+      const rows = within?.querySelectorAll<HTMLElement>('[data-button="remove"]');
+      const next =
+        within?.querySelector<HTMLElement>("select, [data-add]") ?? rows?.[rows.length - 1];
+      (next ?? within)?.focus();
       return;
     }
     const row = Array.from(within?.querySelectorAll<HTMLElement>("li") ?? []).find(
@@ -75,6 +84,9 @@ export function MemberList({
 
   return (
     <fieldset
+      ref={list}
+      // Not a stop of its own: it takes the keyboard only when nothing in it can.
+      tabIndex={-1}
       disabled={disabled}
       aria-describedby={hint ? `${id}-hint` : undefined}
       className="flex min-w-0 flex-col gap-3 border-0 p-0"
@@ -85,7 +97,7 @@ export function MemberList({
           {hint}
         </p>
       ) : null}
-      <div ref={list} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         {members.length === 0 ? <p className="text-sm text-fg-subtle">{t("none")}</p> : null}
         <ol className="flex flex-col gap-2">
           {members.map((name, index) => (
@@ -121,6 +133,7 @@ export function MemberList({
               <Button
                 size="sm"
                 variant="ghost"
+                data-button="remove"
                 aria-label={t("remove", { name })}
                 onClick={() => {
                   onChange(members.filter((member) => member !== name));
@@ -133,7 +146,7 @@ export function MemberList({
             </li>
           ))}
         </ol>
-        {free.length === 0 ? (
+        {candidates === null ? null : free.length === 0 ? (
           <p className="text-sm text-fg-subtle">{t("nothingToAdd")}</p>
         ) : (
           <div className="flex flex-wrap items-end gap-3">
