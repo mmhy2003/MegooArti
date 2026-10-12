@@ -16,6 +16,11 @@ const TOKEN = "browser-test-build";
 const ROLE = "browser-test-deployers";
 const ALICE = "browser-test-alice";
 const HER_PASSWORD = "chosen-by-alice-herself";
+const MADE = "browser-test-made";
+const MIRROR = "browser-test-mirror";
+const TOGETHER = "browser-test-together";
+const STORE = "browser-test-store";
+const REMOTE_SECRET = "the-remote-s-own-secret";
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
 const UPLOADS = "**/api/v1/content/*/upload";
@@ -223,7 +228,9 @@ test("choosing a password leads on to the repositories, of which there are none 
   await expect(page).toHaveTitle("Repositories · MegooArti");
   await expect(page.getByRole("heading", { name: "No repositories" })).toBeVisible();
   await expect(
-    page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Repositories" }),
+    page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Repositories", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
@@ -280,7 +287,9 @@ test("on a narrow screen the navigation is behind a button, and nothing overflow
   await expect(page.getByRole("navigation", { name: "Main" })).toHaveCount(0);
   await open.click();
   await expect(
-    page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Repositories" }),
+    page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Repositories", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close the navigation" }).click();
 
@@ -316,7 +325,9 @@ test("a repository is entered from the list, and is empty to begin with", async 
   await expect(page.getByRole("heading", { name: "Nothing here yet" })).toBeVisible();
   // Browsing a repository is being among the repositories.
   await expect(
-    page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Repositories" }),
+    page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Repositories", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
@@ -1141,6 +1152,278 @@ test("the anonymous access screen meets WCAG 2.1 AA in both modes", async () => 
   });
 });
 
+test("a hosted repository is made on a page that grows, and then takes what its policy lets it", async () => {
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Manage repositories" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Manage repositories" })).toBeVisible();
+  await expect(page).toHaveTitle("Manage repositories · MegooArti");
+  await page.getByRole("link", { name: "New repository" }).click();
+  await expect(page).toHaveURL(/\/admin\/repositories\/~new$/);
+
+  // It starts as a hosted Maven repository, with Maven's own settings.
+  await expect(page.getByRole("group", { name: "Version policy" })).toBeVisible();
+  await page.getByLabel("Format").selectOption("raw");
+  await expect(page.getByRole("group", { name: "Version policy" })).toHaveCount(0);
+  await expect(page.getByLabel("Remote address")).toHaveCount(0);
+  await page.getByRole("button", { name: "Create repository" }).click();
+  // Nothing is sent without a name: the keyboard is at the field that wants one.
+  await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
+  await page.getByLabel("Name", { exact: true }).fill(MADE);
+  await page.getByRole("radio", { name: "Disable redeploy" }).check();
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/admin/repositories/${MADE}$`));
+  await expect(page.getByRole("heading", { level: 1, name: MADE })).toBeVisible();
+  await expect(page).toHaveTitle(`Settings of ${MADE} · MegooArti`);
+  await expect(page.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+  // What cannot change is a fact, and not a field that would be tried.
+  await expect(page.getByLabel("Format")).toHaveCount(0);
+  await expect(page.getByLabel("Name", { exact: true })).toHaveCount(0);
+
+  // The policy is the server's from now on: a file is taken once, and not a second time.
+  const session = await (await page.request.get("/api/v1/auth/session")).json();
+  const put = () =>
+    page.request.post(`/api/v1/content/${MADE}/upload`, {
+      headers: { "X-CSRF-Token": session.csrf_token },
+      multipart: {
+        directory: "d",
+        file: { name: "made.txt", mimeType: "text/plain", buffer: Buffer.from("made here") },
+      },
+    });
+  expect((await put()).status()).toBe(201);
+  expect((await put()).status()).toBeGreaterThanOrEqual(400);
+
+  await page.getByRole("link", { name: "Browse it" }).click();
+  await expect(page).toHaveURL(new RegExp(`/browse/${MADE}$`));
+  await expect(page.getByRole("link", { name: "Folder d" })).toBeVisible();
+  // And back, from a repository's folders to its settings.
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin/repositories/${MADE}$`));
+});
+
+test("a proxy is set up with its remote, and its secret is shown to nobody again", async () => {
+  await page.goto("/admin/repositories/~new");
+  await page.getByLabel("Name", { exact: true }).fill(MIRROR);
+  await page.getByRole("radio", { name: "Proxy" }).check();
+  await expect(page.getByRole("group", { name: "Deployment policy" })).toHaveCount(0);
+  await page.getByLabel("Remote address").fill("repo.example.org");
+  await page.getByRole("button", { name: "Create repository" }).click();
+  await expect(page.getByLabel("Remote address")).toBeFocused();
+  await expect(page.getByLabel("Remote address")).toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("Remote address").fill("https://repo.example.org/maven2/");
+  await page.getByLabel("Signs in to the remote with").selectOption("basic");
+  await page.getByLabel("User name").fill("robot");
+  await page.getByLabel("Password").fill(REMOTE_SECRET);
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: MIRROR })).toBeVisible();
+  // As the server keeps it, and with a field that is empty where the secret was typed.
+  await expect(page.getByLabel("Remote address")).toHaveValue("https://repo.example.org/maven2");
+  await expect(page.getByLabel("Password")).toHaveValue("");
+  await expect(page.getByText("One is stored. Leave this empty to keep it")).toBeVisible();
+  await expect(page.getByRole("main")).not.toContainText(REMOTE_SECRET);
+  const stored = await (await page.request.get(`/api/v1/repositories/${MIRROR}`)).json();
+  expect(JSON.stringify(stored)).not.toContain(REMOTE_SECRET);
+  expect(stored.proxy.remote_auth).toEqual({ type: "basic", username: "robot", has_secret: true });
+
+  // Its state, and having everything checked again.
+  await expect(page.getByText("In use")).toBeVisible();
+  await page.getByRole("button", { name: "Check everything again" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `${MIRROR} will check everything with its remote again.`,
+  );
+
+  // Blocked by hand, and saved with the secret left as it is.
+  await page.getByRole("checkbox", { name: "Blocked: do not contact the remote at all" }).check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Saved the repository ${MIRROR}.`,
+  );
+  await expect(page.getByRole("button", { name: "Save" })).toBeFocused();
+  await expect(page.getByText("Blocked", { exact: true })).toBeVisible();
+  const saved = await (await page.request.get(`/api/v1/repositories/${MIRROR}`)).json();
+  expect(saved.proxy.blocked).toBe(true);
+  expect(saved.proxy.remote_auth.has_secret).toBe(true);
+});
+
+test("the repository settings screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByLabel("Remote address")).toHaveValue("https://repo.example.org/maven2");
+  });
+});
+
+test("a group is made of members in an order set by keyboard, and answers through them", async () => {
+  await page.goto("/admin/repositories/~new");
+  await page.getByLabel("Format").selectOption("raw");
+  await page.getByLabel("Name", { exact: true }).fill(TOGETHER);
+  await page.getByRole("radio", { name: "Group" }).check();
+  const members = page.getByRole("group", { name: "Members, in the order they are asked" });
+  await members.getByLabel("A repository to add").selectOption(REPOSITORY);
+  await members.getByRole("button", { name: "Add it" }).click();
+  await members.getByLabel("A repository to add").selectOption(MADE);
+  await members.getByRole("button", { name: "Add it" }).click();
+  await expect(members.getByRole("listitem")).toHaveText([
+    new RegExp(REPOSITORY),
+    new RegExp(MADE),
+  ]);
+
+  // Moved by its button, which keeps the keyboard for as long as it can move further.
+  await members.getByRole("button", { name: `Move ${MADE} up` }).focus();
+  await page.keyboard.press("Enter");
+  await expect(members.getByRole("listitem")).toHaveText([
+    new RegExp(MADE),
+    new RegExp(REPOSITORY),
+  ]);
+  await expect(members.getByRole("status")).toHaveText(`${MADE} is now number 1 of 2.`);
+  // At the top it can go no further up: the keyboard is at the button beside it.
+  await expect(members.getByRole("button", { name: `Move ${MADE} down` })).toBeFocused();
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: TOGETHER })).toBeVisible();
+  // Asked of the server again, the order is the one that was set.
+  await page.reload();
+  await expect(
+    page.getByRole("group", { name: "Members, in the order they are asked" }).getByRole("listitem"),
+  ).toHaveText([new RegExp(MADE), new RegExp(REPOSITORY)]);
+  // What a member holds is had at the group's address.
+  const through = await page.request.get(`/repository/${TOGETHER}/d/made.txt`);
+  expect(through.status()).toBe(200);
+  expect(await through.text()).toBe("made here");
+});
+
+test("the screens that list and make repositories meet WCAG 2.1 AA in both modes", async () => {
+  await page.goto("/admin/repositories");
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("link", { name: MIRROR, exact: true })).toBeVisible();
+  });
+  await expect(page.getByRole("row", { name: new RegExp(MIRROR) })).toContainText("Blocked");
+  await page.goto("/admin/repositories/~new");
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("radio", { name: "Hosted" })).toBeChecked();
+  });
+});
+
+test("a repository is deleted only by whoever types its name, and not while a group presents it", async () => {
+  await page.goto(`/admin/repositories/${MADE}`);
+  const remove = page.getByRole("button", { name: "Delete repository" });
+  await remove.click();
+  const dialog = page.getByRole("alertdialog", { name: `Delete the repository ${MADE}?` });
+  await expect(dialog).toContainText("Every component and file in it is deleted");
+  await expect(dialog.getByRole("button", { name: "Delete repository" })).toBeDisabled();
+  await dialog.getByLabel(`Type ${MADE} to go on`).fill(MADE);
+  await dialog.getByRole("button", { name: "Delete repository" }).click();
+  // The group stands in the way, and the screen says which.
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    `The group ${TOGETHER} presents this repository.`,
+  );
+
+  for (const name of [TOGETHER, MADE, MIRROR]) {
+    await page.goto(`/admin/repositories/${name}`);
+    await page.getByRole("button", { name: "Delete repository" }).click();
+    const asked = page.getByRole("alertdialog", { name: `Delete the repository ${name}?` });
+    await asked.getByLabel(`Type ${name} to go on`).fill(name);
+    await asked.getByRole("button", { name: "Delete repository" }).click();
+    await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+      `Deleted the repository ${name}.`,
+    );
+    await expect(page).toHaveURL(/\/admin\/repositories$/);
+    await expect(page.getByRole("link", { name, exact: true })).toHaveCount(0);
+  }
+  // Gone for its clients too.
+  expect((await page.request.get(`/repository/${MADE}/d/made.txt`)).status()).toBe(404);
+});
+
+test("a blob store is made, listed with what it holds, and deleted when nothing uses it", async () => {
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Blob stores" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Blob stores" })).toBeVisible();
+  await expect(page).toHaveTitle("Blob stores · MegooArti");
+  const list = page.getByRole("table", { name: "Blob stores" });
+  await expect(list.getByRole("row", { name: /default/ })).toBeVisible();
+
+  await page.getByLabel("Name", { exact: true }).fill(STORE);
+  await page.getByRole("button", { name: "Create blob store" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Created the blob store ${STORE}.`,
+  );
+  await expect(list.getByRole("row", { name: new RegExp(STORE) })).toContainText("0 B");
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
+
+  // The one every repository uses is not deleted, and the screen says who uses it.
+  await page.getByRole("button", { name: "Delete default" }).click();
+  const refused = page.getByRole("alertdialog", { name: "Delete the blob store default?" });
+  await refused.getByLabel("Type default to go on").fill("default");
+  await refused.getByRole("button", { name: "Delete blob store" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("uses this blob store.");
+
+  await page.getByRole("button", { name: `Delete ${STORE}` }).click();
+  const dialog = page.getByRole("alertdialog", { name: `Delete the blob store ${STORE}?` });
+  await expect(dialog).toContainText("Its files stay on the disk");
+  await dialog.getByLabel(`Type ${STORE} to go on`).fill(STORE);
+  await dialog.getByRole("button", { name: "Delete blob store" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Deleted the blob store ${STORE}.`,
+  );
+  await expect(list.getByRole("row", { name: new RegExp(STORE) })).toHaveCount(0);
+  // The button that was pressed went with its row: the keyboard is at the list.
+  await expect(page.getByRole("group", { name: "Blob stores" })).toBeFocused();
+});
+
+test("the blob stores screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("table", { name: "Blob stores" })).toBeVisible();
+  });
+});
+
+test("the system page says what is running, and sets the address the server gives out", async ({
+  baseURL,
+}) => {
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "System" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "System" })).toBeVisible();
+  await expect(page).toHaveTitle("System · MegooArti");
+  await expect(page.getByText("As this version expects")).toBeVisible();
+  await expect(page.getByText(/^PostgreSQL \d+/)).toBeVisible();
+  await expect(page.getByText(/^\d+\.\d+\.\d+$/).first()).toBeVisible(); // the version
+  await expect(page.getByRole("table", { name: "Blob stores" })).toBeVisible();
+
+  const address = page.getByLabel("The address of this server, as its clients reach it");
+  await address.fill("not an address");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(address).toBeFocused();
+  await expect(address).toHaveAttribute("aria-invalid", "true");
+
+  // Its own address, as this browser reaches it: nothing changes for what follows.
+  const origin = new URL(baseURL ?? "").origin;
+  await address.fill(`${origin}/`);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "The base URL is saved.",
+  );
+  await expect(address).toHaveValue(origin); // as the server keeps it
+  expect((await (await page.request.get("/api/v1/settings")).json()).base_url).toBe(origin);
+
+  await address.fill("");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "The base URL is cleared.",
+  );
+  expect((await (await page.request.get("/api/v1/settings")).json()).base_url).toBeNull();
+});
+
+test("the system screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText("As this version expects")).toBeVisible();
+  });
+});
+
 test("an upload refused because the session was replaced in another tab goes through at the next try", async () => {
   await page.goto(`/upload/${REPOSITORY}`);
   await page.getByLabel("Files", { exact: true }).setInputFiles({
@@ -1222,9 +1505,10 @@ test("through all of it, nothing was asked of another host, and the browser had 
   expect(elsewhere).toEqual([]);
   // The complaints there should be: the browser itself logs the sign-in that was refused
   // (401), the upload with the token of a session that had been replaced (403), the
-  // address and the folder that had nothing at them (404), and the upload of a snapshot
+  // address and the folder that had nothing at them (404), the repository and the blob
+  // store that were in use when they were to be deleted (409), and the upload of a snapshot
   // (422). Anything else, such as something the content security policy stopped, fails this.
-  const unexpected = complaints.filter((text) => !/status of (401|403|404|422)/.test(text));
+  const unexpected = complaints.filter((text) => !/status of (401|403|404|409|422)/.test(text));
   // In particular not of the site the return paths named. (Its name is in the query of
   // addresses that were asked for, which is as far as it got.)
   expect(requested.filter((address) => new URL(address).hostname.includes("evil"))).toEqual([]);
