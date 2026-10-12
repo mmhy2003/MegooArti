@@ -81,29 +81,29 @@ Each token has a value for the dark mode and one for the light mode. Surfaces, l
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
-| `bg` | `#07080d` | `#f2f4f9` | The page |
+| `page` | `#07080d` | `#f2f4f9` | The page |
 | `panel` | `#0d1018` | `#ffffff` | Panels, the header |
 | `raised` | `#151a26` | `#e8ecf5` | Hover, selected rows, menus |
 | `field` | `#10141e` | `#ffffff` | Inputs |
-| `line` | `#2a3348` | `#c3cbde` | Borders |
-| `line-strong` | `#475474` | `#7f8baa` | Borders of inputs and of what can be pressed |
-| `text` | `#e6ebf5` | `#10131c` | Text |
-| `text-muted` | `#a3aec4` | `#465069` | Secondary text |
-| `text-subtle` | `#8591ab` | `#5a6684` | Hints, placeholders |
+| `line` | `#2a3348` | `#c3cbde` | Borders that only divide |
+| `line-strong` | `#5b6a8f` | `#6f7b99` | Borders of inputs and of what can be pressed |
+| `fg` | `#e6ebf5` | `#10131c` | Text |
+| `fg-muted` | `#a3aec4` | `#465069` | Secondary text |
+| `fg-subtle` | `#8f9ab3` | `#566280` | Hints, placeholders |
 
 Accents, each as a neon tone for borders, glows and icons, and an ink tone for text:
 
 | Accent | Neon, dark | Ink, dark | Neon, light | Ink, light |
 | --- | --- | --- | --- | --- |
-| Cyan (primary) | `#00e5ff` | `#5cefff` | `#00a3c4` | `#00647d` |
+| Cyan (primary) | `#00e5ff` | `#5cefff` | `#0090ad` | `#00647d` |
 | Magenta | `#ff2bd6` | `#ff7ae5` | `#d400ab` | `#a30085` |
-| Acid | `#c6ff00` | `#d4ff4d` | `#7ea800` | `#4a6400` |
+| Acid | `#c6ff00` | `#d4ff4d` | `#6c9100` | `#4a6400` |
 
 Status (success, warning, danger, information) follows the same pair of tones, and always comes with an icon and a word. A filled primary button is `primary` with `on-primary` text: cyan with near-black text in the dark mode, deep cyan with white text in the light mode. The focus ring is the acid tone in the dark mode and the ink magenta in the light mode: a colour nothing else in a control has.
 
 Type: a scale from 12 to 30 pixels in rem; Oxanium in capitals with wide tracking for navigation and small headings. Spacing is Tailwind's 4-pixel scale. Radii are 2 pixels where corners are square and an 8-pixel bevel on panels, buttons and tags. Glow has two strengths. Motion has two durations, both zero under reduced motion.
 
-The values above are the starting point. The contrast test (D6) is the authority: a pair that fails it is changed, here and in the code.
+The values above are those of `frontend/src/styles/tokens.css`, which is the authority, with the contrast test (D6): a pair that fails it is changed there, and here.
 
 ## 6. The shell
 
@@ -126,6 +126,8 @@ Plan 9 registers one item, the home screen. Plan 10 registers the rest.
 Signing in posts the name and password, keeps the CSRF token, and fills the session from the answer. If the answer is a success and the session then says nobody is signed in, the browser did not keep the cookie, and the screen says why: the cookie is `Secure`, and the address is plain HTTP on a host that is not `localhost`.
 
 A `401` from any later request means the session has ended: the session is asked for again, and the rules above apply. A `403` with the code `password_change_required` leads to the change-password screen.
+
+Signing out ends the session and then loads the home screen afresh, so that nothing the page held in memory for whoever was signed in is left, and the next visitor starts where any visitor does.
 
 ## 8. The gateway
 
@@ -165,6 +167,19 @@ Towards the backend the gateway must: pass the request path exactly as it was se
 | `corner-shape` is not in every browser. | Square corners there (D12). Nothing depends on the bevel. |
 | The gateway changes what every existing real-client test passes through. | That is the point (D17), and the first thing the plan runs after adding it. |
 | A session cookie marked `Secure` is not kept over plain HTTP on a host that is not `localhost`. | The sign-in screen says so (section 7), and the README names the setting. |
+
+## 11a. Settled while building plan 9
+
+- **The framework's cached components are off** (`cacheComponents`), and every page is rendered for its request. Next.js 16 can only put a nonce into a page it renders for the request, and says itself that the two do not combine.
+- **Radix writes a style sheet of its own** into the page when a menu or a dialog opens. It is let in by the same nonce, which the layout hands to it.
+- **The translations are given to the browser's code**, not read on the server: nothing on the server needs a locale, and `next-intl` then needs no configuration of its own.
+- **The fonts are loaded with `next/font/local`** from files in the repository. `next/font/google` would fetch them from Google when the UI is built.
+- **Tailwind's own palette is removed**, so a class naming one of its colours does not exist. With the test that refuses a literal colour, a component can only use tokens.
+- **A confirmation gives focus back to whatever opened it.** Radix does that for a trigger of its own; this dialog is opened by its screen.
+- **A table scrolls inside its panel.** Text hidden from sight inside a cell is placed absolutely, and widened the page on a narrow screen until the table's own box contained it. The browser test for a 375-pixel screen found it.
+- **The gateway is nginx**, with the routing rules in `gateway/nginx.conf`. `/v2` without its slash is not the registry: every client asks for `/v2/`.
+- **The browser tests run at `localhost`**, because a browser keeps a `Secure` cookie over plain HTTP only there.
+- **Not in plan 9:** a failed sign-out is not reported on the screen (it needs the notifications plan 10 brings), and the home screen shows the first 200 repositories and says how many there are.
 
 ## 12. The screens of plan 10 (outline)
 

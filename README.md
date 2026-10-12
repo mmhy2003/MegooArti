@@ -3,9 +3,8 @@
 An open-source repository and artifact proxy and manager. See the
 [business requirements](docs/BRD.md) for scope and roadmap.
 
-This repository currently contains the backend foundation: a FastAPI service with
-health endpoints, structured logging and automatic database migrations. Package
-formats, security and the web UI arrive in later milestones.
+It is two services and a database: a backend (FastAPI) that is the REST API, the
+repositories and the Docker registry, and a web UI (Next.js) that uses that API.
 
 ## Quick start
 
@@ -17,7 +16,13 @@ curl http://localhost:8000/api/v1/status/ready
 ```
 
 The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
-Interactive API documentation is at <http://localhost:8000/api/docs>.
+The web UI is at <http://localhost:8000>, and interactive API documentation at
+<http://localhost:8000/api/docs>. [First sign-in](#first-sign-in) says how to get in.
+
+Compose starts four containers: the database, the backend, the frontend, and a
+gateway (nginx) that is the one published address and sends each request to the
+backend or the frontend. The gateway is for development and testing. In production,
+put [your own reverse proxy](#behind-your-own-reverse-proxy) in its place.
 
 ## Configuration
 
@@ -47,7 +52,14 @@ All configuration is by environment variable.
 Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
 `MEGOOARTI_DB_PORT` if another PostgreSQL already uses 5432. The database port is
-published on `127.0.0.1` only.
+published on `127.0.0.1` only. `MEGOOARTI_HTTP_PORT` is the gateway's: the backend and
+the frontend are not published. Compose passes `MEGOOARTI_SESSION_COOKIE_SECURE` on to
+the backend, and sets `MEGOOARTI_FORWARDED_ALLOW_IPS` to `*` there, because only the
+gateway can reach it.
+
+The frontend container has no configuration. It reads `PORT` (default `3000`) and
+`HOSTNAME` (default `0.0.0.0`), and nothing else: it holds no secret and never calls
+the backend.
 
 `MEGOOARTI_DATABASE_URL` accepts `postgres://`, `postgresql://` and libpq-style
 `?sslmode=require` URLs as handed out by managed PostgreSQL services.
@@ -65,7 +77,8 @@ to `admin.password` in the data directory, and logs it once:
 docker compose exec backend cat /var/lib/megooarti/admin.password
 ```
 
-Sign in with it; you must then choose a new password, after which the file is deleted.
+Sign in with it, as `admin`, at <http://localhost:8000>. You must then choose a new
+password, after which the file is deleted. The same with `curl`:
 
 ```bash
 curl -c cookies.txt -H 'Content-Type: application/json' \
@@ -847,12 +860,70 @@ curl -u alice 'https://repo.example.com/api/v1/search?sha1=2ef7bde608ce5404e97d5
   the application's database role may not create extensions, have a database
   administrator run `CREATE EXTENSION pg_trgm` in the database before upgrading.
 
+## The web UI
+
+The UI is at the root of the installation's address. For now it has the foundation
+every screen will stand on, and three screens: signing in, changing your password,
+and the repositories you may browse. Browsing, search, upload and administration
+follow.
+
+- **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
+  browser keeps it over HTTPS, and over plain HTTP only at `localhost`. If you reach
+  the UI over plain HTTP at another name or an IP address, signing in will say that
+  the browser did not keep the session: use HTTPS, or set
+  `MEGOOARTI_SESSION_COOKIE_SECURE=false`.
+- **Anonymous access.** If it is on, a visitor who is not signed in sees what the
+  anonymous user may browse, and a "Sign in" button. If it is off, the sign-in screen.
+- **Light and dark.** The mode switch in the header chooses light, dark, or as the
+  system says. The choice is kept in the browser.
+- **Nothing is fetched from anywhere else.** Fonts, icons and scripts are served by
+  MegooArti itself, so the UI works in a network with no way out. The UI sends a
+  strict content security policy: only its own scripts run, and it cannot be framed.
+- **Keyboard and screen readers.** Every screen can be used by keyboard alone, starts
+  with a link that skips to its content, and meets WCAG 2.1 AA contrast in both modes.
+
+## Behind your own reverse proxy
+
+One address serves everything. Whatever stands in front must send each request to
+the right service:
+
+| Path | To | What it is |
+| --- | --- | --- |
+| `/api/` | backend, port 8000 | The REST API and its documentation |
+| `/repository/` | backend, port 8000 | Maven, npm, PyPI and Raw repositories |
+| `/v2/` | backend, port 8000 | The Docker registry |
+| everything else | frontend, port 3000 | The web UI |
+
+[gateway/nginx.conf](gateway/nginx.conf) is a complete example: it is what Compose
+runs, and every real-client test of this project passes through it. Towards the
+backend, your proxy must do what it does:
+
+- **Pass the path on exactly as it was sent.** An npm scope arrives as an encoded
+  slash (`@scope%2fname`) and must stay one. In nginx that means `proxy_pass` with no
+  path after the address.
+- **Put no limit on the size of a body** (`client_max_body_size 0`), and do not buffer
+  it: an artifact can be gigabytes, and goes to the backend as it arrives
+  (`proxy_request_buffering off`). Do not buffer answers either
+  (`proxy_buffering off`).
+- **Wait long enough.** A proxy repository may take minutes to fetch a large file
+  from its remote before the first byte comes back (`proxy_read_timeout 600s`).
+- **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`**, and set
+  `MEGOOARTI_FORWARDED_ALLOW_IPS` on the backend to your proxy's address. The backend
+  writes the addresses it gives to clients (tarball links, the registry's token
+  address) from them, unless the base URL is set in the system settings.
+- **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
+  leaves compression to you as well.
+
+Do not publish the backend's or the frontend's own port beside it: the session cookie
+and the content security policy assume one origin.
+
 ## Health endpoints
 
 | Endpoint | Meaning |
 | --- | --- |
 | `GET /api/v1/status/live` | The process is running |
 | `GET /api/v1/status/ready` | The database is reachable and its schema matches this version; `503` otherwise |
+| `GET /healthz` | The frontend is running (it answers `ok`) |
 
 ## Database migrations
 
@@ -910,3 +981,44 @@ uv run python -m megooarti    # serve on http://localhost:8000 using .env
 
 Tests create and use the databases `megooarti_test` and `megooarti_test_migrations`.
 Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server.
+
+### The web UI
+
+Requires Node.js 22 and [pnpm](https://pnpm.io/).
+
+```bash
+cd frontend
+pnpm install
+pnpm test                     # unit and component tests
+pnpm lint                     # ESLint and Prettier
+pnpm typecheck
+pnpm build
+pnpm exec playwright install chromium   # once: the browser for the tests below
+```
+
+To work on a screen, start the stack (`docker compose up --build --detach --wait`),
+which serves the built UI at <http://localhost:8000>. `pnpm dev` serves the UI alone
+at port 3000, without an API beside it.
+
+- **Tests in a real browser** are in `frontend/e2e/`. They are run by
+  `uv run pytest -m docker` in `backend/`, which starts a fresh stack for them: they
+  begin with the first sign-in of a new installation. They sign in, change the
+  password, use every screen by keyboard, check each screen against WCAG 2.1 AA in
+  both modes, and fail if the browser asked anything of another host or reported a
+  violation of the content security policy.
+- **A colour is written in one file**, `src/styles/tokens.css`, once for each mode. A
+  test fails on a colour anywhere else, and another computes the contrast of every
+  text tone on every surface.
+- **Text is in `messages/en.json`.** ESLint refuses text written into markup.
+- **The API's types are generated.** `frontend/openapi.json` is a copy of the
+  backend's API document, and a backend test fails when it is out of date. After a
+  change to the API:
+
+  ```bash
+  cd backend && MEGOOARTI_UPDATE_OPENAPI=1 uv run pytest tests/test_openapi_snapshot.py
+  cd ../frontend && pnpm gen:api
+  ```
+
+- **Next.js 16 is not the Next.js of earlier years.** Its documentation is in
+  `frontend/node_modules/next/dist/docs/`; read the page for what you are about to
+  change. `frontend/AGENTS.md` says the same to coding agents.
