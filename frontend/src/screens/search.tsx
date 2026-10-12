@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,16 @@ function wantedOf(values: Values): Wanted | null {
 function Results({ wanted, page, values }: { wanted: Wanted; page: number; values: Values }) {
   const t = useTranslations("search");
   const results = useSearch(wanted, page);
+  // Another page replaces the link that led to it while it loads, and what had the
+  // keyboard is gone. It is given to the line above the results, which says what they are.
+  const top = useRef<HTMLParagraphElement>(null);
+  const shown = useRef(page);
+  const arrived = results.data !== undefined;
+  useEffect(() => {
+    if (!arrived || shown.current === page) return;
+    shown.current = page;
+    top.current?.focus();
+  }, [page, arrived]);
   if (results.isError) {
     return <ErrorState error={results.error} onRetry={() => void results.refetch()} />;
   }
@@ -65,7 +75,7 @@ function Results({ wanted, page, values }: { wanted: Wanted; page: number; value
   }
   return (
     <Panel>
-      <p role="status" className="px-4 pt-4 text-sm text-fg-muted">
+      <p ref={top} tabIndex={-1} role="status" className="px-4 pt-4 text-sm text-fg-muted">
         {t("found", { total })}
       </p>
       <Table caption={t("results")}>
@@ -153,7 +163,20 @@ export function SearchScreen() {
 
   const held = repositories.data?.items ?? [];
   const formats = Array.from(new Set(held.map((repository) => repository.format))).sort();
+  const searched = held
+    .filter((repository) => repository.type !== "group")
+    .map((repository) => repository.name);
   const any = { value: "", label: t("any") };
+  // What the form holds is always one of its choices, though it be none of the usual
+  // ones (an address that names a group, or a format nothing here has): the filter that
+  // is at work is then the one that is shown, and not "Any".
+  const choices = (usual: string[], held: string) => [
+    any,
+    ...(held && !usual.includes(held) ? [held] : []).concat(usual).map((value) => ({
+      value,
+      label: value,
+    })),
+  ];
   return (
     <>
       <PageHeader title={t("title")} intro={t("intro")} />
@@ -177,18 +200,13 @@ export function SearchScreen() {
               label={t("fields.format")}
               value={values.format}
               onChange={set("format")}
-              choices={[any, ...formats.map((format) => ({ value: format, label: format }))]}
+              choices={choices(formats, values.format)}
             />
             <SelectField
               label={t("fields.repository")}
               value={values.repository}
               onChange={set("repository")}
-              choices={[
-                any,
-                ...held
-                  .filter((repository) => repository.type !== "group")
-                  .map((repository) => ({ value: repository.name, label: repository.name })),
-              ]}
+              choices={choices(searched, values.repository)}
             />
             <TextField
               label={t("fields.namespace")}

@@ -301,6 +301,8 @@
     "stop": "Stop",
     "sending": "{sent} of {total} sent",
     "stored": "{count, plural, one {# file stored} other {# files stored}}",
+    "storedNotice": "Stored {count, plural, one {# file} other {# files}} in {repository}.",
+    "stopped": "The upload was stopped.",
     "notHereTitle": "Nothing can be uploaded here",
     "notHosted": "Only a hosted repository takes an upload. A proxy holds what its remote has, and a group holds nothing of its own.",
     "notDocker": "An image is pushed with a container client, not uploaded.",

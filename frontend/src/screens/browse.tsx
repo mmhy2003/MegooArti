@@ -4,7 +4,7 @@ import { Download, File, Folder, Search, Trash2, Upload, X } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Breadcrumbs, type Crumb } from "@/components/ui/breadcrumbs";
@@ -31,6 +31,7 @@ import {
   type FolderProgress,
 } from "@/lib/content";
 import { formatBytes } from "@/lib/format";
+import { movedTo } from "@/lib/places";
 import {
   browseHref,
   componentHref,
@@ -41,7 +42,7 @@ import {
   split,
   uploadHref,
 } from "@/lib/paths";
-import { useSession } from "@/lib/session/session";
+import { askAgainIfChanged, useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
 
 const TYPES = ["hosted", "proxy", "group"] as const;
@@ -120,6 +121,7 @@ function Entries({
                       : browseHref(repository, folder, entry.name)
                   }
                   aria-label={t(isFolder ? "folderNamed" : "fileNamed", { name: entry.name })}
+                  data-file={isFolder ? undefined : entry.name}
                   aria-current={current ? "true" : undefined}
                   scroll={false}
                   className={cn(
@@ -316,6 +318,8 @@ function DeleteFolder({ repository, folder }: { repository: string; folder: stri
         router.replace(browseHref(repository, parentOf(folder) ?? ""));
       }
     } catch (error) {
+      // Not a request of the store's: its rule for a session that changed is applied here.
+      askAgainIfChanged(client, error);
       await forget(client, repository);
       setFailure(error);
     } finally {
@@ -325,7 +329,13 @@ function DeleteFolder({ repository, folder }: { repository: string; folder: stri
 
   return (
     <>
-      <Button size="sm" onClick={() => setAsking(true)}>
+      <Button
+        size="sm"
+        onClick={() => {
+          setFailure(null); // what went wrong before is not said of a try not yet made
+          setAsking(true);
+        }}
+      >
         <Trash2 aria-hidden="true" className="size-4" />
         {t("deleteFolder")}
       </Button>
@@ -357,10 +367,13 @@ function FolderView({
   repository,
   folder,
   file,
+  here,
 }: {
   repository: RepositoryView;
   folder: string;
   file: string | null;
+  /** The present place in the path: where the keyboard goes when nothing nearer is left. */
+  here: RefObject<HTMLAnchorElement | null>;
 }) {
   const t = useTranslations("browse");
   const session = useSession();
@@ -368,6 +381,28 @@ function FolderView({
   const entries = listing.data?.pages.flatMap((page) => page.items) ?? [];
   const uploads = takesUploads(session.data, repository);
   const missing = isApiError(listing.error) && listing.error.status === 404;
+  const list = useRef<HTMLDivElement>(null);
+  const links = () => Array.from(list.current?.querySelectorAll<HTMLElement>("tbody a") ?? []);
+
+  // When a file's details go (closed, or the file deleted), what had the keyboard goes
+  // with them. It is given to the file's entry, or to the folder if the file is gone.
+  const shown = useRef(file);
+  useEffect(() => {
+    const was = shown.current;
+    shown.current = file;
+    if (file !== null || was === null) return;
+    const entry = links().find((link) => link.dataset.file === was);
+    (entry ?? here.current)?.focus();
+  }, [file, here]);
+
+  // "Show more" may bring the last piece and go: the keyboard is put at the first entry
+  // it brought, which is also where reading goes on.
+  const more = useRef<number | null>(null);
+  useEffect(() => {
+    if (more.current === null || entries.length <= more.current) return;
+    links()[more.current]?.focus();
+    more.current = null;
+  }, [entries.length]);
 
   return (
     <div
@@ -431,13 +466,23 @@ function FolderView({
           </Panel>
         ) : (
           <Panel>
-            <Entries repository={repository.name} folder={folder} entries={entries} chosen={file} />
+            <div ref={list}>
+              <Entries
+                repository={repository.name}
+                folder={folder}
+                entries={entries}
+                chosen={file}
+              />
+            </div>
             {listing.hasNextPage ? (
               <div className="p-3">
                 <Button
                   size="sm"
                   busy={listing.isFetchingNextPage}
-                  onClick={() => void listing.fetchNextPage()}
+                  onClick={() => {
+                    more.current = entries.length;
+                    void listing.fetchNextPage();
+                  }}
                 >
                   {t("showMore")}
                 </Button>
@@ -465,6 +510,18 @@ export function BrowseScreen() {
   const file = useSearchParams().get("file");
   const repository = useRepository(where?.repository ?? "");
 
+  // Entering a folder replaces the list the link that was followed was in, and what had
+  // the keyboard is gone. It is given to the present place in the path, which a screen
+  // reader then reads: the folder's name. Not on arrival: a page starts at its top. Nor
+  // when a file is chosen in the folder: its details take the keyboard themselves.
+  const here = useRef<HTMLAnchorElement>(null);
+  const place = where === null ? null : `${where.repository}/${where.folder}`;
+  const ready = repository.data !== undefined;
+  useEffect(() => {
+    if (!ready || place === null) return;
+    if (movedTo("browse", place) && file === null) here.current?.focus();
+  }, [place, ready, file]);
+
   if (where === null) return <NothingHere />;
   if (repository.isError) {
     return <ErrorState error={repository.error} onRetry={() => void repository.refetch()} />;
@@ -491,23 +548,26 @@ export function BrowseScreen() {
           type: typeName(found.type),
         })}
       >
-        <Button asChild size="sm" variant="ghost">
-          <AppLink href={searchHref({ repository: found.name })}>
-            <Search aria-hidden="true" className="size-4" />
-            {t("searchIn")}
-          </AppLink>
-        </Button>
+        {/* Not for a group: search looks in what holds components, and a group holds none. */}
+        {found.type === "group" ? null : (
+          <Button asChild size="sm" variant="ghost">
+            <AppLink href={searchHref({ repository: found.name })}>
+              <Search aria-hidden="true" className="size-4" />
+              {t("searchIn")}
+            </AppLink>
+          </Button>
+        )}
       </PageHeader>
       {found.online ? null : (
         <Alert tone="warning" className="mb-4">
           {t("offline")}
         </Alert>
       )}
-      <Breadcrumbs label={t("path")} crumbs={crumbs} />
+      <Breadcrumbs label={t("path")} crumbs={crumbs} current={here} />
       {found.type === "group" ? (
         <Members repository={found} />
       ) : (
-        <FolderView repository={found} folder={where.folder} file={file} />
+        <FolderView repository={found} folder={where.folder} file={file} here={here} />
       )}
     </>
   );

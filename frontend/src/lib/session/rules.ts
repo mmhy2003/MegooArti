@@ -4,7 +4,7 @@
  */
 import type { SessionInfo } from "@/lib/api/types";
 
-import { anyGrants, isValidPermission } from "./permissions";
+import { anyGrants, grantsSome, isValidPermission } from "./permissions";
 
 export const HOME = "/";
 export const SIGN_IN = "/login";
@@ -25,6 +25,14 @@ export function allows(session: SessionInfo, permission: string): boolean {
   // Whatever roles the anonymous user holds, nobody administers anonymously.
   if (!session.authenticated && permission.startsWith("admin:")) return false;
   return anyGrants(session.permissions, permission);
+}
+
+/**
+ * Whether to offer something that needs a permission of this shape on something or
+ * other: `repository:?:?:add`, to whoever may add to some repository.
+ */
+export function allowsSome(session: SessionInfo, shape: string): boolean {
+  return session.permissions.some((pattern) => grantsSome(pattern, shape));
 }
 
 // An origin that is nobody's, to read an address against.

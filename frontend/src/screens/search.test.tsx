@@ -99,6 +99,32 @@ describe("searching", () => {
     expect(choices("Repository")).toEqual(["Any", "releases", "npm-own"]);
   });
 
+  test("shows the filter an address has, though it is none of the choices", async () => {
+    // A group cannot be searched and no repository is of the format `helm`: the search
+    // finds nothing, and the form shows why instead of saying "Any".
+    server({ "GET /search": { json: { items: [], total: 0 } } });
+    at("/search?repository=npm-all&format=helm");
+
+    await screen.findByRole("heading", { name: "Nothing found" });
+
+    await waitFor(() => expect(screen.getByLabelText("Repository")).toHaveValue("npm-all"));
+    expect(screen.getByLabelText("Format")).toHaveValue("helm");
+  });
+
+  test("goes to the results when another page of them is shown", async () => {
+    server({ "GET /search": { json: { items: [APP], total: 120 } } });
+    const { rerender } = at("/search?q=app");
+    const found = await screen.findByText("120 components found.");
+    expect(found).not.toHaveFocus(); // not on arrival: the page starts at its top
+
+    navigation.at("/search?q=app&page=2");
+    rerender(<SearchScreen />);
+
+    // The link that was followed is gone while the page loads: the keyboard goes to
+    // what it brought, which a screen reader then reads.
+    await waitFor(() => expect(screen.getByText("120 components found.")).toHaveFocus());
+  });
+
   test("reads a checksum by its length", async () => {
     const { calls } = server();
     at(`/search?checksum=${SHA1.toUpperCase()}`);

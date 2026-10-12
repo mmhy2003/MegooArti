@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { anyGrants, grants, isValidPermission } from "./permissions";
+import { anyGrants, grants, grantsSome, isValidPermission } from "./permissions";
 
 // The cases of the backend's own tests (backend/tests/security/test_permissions.py):
 // the two must agree, or the UI offers what the API refuses.
@@ -25,6 +25,22 @@ test("one pattern that grants is enough, and none grants nothing", () => {
   expect(anyGrants(["admin:roles:read", "admin:users:*"], "admin:users:write")).toBe(true);
   expect(anyGrants(["admin:roles:read"], "admin:users:write")).toBe(false);
   expect(anyGrants([], "admin:users:read")).toBe(false);
+});
+
+// "Could this caller add to some repository?": a `?` stands for any value.
+test.each([
+  ["*", "repository:?:?:add", true],
+  ["repository", "repository:?:?:add", true],
+  ["repository:maven", "repository:?:?:add", true],
+  ["repository:maven:releases:add", "repository:?:?:add", true],
+  ["repository:*:*:add", "repository:?:?:add", true],
+  ["repository:maven:releases:*", "repository:?:?:add", true],
+  ["repository:*:*:read", "repository:?:?:add", false],
+  ["repository:maven:releases:edit", "repository:?:?:add", false],
+  ["admin:users:*", "repository:?:?:add", false],
+  ["repository:maven:releases:add:more", "repository:?:?:add", false],
+])("the pattern %s could grant %s: %s", (pattern, shape, expected) => {
+  expect(grantsSome(pattern, shape)).toBe(expected);
 });
 
 test("a permission is plain words: no wildcard, nothing empty", () => {

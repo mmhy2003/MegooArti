@@ -4,6 +4,7 @@ import { FileUp, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import {
   useId,
+  useRef,
   useState,
   type DragEvent,
   type InputHTMLAttributes,
@@ -107,6 +108,7 @@ export function FilePicker({
   const id = useId();
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
   const [over, setOver] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
 
   function take(taken: FileList | null) {
     const added = Array.from(taken ?? []);
@@ -140,6 +142,7 @@ export function FilePicker({
       >
         <FileUp aria-hidden="true" className="size-6 shrink-0 text-neon-cyan" />
         <input
+          ref={input}
           id={id}
           type="file"
           multiple={multiple}
@@ -176,7 +179,11 @@ export function FilePicker({
               <button
                 type="button"
                 aria-label={t("remove", { name: file.name })}
-                onClick={() => onChange(files.filter((_, at) => at !== index))}
+                onClick={() => {
+                  onChange(files.filter((_, at) => at !== index));
+                  // This button goes with its file: the keyboard goes to the field.
+                  input.current?.focus();
+                }}
                 className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-fg-muted hover:text-ink-bad"
               >
                 <X aria-hidden="true" className="size-4" />

@@ -1,9 +1,9 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test } from "vitest";
 
 import type { SessionInfo } from "@/lib/api/types";
-import { mockApi } from "@/test/api";
+import { mockApi, type Routes } from "@/test/api";
 import { expectAccessible } from "@/test/axe";
 import { navigation } from "@/test/navigation";
 import { ADMIN, renderUi } from "@/test/render";
@@ -22,15 +22,22 @@ const repository = (name: string, format: string, type = "hosted") => ({
 const file = (name: string, content = "x") => new File([content], name);
 
 /** The upload screen of one repository, and the uploads it starts. */
-function at(format: string, address: string, session: SessionInfo = ADMIN, type = "hosted") {
+function at(
+  format: string,
+  address: string,
+  session: SessionInfo = ADMIN,
+  type = "hosted",
+  more: Routes = {},
+) {
   const name = address.split("?")[0]?.split("/").pop() ?? "";
-  mockApi({
+  const { calls } = mockApi({
     [`GET /content/${name}`]: { json: repository(name, format, type) },
     [`GET /content/${name}/tree`]: { json: { items: [], next: null } },
+    ...more,
   });
   const uploads = mockUploads();
   navigation.at(address);
-  return { ...renderUi(<UploadScreen />, { session }), uploads };
+  return { ...renderUi(<UploadScreen />, { session }), uploads, calls };
 }
 
 const send = () => screen.getByRole("button", { name: "Upload" });
@@ -62,6 +69,11 @@ describe("uploading to a raw repository", () => {
     );
 
     expect(await screen.findByText("2 files stored")).toBeVisible();
+    // Said also where a screen reader hears it: a status that appears with its text is
+    // not reliably read.
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
+      "Stored 2 files in files.",
+    );
     expect(screen.getByRole("link", { name: "docs/v1/a.txt" })).toHaveAttribute(
       "href",
       "/browse/files/docs/v1?file=a.txt",
@@ -99,6 +111,40 @@ describe("uploading to a raw repository", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("list", { name: "Chosen for Files" })).toBeVisible(); // still chosen
     expect(send()).toBeEnabled();
+    // The button that stopped it is gone: the keyboard is at the one that sends again.
+    expect(send()).toHaveFocus();
+    expect(screen.getByRole("region", { name: "Notifications" })).toHaveTextContent(
+      "The upload was stopped.",
+    );
+  });
+
+  test.each([
+    [401, "unauthorized"],
+    [403, "csrf_failed"],
+  ])("refused with %i %s, makes the session be asked again", async (status, code) => {
+    const user = userEvent.setup();
+    const { uploads, calls } = at("raw", "/upload/files", ADMIN, "hosted", {
+      "GET /auth/session": { json: ADMIN },
+    });
+    await user.upload(await screen.findByLabelText("Files"), file("a.txt"));
+    await user.click(send());
+
+    act(() => uploads[0]?.answer(status, { error: { code, message: "No.", details: [] } }));
+
+    // The session this page knows is not the browser's any more (signed out, or signed
+    // in again in another tab): asked again, the next try has the token that is right.
+    await waitFor(() => expect(calls.some((call) => call.path === "/auth/session")).toBe(true));
+  });
+
+  test("a file dropped beside the field does not make the browser leave the form", async () => {
+    at("raw", "/upload/files");
+    await screen.findByLabelText("Files");
+
+    for (const make of [createEvent.dragOver, createEvent.drop]) {
+      const event = make(document.body);
+      fireEvent(document.body, event);
+      expect(event.defaultPrevented).toBe(true); // or the browser opens the file instead
+    }
   });
 
   test("puts a refusal at the field it is about", async () => {
@@ -239,6 +285,9 @@ describe("uploading to a Maven repository", () => {
       expect.stringContaining("A classifier has no / in it."),
     );
     expect(screen.queryByRole("alert", { name: /refused/ })).toBeNull();
+    // The first field that is wrong gets the keyboard: a screen reader then reads the
+    // field and what is wrong with it. An error that only appears is not heard.
+    expect(screen.getByLabelText(/^Version/)).toHaveFocus();
   });
 });
 

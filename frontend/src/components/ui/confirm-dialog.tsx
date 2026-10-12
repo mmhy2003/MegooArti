@@ -42,18 +42,15 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const t = useTranslations("confirm");
   const [typed, setTyped] = useState("");
+  // The next time it opens, the name is typed again: whoever closed it, the dialog or
+  // the screen that owns it.
+  if (!open && typed !== "") setTyped("");
   const allowed = mustType === undefined || typed === mustType;
   // What had the keyboard when the dialog opened. Radix gives focus back to a trigger
   // of its own, and this dialog is opened by whatever its screen chooses.
   const opener = useRef<HTMLElement | null>(null);
   return (
-    <AlertDialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setTyped(""); // the next time, it is typed again
-        onOpenChange(next);
-      }}
-    >
+    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-40 bg-page/80" />
         <AlertDialog.Content

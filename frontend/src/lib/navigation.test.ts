@@ -72,14 +72,31 @@ describe("the navigation as it is", () => {
     expect(NAVIGATION[0]?.items[0]).toMatchObject({ key: "repositories", href: "/", icon: Boxes });
   });
 
-  test("leads to the repositories, to search and to upload, whoever is asking", () => {
-    const [browse] = visible(NAVIGATION, NOBODY);
+  test("leads to the repositories, to search and to upload", () => {
+    const [browse] = visible(NAVIGATION, ADMIN);
 
     expect(browse?.items.map((entry) => [entry.key, entry.href])).toEqual([
       ["repositories", "/"],
       ["search", "/search"],
       ["upload", "/upload"],
     ]);
+  });
+
+  test("offers an upload only to whoever could upload somewhere (UI-2)", () => {
+    const offered = (permissions: string[]) =>
+      visible(NAVIGATION, { ...ADMIN, permissions })
+        .flatMap((area) => area.items)
+        .map((entry) => entry.key);
+
+    expect(offered(["repository:maven:releases:add"])).toContain("upload");
+    expect(offered(["repository:*:*:edit"])).toContain("upload");
+    expect(offered(["repository:*:*:browse", "repository:*:*:read"])).toEqual([
+      "repositories",
+      "search",
+    ]);
+    expect(offered(["repository:maven:releases:delete"])).not.toContain("upload");
+    expect(visible(NAVIGATION, VISITOR).flatMap((area) => area.items)).toHaveLength(2);
+    expect(visible(NAVIGATION, NOBODY).flatMap((area) => area.items)).toHaveLength(2);
   });
 
   test("marks the repositories while one is browsed, and a component of one is shown", () => {

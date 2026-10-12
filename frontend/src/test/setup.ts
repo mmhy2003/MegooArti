@@ -4,6 +4,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { setCsrfToken } from "@/lib/api/client";
+import { forgetPlaces } from "@/lib/places";
 
 import { navigation } from "./navigation";
 
@@ -26,6 +27,7 @@ export function setSystemMode(mode: "light" | "dark"): void {
 beforeEach(() => {
   navigation.reset();
   setCsrfToken(null);
+  forgetPlaces(); // each test is a page that was just loaded
   // A test of something that needs no page runs without one.
   if (typeof window === "undefined") return;
   systemIsDark = true;

@@ -98,7 +98,7 @@ def test_the_ui_in_a_real_browser(stack):
     said = f"exit {result.returncode}\n{result.stdout[-6000:]}\n{result.stderr[-2000:]}"
     assert result.returncode == 0, said
     passed = re.search(r"(\d+) passed", result.stdout)
-    assert passed is not None and int(passed[1]) >= 34, said
+    assert passed is not None and int(passed[1]) >= 37, said
     assert not re.search(r"\d+ (failed|skipped|did not run)", result.stdout), said
 
 

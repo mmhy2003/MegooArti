@@ -160,6 +160,8 @@ describe("a choice, a tick and files", () => {
     await user.click(screen.getByRole("button", { name: "Take out a.txt" }));
 
     expect(chosen()).toEqual(["b.txt1 B"]);
+    // The button that was pressed is gone with its file: the keyboard goes to the field.
+    expect(screen.getByLabelText("Files")).toHaveFocus();
   });
 
   test("where one file is wanted, choosing again replaces it", async () => {
@@ -325,6 +327,41 @@ describe("asking for a name before something large is destroyed", () => {
 
     expect(confirmed).toHaveBeenCalledOnce();
     await expectAccessible();
+  });
+
+  test("the name is typed again each time, whoever closed the dialog", async () => {
+    const user = userEvent.setup();
+    // A screen that closes the dialog itself once the action is done, as a folder's does.
+    function Twice() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <Button onClick={() => setOpen(true)}>Delete folder again</Button>
+          <ConfirmDialog
+            open={open}
+            onOpenChange={setOpen}
+            title="Delete the folder logs?"
+            confirmLabel="Delete folder"
+            mustType="logs"
+            onConfirm={() => setOpen(false)}
+          >
+            Every file under it goes.
+          </ConfirmDialog>
+        </>
+      );
+    }
+    renderUi(<Twice />);
+    await user.type(screen.getByLabelText("Type logs to go on"), "logs");
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete folder" }),
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Delete folder again" }));
+    const dialog = screen.getByRole("alertdialog");
+
+    expect(within(dialog).getByLabelText("Type logs to go on")).toHaveValue("");
+    expect(within(dialog).getByRole("button", { name: "Delete folder" })).toBeDisabled();
   });
 
   test("the name is shown as it is to be typed, not in capitals", () => {

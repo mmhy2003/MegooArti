@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { setCsrfToken } from "@/lib/api/client";
 import type { RepositoryView, SessionInfo } from "@/lib/api/types";
 import { upload } from "@/lib/api/upload";
+import { forgetPlaces, movedTo } from "@/lib/places";
 import { failure, mockApi } from "@/test/api";
 import { ADMIN, NOBODY, VISITOR } from "@/test/render";
 import { mockUploads } from "@/test/xhr";
@@ -283,6 +284,18 @@ describe("deleting a folder", () => {
     });
 
     await expect(deleteFolder("files", "logs")).rejects.toMatchObject({ code: "forbidden" });
+  });
+});
+
+describe("where a screen was", () => {
+  test("is nowhere when it is first shown, and somewhere else once it has moved", () => {
+    expect(movedTo("browse", "releases/")).toBe(false); // the page was just loaded
+    expect(movedTo("browse", "releases/")).toBe(false); // shown again, in the same place
+    expect(movedTo("browse", "releases/com")).toBe(true);
+    expect(movedTo("search", "1")).toBe(false); // another screen has its own place
+
+    forgetPlaces();
+    expect(movedTo("browse", "releases/")).toBe(false);
   });
 });
 

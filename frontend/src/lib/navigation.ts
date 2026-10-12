@@ -6,7 +6,7 @@ import { Boxes, Search, Upload, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 
 import type { SessionInfo } from "@/lib/api/types";
-import { allows } from "@/lib/session/rules";
+import { allows, allowsSome } from "@/lib/session/rules";
 
 export type AreaKey = "browse" | "administration";
 export type ItemKey = "repositories" | "search" | "upload";
@@ -18,6 +18,11 @@ export type NavItem = {
   icon: LucideIcon;
   /** What a caller must hold to be shown it. Without one, everybody is. */
   permission?: string;
+  /**
+   * Shapes of permission, with `?` for any value: it is shown to whoever holds
+   * something that could grant one of them (`repository:?:?:add`).
+   */
+  anyOf?: string[];
   /** Other addresses that are part of it: the screens it leads to. */
   under?: string[];
 };
@@ -35,7 +40,13 @@ export const NAVIGATION: readonly NavArea[] = [
     items: [
       { key: "repositories", href: "/", icon: Boxes, under: ["/browse", "/components"] },
       { key: "search", href: "/search", icon: Search },
-      { key: "upload", href: "/upload", icon: Upload },
+      {
+        key: "upload",
+        href: "/upload",
+        icon: Upload,
+        // Whoever may add to no repository would find nowhere to upload to.
+        anyOf: ["repository:?:?:add", "repository:?:?:edit"],
+      },
     ],
   },
   { key: "administration", items: [] },
@@ -47,7 +58,9 @@ export function visible(areas: readonly NavArea[], session: SessionInfo): NavAre
     .map((area) => ({
       ...area,
       items: area.items.filter(
-        (item) => item.permission === undefined || allows(session, item.permission),
+        (item) =>
+          (item.permission === undefined || allows(session, item.permission)) &&
+          (item.anyOf === undefined || item.anyOf.some((shape) => allowsSome(session, shape))),
       ),
     }))
     .filter((area) => area.items.length > 0);

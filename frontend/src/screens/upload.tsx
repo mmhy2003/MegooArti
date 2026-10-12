@@ -3,7 +3,7 @@
 import { Plus, Upload as UploadIcon, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/details";
 import { TextField } from "@/components/ui/field";
 import { CheckboxField, FilePicker } from "@/components/ui/inputs";
 import { AppLink } from "@/components/ui/link";
+import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
 import { isApiError } from "@/lib/api/client";
@@ -22,8 +23,16 @@ import { upload, type Sent } from "@/lib/api/upload";
 import { forget, takesUploads, useRepositories, useRepository } from "@/lib/content";
 import { formatBytes } from "@/lib/format";
 import { browseHref, fileHref, parseUpload, uploadHref } from "@/lib/paths";
-import { useSession } from "@/lib/session/session";
+import { askAgainIfChanged, useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
+
+// The formats the form knows: each has its fields, and its texts in the messages.
+const UPLOADABLE = ["raw", "maven", "npm", "pypi"] as const;
+type Uploadable = (typeof UPLOADABLE)[number];
+
+function isUploadable(format: string): format is Uploadable {
+  return (UPLOADABLE as readonly string[]).includes(format);
+}
 
 /** What the API refused, by the name of the field or the part it refused it at. */
 type Refusals = Record<string, string>;
@@ -153,12 +162,20 @@ function Stored({ repository, stored }: { repository: string; stored: Uploaded }
 function UploadForm({ repository, directory }: { repository: RepositoryView; directory: string }) {
   const t = useTranslations("upload");
   const client = useQueryClient();
+  const notify = useNotify();
   const form = useUploadForm(repository, directory);
   const [sent, setSent] = useState<Sent | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [stored, setStored] = useState<Uploaded | null>(null);
   const stop = useRef<AbortController | null>(null);
+  const fields = useRef<HTMLFormElement>(null);
   const refused = refusalsOf(failure);
+
+  // The keyboard goes to the first field that was refused. A screen reader then reads
+  // the field and, with it, why: an error that only appears is not heard.
+  useEffect(() => {
+    fields.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [failure]);
   // A refusal that names a field is shown at the field. Anything else is shown whole.
   const unplaced =
     failure !== null &&
@@ -178,24 +195,36 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
       );
       setStored(done);
       form.reset();
+      // Said where a screen reader hears it, and to whoever has gone on to another screen.
+      notify(t("storedNotice", { count: done.files.length, repository: repository.name }));
       await forget(client, repository.name);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) setFailure(error);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        notify(t("stopped"));
+        // The button that stopped it goes: the keyboard is put at the one that sends.
+        fields.current?.querySelector<HTMLElement>('button[type="submit"]')?.focus();
+        // Stopped late, the server may have had all of it: what it holds is asked again.
+        await forget(client, repository.name);
+      } else {
+        // Not a request of the store's: its rule for a session that changed is applied here.
+        askAgainIfChanged(client, error);
+        setFailure(error);
+      }
     } finally {
       setSent(null);
     }
   }
 
-  const { fields, set } = form;
+  const { fields: texts, set } = form;
   const maven = repository.format === "maven";
   return (
-    <form onSubmit={submit} className="flex flex-col gap-5" noValidate>
+    <form ref={fields} onSubmit={submit} className="flex flex-col gap-5" noValidate>
       {repository.format === "raw" ? (
         <TextField
           label={t("fields.directory")}
           hint={t("hints.directory")}
           spellCheck={false}
-          value={fields.directory ?? ""}
+          value={texts.directory ?? ""}
           error={refused.directory}
           onChange={set("directory")}
         />
@@ -207,7 +236,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
               label={t("fields.group")}
               spellCheck={false}
               required
-              value={fields.group ?? ""}
+              value={texts.group ?? ""}
               error={refused.group}
               onChange={set("group")}
             />
@@ -215,7 +244,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
               label={t("fields.artifact")}
               spellCheck={false}
               required
-              value={fields.artifact ?? ""}
+              value={texts.artifact ?? ""}
               error={refused.artifact}
               onChange={set("artifact")}
             />
@@ -223,7 +252,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
               label={t("fields.version")}
               spellCheck={false}
               required
-              value={fields.version ?? ""}
+              value={texts.version ?? ""}
               error={refused.version}
               onChange={set("version")}
             />
@@ -232,7 +261,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
             label={t("fields.packaging")}
             hint={t("hints.packaging")}
             spellCheck={false}
-            value={fields.packaging ?? ""}
+            value={texts.packaging ?? ""}
             error={refused.packaging}
             onChange={set("packaging")}
           />
@@ -244,7 +273,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
             ? t("fields.artifactFile")
             : t(repository.format === "npm" ? "fields.tarball" : "fields.files")
         }
-        hint={t(`hints.files.${repository.format as "raw" | "maven" | "npm" | "pypi"}`)}
+        hint={isUploadable(repository.format) ? t(`hints.files.${repository.format}`) : undefined}
         multiple={repository.format === "raw" || repository.format === "pypi"}
         accept={
           repository.format === "npm"
@@ -316,7 +345,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
           label={t("fields.tag")}
           hint={t("hints.tag")}
           spellCheck={false}
-          value={fields.tag ?? ""}
+          value={texts.tag ?? ""}
           error={refused.tag}
           onChange={set("tag")}
         />
@@ -325,7 +354,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
         <div className="grid gap-4 sm:grid-cols-3">
           <TextField
             label={t("fields.summary")}
-            value={fields.summary ?? ""}
+            value={texts.summary ?? ""}
             error={refused.summary}
             onChange={set("summary")}
           />
@@ -333,13 +362,13 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
             label={t("fields.requiresPython")}
             hint={t("hints.requiresPython")}
             spellCheck={false}
-            value={fields.requires_python ?? ""}
+            value={texts.requires_python ?? ""}
             error={refused.requires_python}
             onChange={set("requires_python")}
           />
           <TextField
             label={t("fields.keywords")}
-            value={fields.keywords ?? ""}
+            value={texts.keywords ?? ""}
             error={refused.keywords}
             onChange={set("keywords")}
           />
@@ -373,6 +402,19 @@ export function UploadScreen() {
   const directory = useSearchParams().get("directory") ?? "";
   const repository = useRepository(where?.repository ?? "");
 
+  // A file let go beside the field would be opened by the browser in place of this
+  // page, and what was filled in would be lost. Here a drop does nothing unless a file
+  // field takes it.
+  useEffect(() => {
+    const ignore = (event: DragEvent) => event.preventDefault();
+    window.addEventListener("dragover", ignore);
+    window.addEventListener("drop", ignore);
+    return () => {
+      window.removeEventListener("dragover", ignore);
+      window.removeEventListener("drop", ignore);
+    };
+  }, []);
+
   if (where === null) return <NothingHere />;
   if (repository.isError) {
     return <ErrorState error={repository.error} onRetry={() => void repository.refetch()} />;
@@ -391,7 +433,8 @@ export function UploadScreen() {
       <PageHeader
         named
         title={t("titleTo", { repository: found.name })}
-        intro={t(`intro.${found.format as "raw"}`)}
+        // A format that takes no upload has no word on how one is made.
+        intro={isUploadable(found.format) ? t(`intro.${found.format}`) : undefined}
       />
       {takesUploads(session.data, found) ? (
         <Panel className="p-6">

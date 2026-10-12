@@ -132,6 +132,10 @@ describe("a folder of a repository", () => {
     expect(await screen.findByText("app-1.0.pom")).toBeVisible();
     expect(screen.getByText("app-1.0.jar")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    // The button is gone with the last piece: the keyboard is at the first entry it brought.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "File app-1.0.pom" })).toHaveFocus(),
+    );
     const trees = calls.filter((call) => call.path.startsWith("/content/releases/tree"));
     expect(trees[1]?.path).toContain(`after=${encodeURIComponent(JAR.path)}`);
   });
@@ -260,7 +264,96 @@ describe("a group", () => {
       "/browse/central",
     );
     expect(calls.some((call) => call.path.includes("/tree"))).toBe(false); // which a group refuses
+    // Nor is a search in it offered: search looks in what holds components, and would
+    // find nothing in a group.
+    expect(screen.queryByRole("link", { name: "Search this repository" })).toBeNull();
     await expectAccessible();
+  });
+
+  test("of any other kind offers a search in it", async () => {
+    server();
+    at("/browse/releases");
+
+    expect(await screen.findByRole("link", { name: "Search this repository" })).toHaveAttribute(
+      "href",
+      "/search?repository=releases",
+    );
+  });
+});
+
+describe("where the keyboard is after the screen changed under it", () => {
+  const current = () =>
+    within(screen.getByRole("navigation", { name: "Path" })).getByRole("link", { current: "page" });
+
+  test("is at the folder that was entered, and nowhere in particular on arrival", async () => {
+    server();
+    const { rerender } = at("/browse/releases/com");
+    await screen.findByRole("table");
+    expect(current()).not.toHaveFocus(); // on arrival the page starts at its top
+
+    navigation.at("/browse/releases/com/acme");
+    rerender(<BrowseScreen />);
+
+    // The link that was followed is gone with the list it was in.
+    await waitFor(() => expect(current()).toHaveFocus());
+    expect(current()).toHaveTextContent("acme");
+  });
+
+  test("is at the folder that was entered when the screen is built anew for it", async () => {
+    // Next.js builds the screen anew when a part of its address changes: the screen
+    // cannot itself remember where it was.
+    server();
+    const before = at("/browse/releases/com");
+    await screen.findByRole("table");
+    before.unmount();
+
+    at("/browse/releases/com/acme");
+
+    await waitFor(() => expect(current()).toHaveFocus());
+  });
+
+  test("is at a file's details when the folder is entered with a file chosen", async () => {
+    server();
+    const before = at("/browse/releases/com");
+    await screen.findByRole("table");
+    before.unmount();
+
+    at(`/browse/releases/${VERSION}?file=app-1.0.jar`);
+    const details = await screen.findByRole("region", { name: "Details of app-1.0.jar" });
+    await within(details).findByText("application/java-archive");
+
+    expect(within(details).getByRole("heading", { name: "app-1.0.jar" })).toHaveFocus();
+  });
+
+  test("is at the file whose details were closed", async () => {
+    server();
+    const { rerender } = at(`/browse/releases/${VERSION}?file=app-1.0.pom`);
+    await screen.findByRole("region", { name: "Details of app-1.0.pom" });
+
+    navigation.at(`/browse/releases/${VERSION}`);
+    rerender(<BrowseScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "File app-1.0.pom" })).toHaveFocus(),
+    );
+  });
+
+  test("is at the folder when the file whose details were shown is gone", async () => {
+    let deleted = false;
+    server({
+      "GET /content/releases/tree": () => ({
+        json: { items: deleted ? [POM] : [JAR, POM], next: null },
+      }),
+    });
+    const { rerender, client } = at(`/browse/releases/${VERSION}?file=app-1.0.jar`);
+    await screen.findByRole("region", { name: "Details of app-1.0.jar" });
+
+    deleted = true;
+    await client.invalidateQueries();
+    navigation.at(`/browse/releases/${VERSION}`);
+    rerender(<BrowseScreen />);
+
+    await waitFor(() => expect(current()).toHaveFocus());
   });
 });
 
@@ -455,6 +548,12 @@ describe("deleting", () => {
       ),
     );
     expect(navigation.router.replace).not.toHaveBeenCalled();
+
+    // Asked again, the name is typed again: the dialog is not left armed.
+    await user.click(screen.getByRole("button", { name: "Delete folder" }));
+    const again = screen.getByRole("alertdialog");
+    expect(within(again).getByLabelText("Type 1.0 to go on")).toHaveValue("");
+    expect(within(again).getByRole("button", { name: "Delete folder" })).toBeDisabled();
   });
 
   test("a folder that could not be deleted says why, in the dialog that asked", async () => {
@@ -476,6 +575,28 @@ describe("deleting", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "This repository is read-only.",
     );
+
+    // Closed and asked again, the dialog starts afresh: what went wrong before is not
+    // said of a try that has not been made.
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Delete folder" }));
+    expect(within(screen.getByRole("alertdialog")).queryByRole("alert")).toBeNull();
+  });
+
+  test("a folder delete that the session no longer covers makes the session be asked again", async () => {
+    const user = userEvent.setup();
+    const { calls } = server({
+      "DELETE /content/releases/tree": failure(401, "unauthorized", "Sign in."),
+      "GET /auth/session": { json: ADMIN },
+    });
+    at(`/browse/releases/${VERSION}`);
+
+    await user.click(await screen.findByRole("button", { name: "Delete folder" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.type(within(dialog).getByLabelText("Type 1.0 to go on"), "1.0");
+    await user.click(within(dialog).getByRole("button", { name: "Delete folder" }));
+
+    await waitFor(() => expect(calls.some((call) => call.path === "/auth/session")).toBe(true));
   });
 });
 

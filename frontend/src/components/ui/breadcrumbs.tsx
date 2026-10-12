@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import type { Route } from "next";
+import type { Ref } from "react";
 
 import { AppLink } from "./link";
 
@@ -7,9 +8,18 @@ export type Crumb = { name: string; href: Route };
 
 /**
  * Where one is, as the way there: each part a link, the last one marked as the present
- * place. `label` names the list for a screen reader.
+ * place. `label` names the list for a screen reader. `current` is given the last
+ * link, for a screen that moves the keyboard there when the place changed under it.
  */
-export function Breadcrumbs({ label, crumbs }: { label: string; crumbs: Crumb[] }) {
+export function Breadcrumbs({
+  label,
+  crumbs,
+  current,
+}: {
+  label: string;
+  crumbs: Crumb[];
+  current?: Ref<HTMLAnchorElement>;
+}) {
   return (
     <nav aria-label={label} className="mb-4">
       <ol className="flex flex-wrap items-center gap-1 font-mono text-sm">
@@ -21,6 +31,7 @@ export function Breadcrumbs({ label, crumbs }: { label: string; crumbs: Crumb[] 
                 <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg-subtle" />
               ) : null}
               <AppLink
+                ref={last ? current : undefined}
                 href={crumb.href}
                 aria-current={last ? "page" : undefined}
                 className={

@@ -1,7 +1,7 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 
 import { isApiError } from "@/lib/api/client";
-import { SESSION_KEY, sessionMayHaveChanged } from "@/lib/session/session";
+import { askAgainIfChanged, SESSION_KEY } from "@/lib/session/session";
 
 /**
  * The store of what was fetched, with the one rule every request shares: a refusal
@@ -12,9 +12,7 @@ import { SESSION_KEY, sessionMayHaveChanged } from "@/lib/session/session";
  * refused again, without end. That failure is shown, with a way to try again.
  */
 export function createQueryClient(options: { retry?: boolean } = {}): QueryClient {
-  const refused = (error: unknown) => {
-    if (sessionMayHaveChanged(error)) void client.invalidateQueries({ queryKey: SESSION_KEY });
-  };
+  const refused = (error: unknown) => askAgainIfChanged(client, error);
   const client: QueryClient = new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {

@@ -19,6 +19,20 @@ export function grants(pattern: string, permission: string): boolean {
   return granted.every((have, index) => have === "*" || have === required[index]);
 }
 
+/**
+ * Whether a pattern could grant a permission of this shape, for some value of the
+ * parts written `?`: `repository:?:?:add` asks whether there could be a repository the
+ * holder may add to, whatever its format and name.
+ */
+export function grantsSome(pattern: string, shape: string): boolean {
+  const granted = pattern.split(":");
+  const required = shape.split(":");
+  if (granted.length > required.length) return false;
+  return granted.every(
+    (have, index) => have === "*" || required[index] === "?" || have === required[index],
+  );
+}
+
 export function anyGrants(patterns: readonly string[], permission: string): boolean {
   return patterns.some((pattern) => grants(pattern, permission));
 }

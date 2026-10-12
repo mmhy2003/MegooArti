@@ -11,6 +11,7 @@ const PASSWORD = "chosen-in-the-browser-test";
 const REPOSITORY = "browser-test-files";
 const RELEASES = "browser-test-releases";
 const GROUP = "browser-test-all";
+const IMAGES = "browser-test-images";
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
 const UPLOADS = "**/api/v1/content/*/upload";
@@ -343,6 +344,9 @@ test("files are uploaded through the UI, which shows them going and says what wa
   await expect(page.getByRole("progressbar")).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
   await expect(page.getByText("2 files stored")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Stored 2 files in ${REPOSITORY}.`,
+  );
   await expect(page.getByRole("progressbar")).toHaveCount(0);
   await page.unroute(UPLOADS);
 });
@@ -374,8 +378,16 @@ test("a folder is reached through the ones above it by keyboard, and the path le
   await page.getByRole("link", { name: "Folder docs" }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs$`));
-  await page.getByRole("link", { name: "Folder v1" }).focus();
+  // The list the link was in is replaced. The keyboard is not dropped: it is at the
+  // folder's place in the path, and the folder's entries follow from there.
+  const path = page.getByRole("navigation", { name: "Path" });
+  await expect(path.getByRole("link", { name: "docs", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab"); // Upload here
+  await page.keyboard.press("Tab"); // Delete folder
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Folder v1" })).toBeFocused();
   await page.keyboard.press("Enter");
+  await expect(path.getByRole("link", { name: "v1", exact: true })).toBeFocused();
 
   await expect(
     page.getByRole("table", { name: "What is in docs/v1" }).getByRole("row"),
@@ -390,6 +402,8 @@ test("a folder is reached through the ones above it by keyboard, and the path le
   // The back button closes the details: the file that is chosen is in the address.
   await page.goBack();
   await expect(details).toHaveCount(0);
+  // And the keyboard is back at the file whose details they were.
+  await expect(page.getByRole("link", { name: "File guide.md" })).toBeFocused();
   await page.getByRole("navigation", { name: "Path" }).getByRole("link", { name: "docs" }).click();
   await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs$`));
   await expect(page.getByRole("link", { name: "Folder v1" })).toBeVisible();
@@ -431,6 +445,8 @@ test("a Maven upload that is refused says why at its field, and goes through onc
   const version = page.getByLabel("Version", { exact: true });
   await expect(version).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByText("A snapshot is deployed by a build")).toBeVisible();
+  // The keyboard is at what is wrong, where a screen reader reads the field and why.
+  await expect(version).toBeFocused();
 
   // What was chosen is still chosen: only the version is typed again.
   await version.fill("1.0");
@@ -510,6 +526,43 @@ test("the search screen meets WCAG 2.1 AA in both modes", async () => {
   });
 });
 
+test("many results come a page at a time, and the keyboard follows to the next page", async () => {
+  // More components than one page holds: each file of a raw repository is one.
+  const session = await (await page.request.get("/api/v1/auth/session")).json();
+  const headers = { "X-CSRF-Token": session.csrf_token };
+  for (let number = 1; number <= 51; number += 1) {
+    const stored = await page.request.post(`/api/v1/content/${REPOSITORY}/upload`, {
+      headers,
+      multipart: {
+        directory: "many",
+        file: { name: `n-${number}.txt`, mimeType: "text/plain", buffer: Buffer.from("x") },
+      },
+    });
+    expect(stored.status()).toBe(201);
+  }
+
+  await page.goto(`/search?repository=${REPOSITORY}`);
+  const pages = page.getByRole("navigation", { name: "Pages" });
+  await expect(pages).toContainText("Page 1 of 2");
+  await expect(page.getByRole("table", { name: "Results" }).getByRole("row")).toHaveCount(51);
+  await pages.getByRole("link", { name: "Next" }).focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/[?&]page=2$/);
+  await expect(pages).toContainText("Page 2 of 2");
+  // The link that was followed went while the page loaded. The keyboard is at the line
+  // that says what was found, and the results follow from there.
+  await expect(page.getByText(/^\d+ components found\.$/)).toBeFocused();
+  await expect(pages.getByRole("link", { name: "Next" })).toHaveCount(0);
+
+  // Gone again, so that what follows finds the repository as it was.
+  const removed = await page.request.delete(`/api/v1/content/${REPOSITORY}/tree?path=many`, {
+    headers,
+  });
+  expect(removed.ok()).toBe(true);
+  expect((await removed.json()).deleted).toBe(51);
+});
+
 test("on a narrow screen a file's details come under its folder, and nothing overflows", async () => {
   await page.setViewportSize({ width: 375, height: 700 });
   await page.goto(`/browse/${RELEASES}/com/acme/app/1.0?file=app-1.0-sources.jar`);
@@ -549,6 +602,9 @@ test("a visitor who may only look is offered a download, and nothing that change
   await expect(visitor.getByRole("button", { name: "Delete folder" })).toHaveCount(0);
   await expect(visitor.getByRole("link", { name: "Upload here" })).toHaveCount(0);
   await expect(visitor.getByRole("link", { name: "Sign in" })).toBeVisible();
+  const navigation = visitor.getByRole("navigation", { name: "Main" });
+  await expect(navigation.getByRole("link", { name: "Search" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Upload" })).toHaveCount(0);
 
   // The address of the form can be typed all the same. The screen says no, as the API would.
   await visitor.goto(`/upload/${REPOSITORY}`);
@@ -576,6 +632,8 @@ test("a group shows who is behind it, and takes no upload", async () => {
 
   await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Upload here" })).toHaveCount(0);
+  // Nor a search in it: search looks in what holds components, and a group holds none.
+  await expect(page.getByRole("link", { name: "Search this repository" })).toHaveCount(0);
   await page.goto(`/upload/${GROUP}`);
   await expect(page.getByText("Only a hosted repository takes an upload.")).toBeVisible();
 
@@ -583,6 +641,19 @@ test("a group shows who is behind it, and takes no upload", async () => {
   await page.getByRole("main").getByRole("link", { name: REPOSITORY, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}$`));
   await expect(page.getByRole("link", { name: "Folder docs" })).toBeVisible();
+});
+
+test("a Docker repository says how an image gets there, and has no form", async () => {
+  await createRepository({ name: IMAGES, format: "docker", type: "hosted" });
+  await page.goto(`/upload/${IMAGES}`);
+
+  await expect(page.getByRole("heading", { level: 1, name: `Upload to ${IMAGES}` })).toBeVisible();
+  await expect(page.getByText("An image is pushed with a container client")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upload" })).toHaveCount(0);
+  // Every text on the page is one: a text that is missing shows as its own key.
+  await expect(page.getByRole("main")).not.toContainText("upload.");
+  await page.goto("/upload");
+  await expect(page.getByRole("main").getByRole("link", { name: IMAGES })).toHaveCount(0);
 });
 
 test("a file is deleted only after asking, and the screen says that it is gone", async () => {
@@ -607,6 +678,10 @@ test("a file is deleted only after asking, and the screen says that it is gone",
   await expect(page).toHaveURL(new RegExp(`/browse/${REPOSITORY}/docs/v1$`));
   await expect(page.getByRole("link", { name: "File guide.md" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: `File ${ODD}` })).toBeVisible();
+  // The button that was pressed went with the file: the keyboard is at the folder.
+  await expect(
+    page.getByRole("navigation", { name: "Path" }).getByRole("link", { name: "v1", exact: true }),
+  ).toBeFocused();
 });
 
 test("a folder is deleted only by whoever types its name", async () => {
@@ -651,6 +726,36 @@ test("a version is deleted from its page, and is then not found", async () => {
   await expect(page).toHaveURL(new RegExp(`/browse/${RELEASES}$`));
   await page.goto("/search?q=app");
   await expect(page.getByRole("heading", { name: "Nothing found" })).toBeVisible();
+});
+
+test("an upload refused because the session was replaced in another tab goes through at the next try", async () => {
+  await page.goto(`/upload/${REPOSITORY}`);
+  await page.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "later.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("later"),
+  });
+
+  // In another tab: signed out, and in again. The session, and its token, are new.
+  const other = await context.newPage();
+  await other.goto("/");
+  await other.getByRole("button", { name: /^Account of/ }).click();
+  await other.getByRole("menuitem", { name: "Sign out" }).click();
+  await other.getByLabel("User name").fill("admin");
+  await other.getByLabel("Password").fill(PASSWORD);
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await expect(other.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+  await other.close();
+
+  // This page still has the old token: the server refuses the upload, and says why.
+  const send = page.getByRole("button", { name: "Upload" });
+  const said = page.waitForResponse("**/api/v1/auth/session");
+  await send.click();
+  await expect(page.locator("form").getByRole("alert")).toBeVisible();
+  // The refusal made the page ask who is signed in. With that answer, the same press works.
+  await said;
+  await send.click();
+  await expect(page.getByText("1 file stored")).toBeVisible();
 });
 
 test("signing out ends the session, and signing in again returns to where one was going", async () => {
@@ -703,10 +808,10 @@ test("through all of it, nothing was asked of another host, and the browser had 
   expect(requested.length).toBeGreaterThan(50);
   expect(elsewhere).toEqual([]);
   // The complaints there should be: the browser itself logs the sign-in that was refused
-  // (401), the address and the folder that had nothing at them (404), and the upload that
-  // was refused (422). Anything else, such as something the content security policy
-  // stopped, fails this.
-  const unexpected = complaints.filter((text) => !/status of (401|404|422)/.test(text));
+  // (401), the upload with the token of a session that had been replaced (403), the
+  // address and the folder that had nothing at them (404), and the upload of a snapshot
+  // (422). Anything else, such as something the content security policy stopped, fails this.
+  const unexpected = complaints.filter((text) => !/status of (401|403|404|422)/.test(text));
   // In particular not of the site the return paths named. (Its name is in the query of
   // addresses that were asked for, which is as far as it got.)
   expect(requested.filter((address) => new URL(address).hostname.includes("evil"))).toEqual([]);

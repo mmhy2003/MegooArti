@@ -105,3 +105,12 @@ export function sessionMayHaveChanged(error: unknown): boolean {
     error.code === "csrf_failed"
   );
 }
+
+/**
+ * The rule itself: after such a refusal, the session is asked for again. The store
+ * applies it to every query and mutation. A request made outside the store (an upload,
+ * with its progress; a folder deleted piece by piece) applies it by calling this.
+ */
+export function askAgainIfChanged(client: QueryClient, error: unknown): void {
+  if (sessionMayHaveChanged(error)) void client.invalidateQueries({ queryKey: SESSION_KEY });
+}

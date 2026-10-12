@@ -55,7 +55,15 @@ export function renderUi(ui: ReactElement, options: { session?: SessionInfo } = 
   const client = createQueryClient({ retry: false });
   if (options.session) client.setQueryData(SESSION_KEY, options.session);
   const around = (screen: ReactNode) => (
-    <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
+    <NextIntlClientProvider
+      locale="en"
+      messages={messages}
+      timeZone="UTC"
+      // A text that is asked for and is not there would be shown as its own key.
+      onError={(error) => {
+        throw error;
+      }}
+    >
       <QueryClientProvider client={client}>
         <ThemeProvider>
           <NotificationsProvider>{screen}</NotificationsProvider>
