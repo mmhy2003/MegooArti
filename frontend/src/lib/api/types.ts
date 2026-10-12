@@ -17,6 +17,19 @@ export type UsageView = Schemas["UsageView"];
 export type SearchResult = Schemas["Result"];
 export type Uploaded = Schemas["Uploaded"];
 export type FolderDeleted = Schemas["FolderDeleted"];
+/** An API token as it is listed: never its secret. */
+export type TokenInfo = Schemas["TokenInfo"];
+/** A token that was just made, with its secret, which is given this once. */
+export type TokenCreated = Schemas["TokenCreated"];
+export type TokenCreate = Schemas["TokenCreate"];
+export type UserOut = Schemas["UserOut"];
+export type UserCreate = Schemas["UserCreate"];
+export type UserUpdate = Schemas["UserUpdate"];
+export type PasswordReset = Schemas["PasswordReset"];
+export type RoleOut = Schemas["RoleOut"];
+export type RoleCreate = Schemas["RoleCreate"];
+export type RoleContent = Schemas["RoleContent"];
+export type SettingsOut = Schemas["SettingsOut"];
 
 /** A page of a list, as every list endpoint answers. */
 export type Page<T> = { items: T[]; total: number; limit: number; offset: number };

@@ -12,6 +12,13 @@ const BROWSE = "/browse";
 const COMPONENTS = "/components";
 const UPLOAD = "/upload";
 const SEARCH = "/search";
+export const ACCOUNT_TOKENS = "/account/tokens" as Route;
+export const PREFERENCES = "/account/preferences" as Route;
+export const USERS = "/admin/users" as Route;
+export const NEW_USER = "/admin/users/new" as Route;
+export const ROLES = "/admin/roles" as Route;
+export const NEW_ROLE = "/admin/roles/new" as Route;
+export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
 
 const segments = (path: string) => path.split("/").filter((segment) => segment !== "");
 const encoded = (path: string) => segments(path).map(encodeURIComponent).join("/");
@@ -48,6 +55,25 @@ export function uploadHref(repository: string, directory?: string): Route {
 
 export function searchHref(wanted: Record<string, string | undefined>): Route {
   return withQuery(SEARCH, wanted);
+}
+
+/** A page of a list that has numbered pages. The first has no number in its address. */
+export function pageHref(list: Route, page: number): Route {
+  return withQuery(list, { page: page > 1 ? String(page) : undefined });
+}
+
+/** The page an address asks for: a whole number from 1, or 1 for anything else. */
+export function pageOf(search: { get(name: string): string | null }): number {
+  const asked = search.get("page") ?? "";
+  return /^[1-9][0-9]{0,8}$/.test(asked) ? Number(asked) : 1;
+}
+
+export function userHref(id: string): Route {
+  return `${USERS}/${encodeURIComponent(id)}` as Route;
+}
+
+export function roleHref(name: string): Route {
+  return `${ROLES}/${encodeURIComponent(name)}` as Route;
 }
 
 /**
@@ -103,4 +129,22 @@ export function parseUpload(pathname: string): { repository: string } | null {
   const found = after(pathname, UPLOAD);
   const [repository] = found ?? [];
   return found?.length === 1 && repository ? { repository } : null;
+}
+
+/** The one thing an address under a list names: a user's id, a role's name. Null if none. */
+function one(pathname: string, list: string): string | null {
+  const found = after(pathname, list);
+  const [name] = found ?? [];
+  return found?.length === 1 && name ? name : null;
+}
+
+/** The id of the user an address is about. `new` is the form for one that is not there yet. */
+export function parseUser(pathname: string): { id: string } | null {
+  const id = one(pathname, USERS);
+  return id === null ? null : { id };
+}
+
+export function parseRole(pathname: string): { name: string } | null {
+  const name = one(pathname, ROLES);
+  return name === null ? null : { name };
 }

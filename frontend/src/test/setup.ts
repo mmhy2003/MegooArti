@@ -16,7 +16,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Loading another page is the browser's doing. A test sees that it was asked for.
-vi.mock("@/lib/browser", () => ({ leaveTo: vi.fn() }));
+// And so is saying what is on the screen: jsdom lays nothing out. Here, what is inside
+// something with the `hidden` attribute is not.
+vi.mock("@/lib/browser", () => ({
+  leaveTo: vi.fn(),
+  isOnScreen: (element: Element) => element.closest("[hidden]") === null,
+}));
 
 // jsdom has no media queries: the system's mode is what a test says it is.
 let systemIsDark = true;

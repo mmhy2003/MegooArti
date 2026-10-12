@@ -4,3 +4,11 @@
 export function leaveTo(path: string): void {
   window.location.assign(path);
 }
+
+/**
+ * Whether an element is on the screen: not one that is hidden at this width, or inside
+ * a part that is closed. Only a browser that lays the page out can say.
+ */
+export function isOnScreen(element: Element): boolean {
+  return element.getClientRects().length > 0;
+}

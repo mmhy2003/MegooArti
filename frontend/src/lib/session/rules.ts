@@ -11,6 +11,8 @@ export const SIGN_IN = "/login";
 export const CHANGE_PASSWORD = "/account/password";
 // What only a person who is signed in has.
 const ACCOUNT_AREA = "/account";
+// But for this: what is kept in the browser is as much a visitor's as anybody's.
+const PREFERENCES = "/account/preferences";
 
 export type Decision = { show: true } | { show: false; goTo: string };
 
@@ -90,6 +92,6 @@ export function decide(session: SessionInfo, path: string, next: string | null =
     return { show: true };
   }
   const inAccount = pathname === ACCOUNT_AREA || pathname.startsWith(`${ACCOUNT_AREA}/`);
-  if (isAnonymous(session) && !inAccount) return { show: true };
+  if (isAnonymous(session) && (!inAccount || pathname === PREFERENCES)) return { show: true };
   return { show: false, goTo: signInFor(path) };
 }
