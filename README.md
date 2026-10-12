@@ -109,8 +109,12 @@ Users, roles, your own API tokens and anonymous access are managed in the web UI
   make only some repositories public, replace that role on the `anonymous` user with
   one of your own.
 - A request from a web page on another site that would change something is refused
-  with `403 cross_site_request`. If the server sits behind a reverse proxy on plain
-  HTTP, set the base URL under `/api/v1/settings` so its own pages are recognised.
+  with `403 cross_site_request`, signing in included. If the server sits behind a
+  reverse proxy on plain HTTP, set the base URL under `/api/v1/settings` so its own
+  pages are recognised.
+- **Your own password** is changed at `PUT /api/v1/me/password`, which asks for the
+  present one. `PUT /api/v1/users/{id}/password` sets another user's, and refuses
+  your own with `409 own_password`.
 - Five failed sign-ins for one username, or from one address, within 15 minutes block
   further attempts until the window ends. A valid API token is never refused by this
   limit. Behind a reverse proxy, set `MEGOOARTI_FORWARDED_ALLOW_IPS` to the proxy's
@@ -118,7 +122,8 @@ Users, roles, your own API tokens and anonymous access are managed in the web UI
 - Requests without credentials can only ever be allowed `repository:` permissions,
   whatever roles the `anonymous` user holds.
 
-The full API is described at `/api/docs`.
+The full API is described at `/api/docs`. The page is served with its own script and
+stylesheet, and asks nothing of another host.
 
 ## Repositories
 
@@ -146,8 +151,11 @@ In place of a password, use an API token as the password, or send it as
   (see what is there), `read` (download), `add` (a new path), `edit` (replace a path) or
   `delete`. For example `repository:raw:files:read`, or `repository:raw` for everything
   on every Raw repository.
-- **Deployment policy** per repository: `allow_redeploy` (default), `disable_redeploy`
-  (a path can be written once) or `read_only`.
+- **Deployment policy** per hosted repository: `allow_redeploy`, `disable_redeploy`
+  (a path can be written once) or `read_only`. A repository that is given none allows
+  redeploy, except a Maven repository for releases, which refuses it: a release is
+  deployed once.
+- **A name** is 1 to 64 letters, digits, `.`, `_` or `-`, and not `.` or `..`.
 - **Uploads are verified.** If the client sends `Content-Length`, or an
   `X-Checksum-Md5`, `X-Checksum-Sha1` or `X-Checksum-Sha256` header, the received bytes
   must match or nothing is stored. Downloads carry the same checksum headers.
@@ -936,7 +944,8 @@ repositories, blob stores and the installation's own settings.
     deletes the repository after you type its name.
   - **Blob stores** lists the stores with how many blobs each holds, their size and
     the space left, makes a new one, and deletes one that no repository uses. Its
-    files stay on the disk.
+    files stay on the disk. The store called `default` is always kept: a repository
+    that names no blob store is put in it.
   - **System** shows the version, the schema's revision and whether it is the one this
     version expects, when the server started and what it runs on, the database's
     version, and the blob stores. The base URL is set there.

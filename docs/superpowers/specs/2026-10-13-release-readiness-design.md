@@ -71,6 +71,19 @@ Each row is something a review found and set aside because it was the server's t
 - **Rebuilding an index is done in the request**, and the gateway waits ten minutes. It can be repeated: each piece is committed.
 - **What the gateway itself refuses is answered with nginx's own page.** In an installation the operator's proxy stands there.
 
+### Settled while building plan 11a
+
+| # | What | Why |
+| --- | --- | --- |
+| H9 | The policy of a repository that is given none is its format's to say (`Format.default_deployment_policy`), and the service asks it. | Every way a repository is made then gets it, not only the API. |
+| H10 | The form sends the policy it shows. It knows the server's rule (`policyOf`), and a table of the same cases is tested on each side. | A person should not send "whatever the server chooses" while looking at a choice. |
+| H11 | One's own password is refused at the administrator's endpoint for a token too. | The endpoint asks nobody who they are, however they came. |
+| H12 | A sign-in from another site is refused before the password is looked at, so it is not counted as a failed attempt. Signing out was refused already, by the guard every session has: a test now says so. | Counted, a page elsewhere could lock anybody's account by trying. |
+| H13 | Swagger UI 5.33.2 is kept in `backend/src/megooarti/static/swagger-ui` with its licence, its notice and its version, byte for byte (`.gitattributes`). The page loads three files by name through a route of the API; no folder is mounted. Swagger UI is told not to ask swagger.io to validate the document. | A mounted folder is one the test of route guards cannot see into. The validator is asked for any server that is not on localhost. |
+| H14 | In the list of blob stores, `default` has the words "Always kept" where the others have their button. | No button that the server would refuse (UI-2). |
+| H15 | H8 was not caught where it was looked for: 25 runs of the security tests passed. A setup or a teardown that fails now leaves what it said in `backend/.test-failures/` (the newest fifty are kept), whatever becomes of the run's output; and a Compose command that fails says what Docker said, where it said only that the exit status was not zero. | The next time it happens it has a text. While this plan was built the files caught the other failure nobody had read: `docker compose build` failing once for a whole module of client tests, with no reason given. |
+| H16 | The browser tests are 66: a Maven repository made by the form with nothing chosen refuses the second deploy, and the documentation page draws. The blob store test makes a repository in its own store to be refused, since `default` is no longer offered. | Section 4.2. |
+
 ### 4.1 API changes
 
 | Endpoint | Change |
@@ -90,7 +103,7 @@ The API's version does not change: nothing that worked for a client that did wha
 - Each row of 4.1 at the API, with the case just inside the rule and the one just outside it: a snapshot Maven repository and an npm one left as "allow redeploy"; a policy that is sent and kept; another user's password still set; a repository called `...` or `.a` still made; a base URL with a port and a path still taken; a sign-in from the same site, and one from a client that says nothing of where it is from (curl, a package client), still taken.
 - The UI: the default policy that follows the form and stops following once chosen; the base URL refused in the form; no delete button for `default`.
 - The browser suite: a Maven release repository made through the form refuses a second deploy of the same file.
-- The documentation page in a real browser, with every request to another host refused: it draws.
+- The documentation page in a real browser: it draws, and of every request the browser made, none went to another host.
 
 ## 5. Release mechanics (plan 11b)
 
