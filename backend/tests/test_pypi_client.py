@@ -8,12 +8,12 @@ test, and for the proxy of pypi.org that the second test installs everything thr
 import subprocess
 import urllib.error
 import urllib.request
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from pathlib import Path
 
 import pytest
 
-from tests.containers import HTTP_PORT, PROJECT, call
+from tests.containers import HTTP_PORT, PROJECT, call, upload
 
 pytestmark = pytest.mark.docker
 
@@ -369,3 +369,54 @@ def test_pip_uv_and_poetry_install_through_a_group(token, group_index, tmp_path)
     assert by_poetry.returncode == 0, said(by_poetry)
     status, poetic = fetch("simple/megooarti-poetic/")
     assert (status, poetic.count("<a ")) == (200, 2)
+
+
+def test_files_uploaded_through_the_api_are_installed_by_pip(token, tmp_path):
+    """A wheel and a source distribution go in through the content API, and pip installs."""
+    name = "megooarti-uploaded"
+    work = tmp_path / "uploaded"
+    work.mkdir()
+    (work / "make_dist.py").write_text(MAKE_DIST, encoding="utf-8", newline="\n")
+    made = python(
+        work,
+        f"python make_dist.py {name} 1.0.0 > /dev/null"
+        ' && for file in dist/*; do echo "$(basename $file) $(base64 -w0 $file)"; done',
+    )
+    assert made.returncode == 0, said(made)
+    files = {
+        filename: b64decode(encoded)
+        for filename, _, encoded in (line.partition(" ") for line in made.stdout.splitlines())
+    }
+    wheel, sdist = "megooarti_uploaded-1.0.0-py3-none-any.whl", "megooarti_uploaded-1.0.0.tar.gz"
+    assert sorted(files) == [wheel, sdist]
+    signed_in = {"Authorization": f"Bearer {token}"}
+    parts = [("file", filename, content) for filename, content in files.items()]
+
+    status, stored = upload(HOSTED, {"requires_python": ">=3.9"}, parts, signed_in)
+    assert status == 201, stored
+    assert sorted(file["path"] for file in stored["files"]) == [
+        f"packages/{name}/1.0.0/{wheel}",
+        f"packages/{name}/1.0.0/{sdist}",
+    ]
+    assert [found["name"] for found in stored["components"]] == [name]
+    status, again = upload(HOSTED, {}, parts[:1], signed_in)
+    assert (status, again["error"]["code"]) == (409, "redeploy_disabled")
+
+    status, page = fetch(f"simple/{name}/", "__token__", token)
+    assert status == 200
+    assert page.count('data-requires-python="&gt;=3.9"') == 2
+    component = stored["components"][0]["id"]
+    status, _, detail = call("GET", f"/content/{HOSTED}/components/{component}", None, signed_in)
+    assert status == 200, detail
+    address = f"http://127.0.0.1:{HTTP_PORT}/repository/{HOSTED}/"
+    assert [entry["text"] for entry in detail["usage"]] == [
+        f"pip install --index-url {address}simple/ {name}==1.0.0"
+    ]
+
+    # pip installs it from an empty cache, by the index's own pages.
+    index = f"http://{USERNAME}:{PASSWORD}@backend:8000/repository/{HOSTED}/simple/"
+    pip = f"pip install --quiet --index-url {index} --trusted-host backend"
+    run_it = 'python -c "import megooarti_uploaded; print(megooarti_uploaded.hello())"'
+    installed = python(work, f"{pip} {name}==1.0.0 && {run_it}")
+    assert installed.returncode == 0, said(installed)
+    assert installed.stdout.splitlines()[-1] == f"hello from {name} 1.0.0"

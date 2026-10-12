@@ -47,3 +47,39 @@ def call(method: str, path: str, payload: dict | None = None, headers: dict | No
             return response.status, response.headers, json.loads(raw) if raw else None
     except urllib.error.HTTPError as error:
         return error.code, error.headers, json.loads(error.read() or b"null")
+
+
+def upload(
+    repository: str,
+    fields: dict[str, str],
+    files: list[tuple[str, str, bytes]],
+    headers: dict | None = None,
+):
+    """An upload form sent to the content API of the published backend: (status, body).
+
+    `files` are (the name of the part, the file's name, its content).
+    """
+    boundary = "megooarti-test-upload-4dZ1u8RkQ2"
+    body = b""
+    for name, value in fields.items():
+        head = f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+        body += f"{head}{value}\r\n".encode()
+    for part, filename, content in files:
+        disposition = f'form-data; name="{part}"; filename="{filename}"'
+        head = (
+            f"--{boundary}\r\nContent-Disposition: {disposition}\r\n"
+            "Content-Type: application/octet-stream\r\n\r\n"
+        )
+        body += head.encode() + content + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{HTTP_PORT}/api/v1/content/{repository}/upload",
+        method="POST",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", **(headers or {})},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read() or b"null")

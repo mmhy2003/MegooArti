@@ -5,6 +5,7 @@ first time to pull the Node image, and every time for the proxy of registry.npmj
 that the last test installs through. Everything a client asks for comes from MegooArti.
 """
 
+import base64
 import json
 import subprocess
 import urllib.error
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.containers import HTTP_PORT, PROJECT, call
+from tests.containers import HTTP_PORT, PROJECT, call, upload
 
 pytestmark = pytest.mark.docker
 
@@ -332,3 +333,51 @@ def test_npm_pnpm_and_yarn_install_through_a_group(group_token, tmp_path):
     assert status == 200
     cached = {entry["package"]["name"]: entry["package"]["version"] for entry in found["objects"]}
     assert cached.get(PUBLIC) == "7.0.0"
+
+
+def test_a_tarball_uploaded_through_the_api_installs_like_a_published_one(token, tmp_path):
+    """`npm pack` writes the tarball, the content API takes it, and npm installs it."""
+    name = "megooarti-uploaded"
+    fresh = sign_in()  # the first test signs out of the token it was given
+    signed_in = {"Authorization": f"Bearer {fresh}"}
+    packing = write(
+        tmp_path / "pack", {"package": package(name, "1.0.0", description="Uploaded")}, fresh
+    )
+    packed = npm(packing, "cd package && npm pack --silent > /dev/null && base64 -w0 *.tgz")
+    assert packed.returncode == 0, said(packed)
+    tarball = base64.b64decode(packed.stdout.strip())
+
+    status, stored = upload(HOSTED, {}, [("file", f"{name}-1.0.0.tgz", tarball)], signed_in)
+    assert status == 201, stored
+    assert [file["path"] for file in stored["files"]] == [f"{name}/-/{name}-1.0.0.tgz"]
+    status, again = upload(HOSTED, {}, [("file", f"{name}-1.0.0.tgz", tarball)], signed_in)
+    assert (status, again["error"]["code"]) == (409, "redeploy_disabled")
+
+    # The detail of what was stored says how to install it.
+    component = stored["components"][0]["id"]
+    status, _, detail = call("GET", f"/content/{HOSTED}/components/{component}", None, signed_in)
+    assert status == 200, detail
+    assert [entry["text"] for entry in detail["usage"]] == [
+        f"npm install {name}@1.0.0 --registry=http://127.0.0.1:{HTTP_PORT}/repository/{HOSTED}/"
+    ]
+
+    consumer = {
+        "package.json": json.dumps(
+            {
+                "name": "consumer",
+                "version": "1.0.0",
+                "private": True,
+                "dependencies": {name: "1.0.0"},
+            }
+        ),
+        "main.js": f'console.log(require("{name}")());\n',
+    }
+    work = write(tmp_path / "install", {"consumer": consumer}, fresh)
+    installed = npm(
+        work,
+        f"npm view {name} description dist-tags.latest && cd consumer && npm install"
+        " && node main.js",
+    )
+    assert installed.returncode == 0, said(installed)
+    assert "Uploaded" in installed.stdout
+    assert f"hello from {name}@1.0.0" in installed.stdout

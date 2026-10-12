@@ -18,7 +18,7 @@ import pytest
 
 from megooarti.repositories.maven import metadata
 from megooarti.repositories.maven.versions import compare
-from tests.containers import HTTP_PORT, PROJECT, call
+from tests.containers import HTTP_PORT, PROJECT, call, upload
 
 pytestmark = pytest.mark.docker
 
@@ -472,3 +472,49 @@ def test_our_version_order_is_mavens():
 
     assert len(theirs) == len(versions) - 1
     assert [pair for pair in zip(theirs, ours, strict=True) if pair[0] != pair[1]] == []
+
+
+def test_a_jar_uploaded_through_the_api_is_resolved_by_a_build(repositories, tmp_path):
+    """A jar a build made is uploaded with no POM, and another build depends on it."""
+    project = library(tmp_path / "built", "3.0")
+    built = maven(
+        project, f"{MAVEN} --quiet package > /dev/null && base64 -w0 target/library-3.0.jar"
+    )
+    assert built.returncode == 0, built.stdout[-4000:] + built.stderr[-2000:]
+    jar = base64.b64decode(built.stdout.strip())
+    assert jar.startswith(b"PK")
+    basic = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
+    account = {"Authorization": f"Basic {basic}"}
+    coordinates = {"group": "io.megooarti.test", "artifact": "library", "version": "3.0"}
+
+    status, stored = upload("releases", coordinates, [("file", "library.jar", jar)], account)
+    assert status == 201, stored
+    assert [file["path"] for file in stored["files"]] == [
+        f"{LIBRARY}/3.0/library-3.0.jar",
+        f"{LIBRARY}/3.0/library-3.0.pom",
+    ]
+    # This account may add and may not edit, so it cannot upload the version again.
+    status, again = upload("releases", coordinates, [("file", "library.jar", jar)], account)
+    assert (status, again["error"]["code"]) == (403, "forbidden")
+    status, proxied = upload("central", coordinates, [("file", "library.jar", jar)], account)
+    assert (status, proxied["error"]["code"]) == (409, "upload_not_supported")
+
+    assert fetch(f"releases/{LIBRARY}/3.0/library-3.0.jar") == jar
+    sha1 = fetch(f"releases/{LIBRARY}/3.0/library-3.0.jar.sha1")
+    assert sha1.decode() == hashlib.sha1(jar).hexdigest()
+    listed = metadata.parse(fetch(f"releases/{LIBRARY}/maven-metadata.xml"))
+    assert "3.0" in listed.versions
+
+    # A local repository that has never seen the library: Maven reads the POM that was
+    # written for it, and compiles against the jar.
+    projects = consumers(tmp_path / "consumers", {"uploaded": "3.0"})
+    resolved = maven(
+        projects, f"{MAVEN} -Dmaven.repo.local=/tmp/empty-repository -f uploaded/pom.xml compile"
+    )
+    assert resolved.returncode == 0, resolved.stdout[-4000:]
+    for kind in ("pom", "jar"):
+        downloaded = (
+            f"Downloaded from megooarti: {INSIDE}/releases/{LIBRARY}/3.0/library-3.0.{kind}"
+        )
+        assert downloaded in resolved.stdout, resolved.stdout[-4000:]
+    assert "The POM for io.megooarti.test:library:jar:3.0 is" not in resolved.stdout
