@@ -1,0 +1,7 @@
+# Install scripts of dependencies are not run: none of them is needed, and a script
+# that runs at install time is code nobody reviewed.
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
+  sharp: false
+  unrs-resolver: false
