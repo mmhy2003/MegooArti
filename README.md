@@ -880,12 +880,14 @@ screens follow.
 - **Search** is a box in the header of every screen: press `/` to reach it. The
   results page filters by format, repository, group, name and version, and by a
   file's checksum: paste an MD5, SHA-1, SHA-256 or SHA-512, and its length says which
-  it is. A search is in the address, so it can be shared and gone back to.
+  it is. A search is in the address, so it can be shared and gone back to. Search
+  looks in hosted and proxy repositories: what a group serves is found in its members.
 - **Upload** is offered for a hosted Raw, Maven, npm or PyPI repository to whoever
   may add to it, from the repository ("Upload here") and from the navigation. The
-  form has the fields the format needs. Files are chosen or dropped onto it. It shows
-  how much has been sent, and can be stopped. What the server refuses is said at the
-  field it is about. A Docker image is pushed with a container client.
+  form has the fields the format needs. Files are chosen, or dropped onto a file
+  field. It shows how much has been sent, and can be stopped. What the server refuses
+  about a field is said at that field, which then has the keyboard; anything else is
+  said above the button. A Docker image is pushed with a container client.
 - **Delete** is offered to whoever may delete in the repository. A file or one
   version is deleted after a question. A folder is deleted, with everything under
   it, only after its name is typed. Each is removed as the format's own client would
@@ -907,6 +909,10 @@ screens follow.
   strict content security policy: only its own scripts run, and it cannot be framed.
 - **Keyboard and screen readers.** Every screen can be used by keyboard alone, starts
   with a link that skips to its content, and meets WCAG 2.1 AA contrast in both modes.
+  When a screen changes under the keyboard (a folder is entered, a file is deleted,
+  another page of results is shown), the keyboard is put at what changed. `/` reaches
+  the search box from anywhere that is not a place to type; it cannot be turned off
+  yet.
 
 ## Behind your own reverse proxy
 
@@ -1036,10 +1042,13 @@ at port 3000, without an API beside it.
 - **Tests in a real browser** are in `frontend/e2e/`. They are run by
   `uv run pytest -m docker` in `backend/`, which starts a fresh stack for them: they
   begin with the first sign-in of a new installation. They sign in, change the
-  password, upload through the forms, browse, search and delete, use every screen by
-  keyboard, check each screen against WCAG 2.1 AA in both modes, and fail if the
-  browser asked anything of another host or reported a violation of the content
-  security policy.
+  password, upload through the forms, browse, search and delete, go through
+  signing in and through a repository's folders by keyboard alone, check where the
+  keyboard is after a screen changed, check each screen against WCAG 2.1 AA in both
+  modes, and fail if the browser asked anything of another host or reported a
+  violation of the content security policy.
+- **A unit test fails on a text that is missing** from `messages/en.json`: in the
+  browser it would be shown as its own key.
 - **A colour is written in one file**, `src/styles/tokens.css`, once for each mode. A
   test fails on a colour anywhere else, and another computes the contrast of every
   text tone on every surface.

@@ -251,6 +251,23 @@ Delivered as three plans.
 | B7 | A screen inside the shell that is given an address it cannot read says that nothing is there, inside the shell. The page for an address no route answers is a different one, with no shell. | Two `main` landmarks otherwise. |
 | B8 | The lint refuses text written into a property that is read out (`aria-label`, `title`, `alt`, `placeholder`, `label`, `hint`), as it refuses text in markup. | Left open by plan 9: UI-4 is about every text a person meets. |
 | B9 | A button that is busy keeps the keyboard: it is marked `aria-disabled` and ignores a press, where it used to be disabled. | A disabled button loses focus, and with it a keyboard user's place, each time something is sent. Left open by plan 9. |
+| B10 | A download link is made only of an `http` or `https` address. | It is the one thing from the API that the UI makes into a link out of itself. |
+
+#### Settled by the review of plan 10a
+
+| # | What | Why |
+| --- | --- | --- |
+| B11 | When a screen changes under the keyboard, the keyboard is put at what changed: at the folder's place in the path when a folder is entered; at a file's entry when its details are closed, or at the folder if the file was deleted; at the first new entry after "Show more"; at the line above the results when another page of them is shown; at the Upload button when an upload is stopped; at the file field when a chosen file is taken out. Not on arrival: a page starts at its top. | What had the keyboard was removed, and a keyboard or screen-reader user was sent back to the top of the page with nothing said (UI-6, WCAG 2.4.3). |
+| B12 | Where a screen last was is kept outside it (`lib/places.ts`), for as long as the page lives. | Next.js builds a screen anew when a part of its address changes, so the screen cannot remember it. Found in a real browser: the unit test, which renders the same screen again, passed without it. |
+| B13 | A refused upload puts the keyboard at the first field that was refused, as every form does (section 11a). What was stored, and that an upload was stopped, is said in a notification (S11). | An error or a status that only appears is not reliably heard. |
+| B14 | A request that is not made through the store of fetched data (the upload, with its progress; a folder deleted piece by piece) applies the store's rule itself: after a `401`, a password that must be changed or a wrong CSRF token, the session is asked for again. | Section 7 says it of every request. With the session replaced in another tab, an upload was refused at every press until the page was reloaded. |
+| B15 | The dialog that asks for a name asks for it each time it opens, whoever closed it, and does not show what went wrong the time before. | After a folder delete that left files behind, the dialog opened with the name still typed and its button armed (S9). |
+| B16 | The navigation shows "Upload" only to whoever holds a permission that could grant `add` or `edit` on some repository. A navigation item can name such shapes, with `?` for any value (`repository:?:?:add`). | UI-2. A visitor was led to a screen that said there was nowhere to upload to. |
+| B17 | A group has no "Search this repository". The search form shows a repository or a format that the address names though it is none of its choices. | The search API looks in hosted and proxy repositories, so a search in a group found nothing, and the form said "Any". |
+| B18 | On an upload screen, a file dropped anywhere but on a file field does nothing. | The browser opened the file in place of the page, and the form was lost. |
+| B19 | A unit test fails when a screen asks for a text that `messages/en.json` does not have. | The upload page of a Docker repository showed a message key, and its test passed. |
+
+Left open by plan 10a, for plan 10b: `/` cannot be turned off. WCAG 2.1.4 (level A) asks that a shortcut of one character can be turned off or changed; the switch belongs with a person's own settings, which plan 10b adds. Below 768 px, with the navigation closed, the key does nothing, and should then not be taken.
 
 ### 12.3 Account and security (plan 10b, outline)
 

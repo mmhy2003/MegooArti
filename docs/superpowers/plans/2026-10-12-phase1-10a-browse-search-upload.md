@@ -28,6 +28,21 @@
 | B10 | A download link is made only of an `http` or `https` address. | It is the one thing from the API that the UI makes into a link out of itself. |
 | B11 | The texts of every screen of this plan are added to `messages/en.json` in Task 2. | One file, typed as a whole: a screen's task then changes no shared file. |
 
+**Changed after the tasks were first written.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first, and the spec's section 12.2 records what they settle as B11 to B19.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| R1 | Once a file or a version is deleted it is not asked for again, and a file's details are keyed by the file. | Found while the suites of Task 7 ran: the deleted file was fetched once more and its 404 shown for a moment, and a refused delete of one file was shown under the next one chosen. |
+| R2 | When a screen changes under the keyboard, the keyboard is put at what changed (the folder's place in the path, a file's entry, the first new entry, the line above the results, the Upload button, the file field). Where a screen last was is kept in `lib/places.ts`. | The review found focus dropped to the page after most keyboard actions. Next.js builds the screen anew when the folder changes, which the browser test showed and the unit test did not. |
+| R3 | A refused upload puts the keyboard at the first field refused. What was stored or stopped is said in a notification (`upload.storedNotice`, `upload.stopped`). | The review: a refused upload said nothing to a screen reader. |
+| R4 | The upload and the folder delete call `askAgainIfChanged(client, error)` of `lib/session/session.ts`, which the store's own rule now is. | The review: with the session replaced in another tab, an upload was refused at every press. |
+| R5 | `ConfirmDialog` empties what was typed whenever it is closed, and the folder dialog forgets a failure when it is opened. | The review: after a delete that left files behind, the dialog opened armed. |
+| R6 | `NavItem.anyOf` names shapes of permission (`repository:?:?:add`), matched by `grantsSome` and `allowsSome`; the Upload item has two. | The review: UI-2. A visitor was shown "Upload". |
+| R7 | No "Search this repository" for a group; the search form adds an address's own repository or format to its choices. | The review: such a search found nothing, and the form said "Any". |
+| R8 | The upload page shows a format's introduction only for the formats that take an upload; the tests' `renderUi` throws on a missing message, and keeps its providers on `rerender`. | The review: `/upload/<a Docker repository>` showed `upload.intro.docker`. |
+| R9 | An upload screen ignores a drop outside a file field. | The review graded it minor; the browser opened the file in place of the page and the form was lost, which is what a person dropping a file an inch off would meet. |
+| R10 | The browser tests are 38: the keyboard after a folder is entered, details are closed and a file is deleted; the field a refusal is at; a visitor's navigation; a Docker repository's upload page; pages of results; an upload after the session was replaced in another tab. `test_ui_client.py` expects at least 37. | Each fix of R2 to R8 that a browser can show is shown in one. |
+
 ## Global Constraints
 
 - **A colour is written in `src/styles/tokens.css` and nowhere else.** Components use the utilities of `globals.css`.
