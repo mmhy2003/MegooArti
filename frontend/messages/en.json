@@ -1,0 +1,112 @@
+{
+  "app": {
+    "name": "MegooArti",
+    "tagline": "Repository and artifact manager",
+    "skipToContent": "Skip to the content",
+    "loading": "Loading",
+    "mainNavigation": "Main",
+    "openNavigation": "Open the navigation",
+    "closeNavigation": "Close the navigation"
+  },
+  "nav": {
+    "areas": {
+      "browse": "Browse",
+      "administration": "Administration"
+    },
+    "items": {
+      "repositories": "Repositories"
+    }
+  },
+  "theme": {
+    "label": "Mode",
+    "current": "Mode: {choice}",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "As the system"
+  },
+  "account": {
+    "menu": "Account of {name}",
+    "signedInAs": "Signed in as",
+    "changePassword": "Change password",
+    "signOut": "Sign out",
+    "signIn": "Sign in"
+  },
+  "signIn": {
+    "title": "Sign in",
+    "username": "User name",
+    "password": "Password",
+    "submit": "Sign in",
+    "wrong": "The user name or the password is not correct.",
+    "tooManyAttempts": "Too many attempts. Wait a little, and try again.",
+    "cookieNotKeptTitle": "Your browser did not keep the session",
+    "cookieNotKept": "The name and password were right, but the session cookie was not kept. It is marked Secure, and this address is plain HTTP on a host that is not localhost. Use HTTPS, or ask the administrator to set MEGOOARTI_SESSION_COOKIE_SECURE=false."
+  },
+  "password": {
+    "title": "Change password",
+    "mustChangeTitle": "Choose a new password",
+    "mustChange": "Your password was set for you. Choose your own before going on.",
+    "current": "Current password",
+    "new": "New password",
+    "newHint": "At least {min} characters.",
+    "repeat": "New password, again",
+    "submit": "Change password",
+    "changed": "Your password is changed.",
+    "tooShort": "The password must be at least {min} characters long.",
+    "notTheSame": "The two new passwords are not the same.",
+    "notDifferent": "The new password must be different from the current one."
+  },
+  "home": {
+    "title": "Repositories",
+    "intro": "The repositories you can browse.",
+    "columns": {
+      "name": "Name",
+      "format": "Format",
+      "type": "Type",
+      "status": "Status",
+      "address": "Address"
+    },
+    "online": "Online",
+    "offline": "Offline",
+    "types": {
+      "hosted": "Hosted",
+      "proxy": "Proxy",
+      "group": "Group"
+    },
+    "emptyTitle": "No repositories",
+    "empty": "There is no repository you can browse. An administrator creates repositories and says who may use them.",
+    "more": "Showing {shown} of {total}."
+  },
+  "copy": {
+    "label": "Copy {what}",
+    "copied": "Copied",
+    "failed": "Could not copy"
+  },
+  "states": {
+    "tryAgain": "Try again",
+    "errorTitle": "This did not work",
+    "requestId": "Request {id}",
+    "code": "Code {code}"
+  },
+  "errors": {
+    "network_error": "The server could not be reached. Check the connection, and try again.",
+    "unexpected_answer": "The server answered in a way this page does not understand.",
+    "forbidden": "You do not have permission to do this.",
+    "unauthorized": "You are not signed in, or your session has ended.",
+    "not_found": "This was not found.",
+    "internal_error": "The server met a fault. It has been logged.",
+    "fallback": "Something went wrong."
+  },
+  "confirm": {
+    "cancel": "Cancel"
+  },
+  "notFound": {
+    "title": "There is nothing at this address",
+    "body": "The page may have moved, or the address may be mistyped.",
+    "home": "Go to the repositories"
+  },
+  "crash": {
+    "title": "This page stopped working",
+    "body": "Something in the page itself failed. Loading it again usually helps.",
+    "reload": "Load the page again"
+  }
+}
