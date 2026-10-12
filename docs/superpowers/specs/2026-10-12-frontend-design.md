@@ -372,6 +372,17 @@ What an administrator keeps besides people: the repositories, the blob stores th
 - **What the server refuses** is put at the field it names (`proxy.remote_url`, `group.members`, `format_config.layout_policy`, `name` for a Docker repository's name) or said whole (`repository_cycle`, `in_use`, `immutable`).
 - **The navigation's Administration area** becomes: Users, Roles, Anonymous access, Manage repositories, Blob stores, System.
 
+#### Settled while building plan 10c
+
+| # | What | Why |
+| --- | --- | --- |
+| R15 | The form of a repository is one module with no React in it (`lib/repository-form.ts`): what a form starts with, what is wrong with it before the server is asked, and the body that is sent, each a function of what the form holds. | The parts a combination has are then a table of cases, tested without a screen. |
+| R16 | A request that carried a proxy's secret is let go of by the store as soon as it is answered (`gcTime: 0`, and `reset()` after the answer), and the form starts again from the answer, whose secret field is empty. | A20, for the one other secret the UI sends. |
+| R17 | When a member of a group is moved, the keyboard stays on the button that moved it, or goes to the one beside it when it can move no further that way; what happened is said in a line a screen reader hears. | A row that moves takes its buttons with it, and a button that is disabled cannot keep the keyboard (B11). |
+| R18 | A form that is sent and emptied to take another (a new blob store) starts over: nothing is said to be wrong with it until it is sent again. | Emptied, its name is no name, and it said so at once. |
+| R19 | The browser tests that find the navigation's "Repositories" name it exactly. | "Manage repositories" is in the same navigation. |
+| R20 | The system page takes the blob stores' state from the blob stores' own endpoint, and shows it to whoever may read them. | R12: it is another permission. |
+
 ## 13. Requirement coverage
 
 | Requirement | Where |

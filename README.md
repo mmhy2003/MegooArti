@@ -868,8 +868,8 @@ curl -u alice 'https://repo.example.com/api/v1/search?sha1=2ef7bde608ce5404e97d5
 
 The UI is at the root of the installation's address. It has what a person who uses
 the repositories needs (browsing them, search, upload and delete), a person's own
-account, and the administration of users, roles and anonymous access. Repositories
-and blob stores are created through the API for now, and their screens follow.
+account, and everything an administrator keeps: users, roles, anonymous access,
+repositories, blob stores and the installation's own settings.
 
 - **Browsing.** A repository opens one folder at a time, with the way there as a path
   above it. Choosing a file shows everything known of it beside the folder: its size,
@@ -922,6 +922,23 @@ and blob stores are created through the API for now, and their screens follow.
   - **Anonymous access** is one switch, which asks before it is turned on, and shows
     what someone who is not signed in may then do. If the `anonymous` user is
     disabled, nothing is given though the switch is on, and the page says so.
+  - **Manage repositories** lists every repository as it is set up. A new one is made
+    on one page: choose the format and the type, and the page shows what that
+    combination has. A hosted repository has a deployment policy; a proxy has its
+    remote, how it signs in there, how long it trusts what it cached, and what it
+    does when the remote fails; a group has its members, put in order with buttons;
+    a Maven repository has a version policy and a layout policy. What cannot change
+    later (name, format, type, blob store, version policy) is shown as it is and not
+    as a field. A proxy's secret is typed and never shown: leave the field empty to
+    keep the one that is stored. A repository's page also shows a proxy's state and
+    last error, has it check everything with its remote again, rebuilds the index,
+    and deletes the repository after you type its name.
+  - **Blob stores** lists the stores with how many blobs each holds, their size and
+    the space left, makes a new one, and deletes one that no repository uses. Its
+    files stay on the disk.
+  - **System** shows the version, the schema's revision and whether it is the one this
+    version expects, when the server started and what it runs on, the database's
+    version, and the blob stores. The base URL is set there.
 - **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
   browser keeps it over HTTPS, and over plain HTTP only on the machine itself
   (`localhost`). If you reach the UI over plain HTTP at another name or address,
@@ -990,6 +1007,29 @@ and the content security policy assume one origin.
 | `GET /api/v1/status/live` | The process is running |
 | `GET /api/v1/status/ready` | The database is reachable and its schema matches this version; `503` otherwise |
 | `GET /healthz` | The frontend is running (it answers `ok`) |
+
+What is running is told to whoever may read the settings (`admin:settings:read`):
+
+```bash
+curl -u admin http://localhost:8000/api/v1/system/information
+```
+
+```json
+{
+  "version": "0.1.0",
+  "schema": {"revision": "0007", "expected": "0007", "current": true},
+  "runtime": {
+    "python": "3.13.1",
+    "platform": "Linux-6.6-x86_64-with-glibc2.41",
+    "started_at": "2026-10-12T08:00:00Z"
+  },
+  "database": {"version": "PostgreSQL 17.2"}
+}
+```
+
+`schema.current` is false when the database is at another revision than this version
+was written for, which is also when `/api/v1/status/ready` answers `503`. Nothing of the
+configuration is in it.
 
 ## Database migrations
 
