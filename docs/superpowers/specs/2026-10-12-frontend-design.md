@@ -200,7 +200,7 @@ Delivered as three plans.
 | Plan | Contents |
 | --- | --- |
 | **10a** | Browsing a repository, a component and its usage, search, upload, delete |
-| **10b** | A person's own API tokens; users, roles and anonymous access |
+| **10b** | A person's own API tokens and preferences; users, roles and anonymous access |
 | **10c** | Repositories, blob stores, the base URL and system information |
 
 ### 12.1 Decisions
@@ -267,11 +267,47 @@ Delivered as three plans.
 | B18 | On an upload screen, a file dropped anywhere but on a file field does nothing. | The browser opened the file in place of the page, and the form was lost. |
 | B19 | A unit test fails when a screen asks for a text that `messages/en.json` does not have. | The upload page of a Docker repository showed a message key, and its test passed. |
 
-Left open by plan 10a, for plan 10b: `/` cannot be turned off. WCAG 2.1.4 (level A) asks that a shortcut of one character can be turned off or changed; the switch belongs with a person's own settings, which plan 10b adds. Below 768 px, with the navigation closed, the key does nothing, and should then not be taken.
+Left open by plan 10a, and settled by A11 and A12 of plan 10b: `/` cannot be turned off. WCAG 2.1.4 (level A) asks that a shortcut of one character can be turned off or changed; the switch belongs with a person's own settings, which plan 10b adds. Below 768 px, with the navigation closed, the key does nothing, and should then not be taken.
 
-### 12.3 Account and security (plan 10b, outline)
+### 12.3 Account and security (plan 10b)
 
-A person's API tokens (create, with the secret shown once; revoke). Users (create, edit, disable, set a password, revoke tokens, delete). Roles (create, edit, delete; permissions as patterns, with help for writing them). Anonymous access (on or off).
+A person's own account, and what an administrator does about people: users, roles and anonymous access. No change to the API.
+
+#### Decisions
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| A1 | A person's own settings are one Account area of three pages, each with an address: API tokens, Password, Preferences. The user menu leads to it, and the pages link to each other. | Chosen by the product owner. The forced change of password keeps the page it has. |
+| A2 | A role's permissions are written as rows. A row says what it is about: a repository (format, repository and action, each from a list with "any"), an administration area (area and "read" or "write", each with "any"), everything, or a pattern typed by hand. The pattern a row makes is shown beside it, with what it grants in words. | Chosen by the product owner. Someone who does not know the grammar can still write a role, and someone who does is not held back. |
+| A3 | A permission the rows cannot express (a pattern of another shape, or one the server gave that this UI does not know) is a typed row. Nothing is lost by opening and saving a role. | A role written through the API may hold anything the grammar allows. |
+| A4 | Creating an API token asks for a name, an expiry (never, 30 days, 90 days, a year, or a date), and what it may do: everything its owner may, only read, or custom. Custom is the rows of A2. | Chosen by the product owner. The usual token is for one's own build. |
+| A5 | A new token's secret is shown once, on the page that made it, with a button that copies it, and is gone when the page is left. It is kept nowhere: not in what was fetched, not in the address, not in the browser's storage. | The API never returns it again. |
+| A6 | A password that an administrator sets for someone can be typed or generated. A generated one is 20 characters from letters and digits that are not mistaken for each other, made by the browser's own random numbers, and shown so that it can be passed on. "Must choose a new password at the next sign-in" is ticked. | The administrator has to tell it to someone. |
+| A7 | What the server protects is not offered: deleting or disabling one's own account, deleting a built-in user or role, changing the `admin` role, a password for the anonymous user. The screen says why. What the server refuses beyond that (the last administrator, a role that would contain itself) is said as it says it. | UI-2, UI-5. |
+| A8 | Deleting a user asks for the user name to be typed (S9). Deleting a role or revoking a token asks in a plain dialog that says what follows from it. | A user's tokens and sessions go with it. |
+| A9 | Anonymous access is a page with one switch. Turning it on asks first, and says what it means: anyone who can reach the server acts as the `anonymous` user. The page shows what that user may do now, in words, and leads to the user and its roles. | It is the one setting that makes content public. |
+| A10 | After a user or a role is changed, the session is asked for again. | The change may be to what the person who made it may do. |
+| A11 | Preferences are kept in the browser, as the mode is: the mode, and whether `/` goes to the search box. The page is open to a visitor too, and the mode menu in the header leads to it. | WCAG 2.1.4: a shortcut of one character can be turned off. A visitor has a keyboard as well. |
+| A12 | `/` is taken only when it leads somewhere: a search box that is on the screen. | Below 768 px, with the navigation closed, the key was taken and did nothing. |
+| A13 | The lists of users and roles have numbered pages (S3), 50 to a page. A user's or a role's page is addressed by its id or name: `/admin/users/<id>`, `/admin/roles/<name>`. | The API pages them with a total. |
+
+#### Addresses
+
+| Address | What it shows | Shown to |
+| --- | --- | --- |
+| `/account/tokens` | One's API tokens: name, how it begins, what it may do, when it expires and was last used. Create and revoke. | Whoever is signed in |
+| `/account/password` | Changing one's password (plan 9). | Whoever is signed in |
+| `/account/preferences` | The mode, and the `/` key. | Everybody |
+| `/admin/users` | The users: name, roles, state, last sign-in. | `admin:users:read` |
+| `/admin/users/new` | A new user. | `admin:users:write` |
+| `/admin/users/<id>` | One user: details and roles, state, a new password, API tokens, delete. | `admin:users:read`; tokens need `admin:tokens:read` |
+| `/admin/roles` | The roles: name, what they hold. | `admin:roles:read` |
+| `/admin/roles/new`, `/admin/roles/<name>` | A role: description, permissions as rows, the roles it contains, delete. | `admin:roles:read`, `write` to change |
+| `/admin/anonymous-access` | The switch, and what the anonymous user may do. | `admin:settings:read`, `write` to change |
+
+- **The navigation** gets its Administration area: Users, Roles, Anonymous access, each shown to whoever holds the permission to read it.
+- **A screen whose data the caller may not read** says so (the API's `403`), as every screen does. A form whose data they may read but not change is shown with its fields and without the button that saves.
+- **The areas of administration** the rows know are those the API has: users, roles, tokens, settings, blob stores, repositories. The actions on a repository are browse, read, add, edit, delete.
 
 ### 12.4 Repositories and the system (plan 10c, outline)
 
