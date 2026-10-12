@@ -2,8 +2,9 @@
 
 `/api/v1/repositories` configures repositories and is an administrator's. This is for
 everyone else: which repositories there are to use, what is in them as folders, files
-and components, and removing things. Seeing anything needs `browse` on the repository;
-downloading goes through the content route and needs `read`, as it always has.
+and components, removing things and uploading them. Seeing anything needs `browse` on
+the repository; downloading goes through the content route and needs `read`, as it
+always has; uploading needs `add`, or `edit` to replace, and nothing else.
 """
 
 import uuid
@@ -11,20 +12,30 @@ from datetime import datetime
 from typing import Annotated
 from urllib.parse import urlsplit
 
+import structlog
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import ClientDisconnect
+from starlette.responses import Response
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
-from megooarti.repositories import browse, service
+from megooarti.repositories import browse, forms, service
 from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.formats import Format, get_format
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
-from megooarti.security.authentication import Principal, authorize, require_caller
+from megooarti.security.authentication import (
+    Principal,
+    authorize,
+    require_caller,
+    unauthorized,
+)
 from megooarti.system.settings_store import get_setting
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/content", tags=["content"])
 
@@ -84,6 +95,11 @@ class ComponentView(ComponentRef):
 
 class ComponentDetail(ComponentView):
     files: list[Entry]
+
+
+class Uploaded(BaseModel):
+    components: list[ComponentRef]  # what the files belong to, each once
+    files: list[AssetView]
 
 
 def _permission(repository: Repository, action: str) -> str:
@@ -154,6 +170,14 @@ async def _holding(db: AsyncSession, name: str, caller: Principal) -> Repository
 
 def _entry(child: browse.Child) -> Entry:
     return Entry.model_validate(child, from_attributes=True)
+
+
+def _asset_view(
+    repository: Repository, handler: Format, detail: browse.AssetDetail, base: str
+) -> AssetView:
+    address = handler.download_path(repository.name, detail.path)
+    download = None if address is None else base + address
+    return AssetView.model_validate({**vars(detail), "download": download}, from_attributes=True)
 
 
 @router.get("", response_model=Page[RepositoryView])
@@ -228,9 +252,7 @@ async def get_asset(
     )
     if detail is None:
         raise ApiError(404, "not_found", "No such file.")
-    address = handler.download_path(found.name, detail.path)
-    download = None if address is None else await _base(request, db) + address
-    return AssetView.model_validate({**vars(detail), "download": download}, from_attributes=True)
+    return _asset_view(found, handler, detail, await _base(request, db))
 
 
 @router.get("/{repository}/components", response_model=Page[ComponentView])
@@ -372,3 +394,81 @@ async def delete_component(
     for file in held[1]:
         await _delete_file(context, file.path)
     await db.commit()
+
+
+# --- Uploading ------------------------------------------------------------------------
+
+_NO_UPLOAD = {
+    "proxy": "A proxy holds what its remote has. Upload to a hosted repository.",
+    "group": "A group holds nothing of its own. Upload to one of its hosted members.",
+}
+
+
+def _not_readable(reason: object) -> ApiError:
+    details = [{"field": "body", "message": f"The form cannot be read: {reason}."}]
+    return ApiError(422, "validation_error", f"The form cannot be read: {reason}.", details)
+
+
+@router.post("/{repository}/upload", response_model=Uploaded, status_code=201)
+async def upload(
+    repository: str,
+    request: Request,
+    caller: Principal = Depends(require_caller),
+    db: AsyncSession = Depends(get_session),
+) -> Uploaded | Response:
+    """Upload to a hosted repository with a `multipart/form-data` form.
+
+    The fields are those of the repository's format. Everything in the form is stored,
+    or nothing is. Like the rest of this API it works on a repository that is offline:
+    that stops package clients, not the people who tend the repository.
+    """
+    found = await service.get_repository(db, repository)
+    if found is None:
+        raise ApiError(404, "not_found", "No such repository.")
+    try:
+        authorize(caller, _permission(found, "add"))
+    except ApiError:
+        authorize(caller, _permission(found, "edit"))
+    handler = _handler(found)
+    refusal = _NO_UPLOAD.get(found.type) or handler.no_upload
+    if refusal is not None:
+        raise ApiError(409, "upload_not_supported", refusal)
+    context = await build_context(db, request.app.state.settings, found, caller)
+    context.require_write()  # a read-only repository is refused before the body is read
+    base = await _base(request, db)
+    await context.release()  # the form needs no connection while it arrives
+
+    try:
+        form = await forms.read(
+            request.stream(),
+            request.headers.get("Content-Type", ""),
+            stage=context.stage,
+            discard=context.discard,
+        )
+    except forms.InvalidForm as error:
+        raise _not_readable(error) from None
+    except ClientDisconnect:
+        # The client went away mid-upload. Nothing was stored; nobody is left to answer.
+        log.info("upload_interrupted", repository=repository)
+        return Response(status_code=400)
+    try:
+        try:
+            stored = await handler.upload(context, form)
+        except ApiError as error:
+            if error.status_code == 401:
+                # The facade asks as a package client is asked, and a browser answers
+                # that with a dialog of its own.
+                raise unauthorized() from None
+            raise
+        files = []
+        for path in stored:
+            detail = await browse.asset(db, found, path, unlisted=handler.unlisted_namespaces)
+            if detail is not None:
+                files.append(_asset_view(found, handler, detail, base))
+        components = {file.component.id: file.component for file in files if file.component}
+        await db.commit()
+    finally:
+        # What was stored is no longer staged, and giving it back does nothing.
+        for file in form.files:
+            await context.discard(file.staged)
+    return Uploaded(components=list(components.values()), files=files)

@@ -5,7 +5,7 @@ sets `name`, and overrides only what differs. Formats never touch tables or file
 they work through the repository context they are handed.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -15,9 +15,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
+from megooarti.repositories.paths import normalise_path
 
 if TYPE_CHECKING:
     from megooarti.repositories.content import RepositoryContext
+    from megooarti.repositories.forms import UploadForm
 
 # The dispatcher, as an engine sees it: answer this request from that repository.
 Serve = Callable[["RepositoryContext", Request, str], Awaitable[Response]]
@@ -57,6 +59,23 @@ def managed_by_format(reason: str) -> ApiError:
     return ApiError(409, "managed_by_format", reason)
 
 
+def invalid_upload(field: str, message: str) -> ApiError:
+    """The refusal of an upload form that lacks, or has wrong, what its format needs."""
+    details = [{"field": field, "message": message}]
+    return ApiError(422, "validation_error", "The request is not valid.", details)
+
+
+def only_fields(form: "UploadForm", known: Collection[str]) -> None:
+    """Refuse a form with a field its format has no use for: most often one misspelt."""
+    for name in form.fields:
+        if name not in known:
+            raise invalid_upload(
+                name,
+                "This is not a field of an upload to this repository. If it is meant as a "
+                "file, it must be sent as one, with a file name.",
+            )
+
+
 class Format:
     name: str = ""
     types: frozenset[str] = frozenset({"hosted", "proxy", "group"})
@@ -69,6 +88,9 @@ class Format:
     # Namespaces whose components are the format's own bookkeeping. They are not
     # listed as components and not found by search.
     unlisted_namespaces: frozenset[str] = frozenset()
+    # Why a hosted repository of this format takes no upload through the API, if it
+    # takes none: what its users are told to do instead.
+    no_upload: str | None = None
 
     def validate_name(self, name: str) -> None:
         """Refuse a repository name this format cannot be used under. The generic format: none.
@@ -114,6 +136,35 @@ class Format:
         removes the file and nothing else. The caller has checked `delete`, and commits.
         """
         return await context.delete(path)
+
+    async def upload(self, context: "RepositoryContext", form: "UploadForm") -> list[str]:
+        """Store what an upload form carries, as this format's own client's upload would.
+
+        Returns the paths of the files stored. Raises `invalid_upload` for a form that
+        lacks what the format needs. The repository is hosted, and the caller may add
+        to it or edit it; the facade checks each file as it is stored. Whatever of the
+        form is not stored, the caller discards, and the caller commits: for the upload
+        to be all or nothing, nothing here may commit once a file has been stored.
+
+        The generic format: a `directory`, and each `file` stored in it by its name.
+        """
+        only_fields(form, ("directory",))
+        if not form.files:
+            raise invalid_upload("file", "At least one file is needed.")
+        directory = form.fields.get("directory", "").strip("/")
+        targets = []
+        for file in form.files:
+            if file.field != "file":
+                raise invalid_upload(file.field, "A file is sent as `file`.")
+            if "/" in file.filename or "\\" in file.filename:
+                raise invalid_upload("file", f"A file's name cannot hold a slash: {file.filename}")
+            path = normalise_path(f"{directory}/{file.filename}" if directory else file.filename)
+            if path in targets:
+                raise invalid_upload("file", f"Two files are named {file.filename}.")
+            targets.append(path)
+        for path, file in zip(targets, form.files, strict=True):
+            await context.store(path, file.staged, content_type=self.content_type(path, None))
+        return targets
 
     def download_path(self, repository: str, path: str) -> str | None:
         """Where a stored file is fetched, from the root of the site.

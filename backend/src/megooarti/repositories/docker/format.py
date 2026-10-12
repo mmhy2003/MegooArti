@@ -747,6 +747,7 @@ class DockerFormat(Format):
     served_at = "registry"
     remote_signs_in = True
     unlisted_namespaces = frozenset({names.MANIFESTS})
+    no_upload = "An image is pushed with a container client, not uploaded."
 
     async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
         """A tag goes alone. A manifest goes as by its digest in the registry API.

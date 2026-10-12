@@ -659,7 +659,11 @@ class RepositoryContext:
         return b"".join([chunk async for chunk in self.backend.open_staged(staged)])
 
     async def discard(self, staged: StagedBlob) -> None:
-        """Drop staged content that will not be stored after all."""
+        """Drop staged content that will not be stored after all.
+
+        For content that was stored after it was staged, this does nothing: whoever
+        staged several files can give all of them back without asking which were kept.
+        """
         await self.backend.discard(staged)
 
     async def _record(

@@ -50,7 +50,8 @@ class BlobBackend(Protocol):
 
     async def commit(self, staged: StagedBlob) -> None: ...
 
-    async def discard(self, staged: StagedBlob) -> None: ...
+    async def discard(self, staged: StagedBlob) -> None:
+        """Drop staged content. For what has been committed since, this does nothing."""
 
     def open_staged(self, staged: StagedBlob) -> AsyncIterator[bytes]: ...
 

@@ -401,3 +401,16 @@ async def test_a_chunk_whose_request_is_cancelled_leaves_nothing(backend, tmp_pa
         await backend.append(UPLOAD, never_ends())
 
     assert temporary_files(tmp_path / "store") == []
+
+
+async def test_discarding_what_has_been_committed_does_nothing(backend, tmp_path):
+    first = await backend.stage(pieces(BODY))
+    again = await backend.stage(pieces(BODY))  # the same content, staged a second time
+
+    await backend.commit(first)
+    await backend.discard(first)
+    await backend.commit(again)
+    await backend.discard(again)
+
+    assert await read(backend, first.sha256) == BODY
+    assert temporary_files(tmp_path / "store") == []
