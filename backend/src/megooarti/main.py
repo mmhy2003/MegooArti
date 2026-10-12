@@ -33,6 +33,7 @@ from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
 from megooarti.storage import blobs
 from megooarti.storage.api import router as blob_stores_router
+from megooarti.system.information_api import router as information_router
 from megooarti.system.settings_api import router as settings_router
 from megooarti.system.status import router as status_router
 
@@ -129,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.sessionmaker = create_sessionmaker(app.state.engine)
     app.state.head_revision = head_revision()
+    app.state.started_at = utcnow()
     # The one client for requests to proxy remotes. Tests replace it with a fake remote.
     app.state.http = None  # built by remote.client_of on first use: it is slow to create
     register_error_handlers(app)
@@ -138,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_api.router, prefix=API_PREFIX)
     app.include_router(roles_api.router, prefix=API_PREFIX)
     app.include_router(settings_router, prefix=API_PREFIX)
+    app.include_router(information_router, prefix=API_PREFIX)
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
     app.include_router(content_api_router, prefix=API_PREFIX)

@@ -528,6 +528,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/information": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Information */
+        get: operations["information_api_v1_system_information_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -761,6 +778,11 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** Database */
+        Database: {
+            /** Version */
+            version: string;
+        };
         /** Entry */
         Entry: {
             component?: components["schemas"]["ComponentRef"] | null;
@@ -831,6 +853,14 @@ export interface components {
             moved: number;
             /** Removed */
             removed: number;
+        };
+        /** Information */
+        Information: {
+            database: components["schemas"]["Database"];
+            runtime: components["schemas"]["Runtime"];
+            schema: components["schemas"]["SchemaState"];
+            /** Version */
+            version: string;
         };
         /** Listing */
         Listing: {
@@ -1223,6 +1253,27 @@ export interface components {
             permissions: string[];
             /** Roles */
             roles: string[];
+        };
+        /** Runtime */
+        Runtime: {
+            /** Platform */
+            platform: string;
+            /** Python */
+            python: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** SchemaState */
+        SchemaState: {
+            /** Current */
+            current: boolean;
+            /** Expected */
+            expected: string;
+            /** Revision */
+            revision: string | null;
         };
         /** SessionInfo */
         SessionInfo: {
@@ -2647,6 +2698,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    information_api_v1_system_information_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Information"];
                 };
             };
             /** @description Any error. */

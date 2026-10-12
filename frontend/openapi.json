@@ -351,6 +351,19 @@
         "title": "ComponentView",
         "type": "object"
       },
+      "Database": {
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "Database",
+        "type": "object"
+      },
       "Entry": {
         "properties": {
           "component": {
@@ -545,6 +558,31 @@
           "removed"
         ],
         "title": "IndexRebuilt",
+        "type": "object"
+      },
+      "Information": {
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/Database"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/Runtime"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SchemaState"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "schema",
+          "runtime",
+          "database"
+        ],
+        "title": "Information",
         "type": "object"
       },
       "Listing": {
@@ -1549,6 +1587,60 @@
           "roles"
         ],
         "title": "RoleOut",
+        "type": "object"
+      },
+      "Runtime": {
+        "properties": {
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "python": {
+            "title": "Python",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "python",
+          "platform",
+          "started_at"
+        ],
+        "title": "Runtime",
+        "type": "object"
+      },
+      "SchemaState": {
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "boolean"
+          },
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "required": [
+          "revision",
+          "expected",
+          "current"
+        ],
+        "title": "SchemaState",
         "type": "object"
       },
       "SessionInfo": {
@@ -4001,6 +4093,37 @@
         "summary": "Ready",
         "tags": [
           "status"
+        ]
+      }
+    },
+    "/api/v1/system/information": {
+      "get": {
+        "operationId": "information_api_v1_system_information_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Information"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Information",
+        "tags": [
+          "system"
         ]
       }
     },
