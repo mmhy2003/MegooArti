@@ -49,6 +49,7 @@ import {
   FORMATS,
   hasMavenSettings,
   LAYOUT_POLICIES,
+  policyOf,
   problemsOf,
   TYPES,
   updateBody,
@@ -212,7 +213,8 @@ function RepositoryForm({
             <legend className={LEGEND}>{t("sections.hosted")}</legend>
             <ChoiceGroup
               legend={t("fields.deploymentPolicy")}
-              value={draft.deploymentPolicy}
+              // Until one is chosen it follows the format and the version policy (H1).
+              value={policyOf(draft)}
               onChange={(value) => set({ deploymentPolicy: value })}
               options={option("policies", DEPLOYMENT_POLICIES)}
             />

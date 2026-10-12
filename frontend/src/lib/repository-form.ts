@@ -31,7 +31,8 @@ export type Draft = {
   type: RepositoryType;
   online: boolean;
   blobStore: string;
-  deploymentPolicy: string;
+  /** Null until one is chosen: the form then shows, and sends, the server's own (H1). */
+  deploymentPolicy: string | null;
   remoteUrl: string;
   contentMaxAge: string;
   metadataMaxAge: string;
@@ -57,7 +58,7 @@ export const EMPTY: Draft = {
   type: "hosted",
   online: true,
   blobStore: DEFAULT_BLOB_STORE,
-  deploymentPolicy: "allow_redeploy",
+  deploymentPolicy: null,
   remoteUrl: "",
   contentMaxAge: "1440",
   metadataMaxAge: "1440",
@@ -89,7 +90,7 @@ export function draftOf(repository: RepositoryOut): Draft {
       : "hosted",
     online: repository.online,
     blobStore: repository.blob_store ?? DEFAULT_BLOB_STORE,
-    deploymentPolicy: hosted?.deployment_policy ?? EMPTY.deploymentPolicy,
+    deploymentPolicy: hosted?.deployment_policy ?? null,
     remoteUrl: proxy?.remote_url ?? "",
     contentMaxAge: String(proxy?.content_max_age_minutes ?? EMPTY.contentMaxAge),
     metadataMaxAge: String(proxy?.metadata_max_age_minutes ?? EMPTY.metadataMaxAge),
@@ -104,6 +105,19 @@ export function draftOf(repository: RepositoryOut): Draft {
     versionPolicy: text(config.version_policy, EMPTY.versionPolicy),
     layoutPolicy: text(config.layout_policy, EMPTY.layoutPolicy),
   };
+}
+
+/**
+ * The deployment policy of a hosted repository: the one that was chosen, or the one the
+ * server gives a repository that names none. A Maven repository for releases refuses to
+ * replace what was deployed (a release is deployed once); every other one allows it.
+ */
+export function policyOf(
+  draft: Pick<Draft, "format" | "versionPolicy" | "deploymentPolicy">,
+): string {
+  if (draft.deploymentPolicy !== null) return draft.deploymentPolicy;
+  const releases = draft.format === "maven" && draft.versionPolicy === "release";
+  return releases ? "disable_redeploy" : "allow_redeploy";
 }
 
 /** Whether a combination has settings of the format's own: a Maven repository that stores. */
@@ -184,8 +198,8 @@ function parts(draft: Draft) {
   const proxy = draft.type === "proxy";
   return {
     online: draft.online,
-    hosted:
-      draft.type === "hosted" ? { deployment_policy: draft.deploymentPolicy as "read_only" } : null,
+    // What the form shows is what is sent: the server is not left to choose again.
+    hosted: draft.type === "hosted" ? { deployment_policy: policyOf(draft) as "read_only" } : null,
     proxy: proxy
       ? {
           remote_url: draft.remoteUrl.trim(),

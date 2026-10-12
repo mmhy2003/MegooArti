@@ -803,6 +803,7 @@
     "created": "Created the blob store {name}.",
     "delete": "Delete",
     "deleteNamed": "Delete {name}",
+    "alwaysKept": "Always kept",
     "deleteStore": "Delete blob store",
     "deleteAsk": "Delete the blob store {name}?",
     "deleteBody": "The server forgets the store. Its files stay on the disk, for you to remove. A store that a repository uses is not deleted.",
@@ -830,7 +831,7 @@
     "hints": {
       "baseUrl": "Used in every address the server gives out. Leave it empty to use the address each request came to. Set it when the server is behind a proxy that does not pass the address on."
     },
-    "baseUrlRule": "Give an http or https address, without a query or a fragment.",
+    "baseUrlRule": "Give an http or https address, without a user name, a password, a query or a fragment.",
     "saveBaseUrl": "Save",
     "baseUrlSaved": "The base URL is saved.",
     "baseUrlCleared": "The base URL is cleared.",

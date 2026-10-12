@@ -14,6 +14,7 @@ import {
   EMPTY,
   hasMavenSettings,
   moved,
+  policyOf,
   problemsOf,
   updateBody,
   type Draft,
@@ -39,6 +40,40 @@ const stored = (change: Partial<RepositoryOut>): RepositoryOut => ({
   group: null,
   status: null,
   ...change,
+});
+
+describe("the deployment policy of a hosted repository (H1)", () => {
+  test.each([
+    // A release is deployed once: a Maven repository for releases refuses a second time.
+    [{ format: "maven", versionPolicy: "release" }, "disable_redeploy"],
+    // A snapshot is replaced by its nature, and a mixed repository takes snapshots.
+    [{ format: "maven", versionPolicy: "snapshot" }, "allow_redeploy"],
+    [{ format: "maven", versionPolicy: "mixed" }, "allow_redeploy"],
+    // The version policy is Maven's: of another format it says nothing.
+    [{ format: "npm", versionPolicy: "release" }, "allow_redeploy"],
+    [{ format: "raw", versionPolicy: "release" }, "allow_redeploy"],
+    [{ format: "docker", versionPolicy: "release" }, "allow_redeploy"],
+  ])("is the server's own until one is chosen: %o", (combination, policy) => {
+    expect(policyOf(draft(combination))).toBe(policy);
+    expect(createBody(draft(combination)).hosted).toEqual({ deployment_policy: policy });
+  });
+
+  test("is the one that was chosen, whatever the server would have given", () => {
+    const chosen = draft({ deploymentPolicy: "allow_redeploy" });
+
+    expect(policyOf(chosen)).toBe("allow_redeploy");
+    expect(policyOf({ ...chosen, versionPolicy: "snapshot" })).toBe("allow_redeploy");
+    expect(policyOf(draft({ format: "raw", deploymentPolicy: "read_only" }))).toBe("read_only");
+  });
+
+  test("of a repository that is there is the one the server holds", () => {
+    // Made before the rule, or by somebody who chose: it is not the form's to change.
+    const held = draftOf(stored({ hosted: { deployment_policy: "allow_redeploy" } }));
+
+    expect(held.deploymentPolicy).toBe("allow_redeploy");
+    expect(policyOf({ ...held, format: "maven", versionPolicy: "release" })).toBe("allow_redeploy");
+    expect(updateBody(held).hosted).toEqual({ deployment_policy: "allow_redeploy" });
+  });
 });
 
 describe("what is sent to make a repository", () => {

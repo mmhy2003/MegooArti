@@ -23,12 +23,18 @@ import { BlobStoreTable } from "@/screens/blob-stores";
 
 const H2 = "mb-4 text-lg font-semibold text-fg uppercase";
 
-/** Whether what was typed is an address the server takes for its own: http or https, and no more than a path. */
+/**
+ * Whether what was typed is an address the server takes for its own: http or https, no
+ * more than a path, and nobody's name or password, which every address the server
+ * gives out would then carry (H4).
+ */
 function isBaseUrl(typed: string): boolean {
   try {
     const url = new URL(typed);
     const web = url.protocol === "http:" || url.protocol === "https:";
-    return web && url.hostname !== "" && !url.search && !url.hash;
+    // The part between the slashes and the path: "user:password@host", or "@host".
+    const named = (typed.split("/")[2] ?? "").includes("@");
+    return web && url.hostname !== "" && !named && !url.search && !url.hash;
   } catch {
     return false;
   }

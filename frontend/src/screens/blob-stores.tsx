@@ -24,6 +24,7 @@ import type { BlobStoreOut } from "@/lib/api/types";
 import { useAttempts, usePageFocus, useWithinPages } from "@/lib/focus";
 import { formatBytes } from "@/lib/format";
 import { BLOB_STORES, isAddressable, pageHref, pageOf } from "@/lib/paths";
+import { DEFAULT_BLOB_STORE } from "@/lib/repository-form";
 import { refusalsOf } from "@/lib/refusals";
 import { allows } from "@/lib/session/rules";
 import { useSession } from "@/lib/session/session";
@@ -70,13 +71,18 @@ export function BlobStoreTable({
             </Td>
             {onDelete ? (
               <Td className="text-right">
-                <Button
-                  size="sm"
-                  aria-label={t("deleteNamed", { name: store.name })}
-                  onClick={() => onDelete(store)}
-                >
-                  {t("delete")}
-                </Button>
+                {store.name === DEFAULT_BLOB_STORE ? (
+                  // A repository that names no blob store is put in it: the server keeps it (H7).
+                  <span className="text-xs text-fg-subtle">{t("alwaysKept")}</span>
+                ) : (
+                  <Button
+                    size="sm"
+                    aria-label={t("deleteNamed", { name: store.name })}
+                    onClick={() => onDelete(store)}
+                  >
+                    {t("delete")}
+                  </Button>
+                )}
               </Td>
             ) : null}
           </tr>

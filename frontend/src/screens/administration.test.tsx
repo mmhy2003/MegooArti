@@ -203,6 +203,46 @@ describe("a new repository (R2)", () => {
     expect(notices()).toHaveTextContent("Created the repository snapshots.");
   });
 
+  test("starts with the policy the server gives it, and follows the form until one is chosen (H1)", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+    const policy = (name: string) => screen.getByRole("radio", { name });
+
+    // A Maven repository for releases: a release is deployed once.
+    expect(policy("Disable redeploy")).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Snapshot" }));
+    expect(policy("Allow redeploy")).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Release" }));
+    expect(policy("Disable redeploy")).toBeChecked();
+    await user.selectOptions(screen.getByLabelText("Format"), "npm");
+    expect(policy("Allow redeploy")).toBeChecked();
+
+    // Once chosen it is the person's, whatever the form then becomes.
+    await user.click(policy("Read only"));
+    await user.selectOptions(screen.getByLabelText("Format"), "maven");
+    expect(policy("Read only")).toBeChecked();
+
+    await user.type(screen.getByLabelText("Name"), "frozen");
+    await user.click(create());
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls).hosted).toEqual({ deployment_policy: "read_only" });
+  });
+
+  test("a Maven repository for releases is made refusing redeploy when nothing is chosen (H1)", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.type(screen.getByLabelText("Name"), "releases");
+    await user.click(create());
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      format: "maven",
+      hosted: { deployment_policy: "disable_redeploy" },
+      format_config: { version_policy: "release", layout_policy: "strict" },
+    });
+  });
+
   test("grows with what the type has, and shows nothing of another type", async () => {
     const user = userEvent.setup();
     fresh();
@@ -940,19 +980,34 @@ describe("the blob stores (R10)", () => {
     await waitFor(() => expect(screen.getByRole("group", { name: "Blob stores" })).toHaveFocus());
   });
 
+  test("the default one is always kept, and is offered no button that would be refused (H7)", async () => {
+    stores();
+
+    const table = await screen.findByRole("table", { name: "Blob stores" });
+    const rows = within(table).getAllByRole("row").slice(1);
+
+    expect(within(rows[0] as HTMLElement).queryByRole("button")).toBeNull();
+    expect(rows[0]).toHaveTextContent("Always kept");
+    expect(
+      within(rows[1] as HTMLElement).getByRole("button", { name: "Delete fast" }),
+    ).toBeVisible();
+    expect(rows[1]).not.toHaveTextContent("Always kept");
+    await expectAccessible();
+  });
+
   test("is not deleted while a repository uses it, and the screen says which", async () => {
     const user = userEvent.setup();
     stores({
-      "DELETE /blob-stores/default": failure(
+      "DELETE /blob-stores/fast": failure(
         409,
         "in_use",
         "The repository releases uses this blob store.",
       ),
     });
 
-    await user.click(await screen.findByRole("button", { name: "Delete default" }));
+    await user.click(await screen.findByRole("button", { name: "Delete fast" }));
     const dialog = screen.getByRole("alertdialog");
-    await user.type(within(dialog).getByLabelText("Type default to go on"), "default");
+    await user.type(within(dialog).getByLabelText("Type fast to go on"), "fast");
     await user.click(within(dialog).getByRole("button", { name: "Delete blob store" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -1065,12 +1120,21 @@ describe("the system (R11)", () => {
     });
     await waitFor(() => expect(field()).toHaveValue(""));
 
-    await user.type(field(), "repo.example.org");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(field()).toHaveAccessibleDescription(
-      "Give an http or https address, without a query or a fragment.",
-    );
-    expect(field()).toHaveFocus();
+    // No address, and addresses that would carry somebody's name to every client (H4).
+    for (const none of [
+      "repo.example.org",
+      "https://robot:secret@repo.example.org",
+      "https://robot@repo.example.org",
+      "https://@repo.example.org",
+    ]) {
+      await user.clear(field());
+      await user.type(field(), none);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(field()).toHaveAccessibleDescription(
+        "Give an http or https address, without a user name, a password, a query or a fragment.",
+      );
+      expect(field()).toHaveFocus();
+    }
     expect(of(calls, "PUT")).toHaveLength(0);
 
     await user.clear(field());
