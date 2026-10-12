@@ -12,6 +12,10 @@ const REPOSITORY = "browser-test-files";
 const RELEASES = "browser-test-releases";
 const GROUP = "browser-test-all";
 const IMAGES = "browser-test-images";
+const TOKEN = "browser-test-build";
+const ROLE = "browser-test-deployers";
+const ALICE = "browser-test-alice";
+const HER_PASSWORD = "chosen-by-alice-herself";
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
 const UPLOADS = "**/api/v1/content/*/upload";
@@ -726,6 +730,353 @@ test("a version is deleted from its page, and is then not found", async () => {
   await expect(page).toHaveURL(new RegExp(`/browse/${RELEASES}$`));
   await page.goto("/search?q=app");
   await expect(page.getByRole("heading", { name: "Nothing found" })).toBeVisible();
+});
+
+test("the pages of the account are reached from the user menu, and lead to each other", async () => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Account of/ }).click();
+  await page.getByRole("menuitem", { name: "Account" }).click();
+
+  await expect(page).toHaveURL(/\/account\/tokens$/);
+  await expect(page.getByRole("heading", { level: 1, name: "API tokens" })).toBeVisible();
+  await expect(page).toHaveTitle("API tokens · MegooArti");
+  const account = page.getByRole("navigation", { name: "Account" });
+  await expect(account.getByRole("link", { name: "API tokens" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await account.getByRole("link", { name: "Password" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Change password" })).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Account" })
+    .getByRole("link", { name: "Preferences" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Preferences" })).toBeVisible();
+  await expect(page).toHaveTitle("Preferences · MegooArti");
+});
+
+test("the / key can be turned off, and stays off", async () => {
+  const key = page.getByRole("checkbox", { name: "Go to the search box with the / key" });
+  const box = page.getByRole("searchbox", { name: "Search components" });
+  await expect(key).toBeChecked();
+
+  await key.uncheck();
+  await page.getByRole("heading", { level: 1 }).click();
+  await page.keyboard.press("/");
+  await expect(box).not.toBeFocused();
+  await expect(box).toHaveAttribute("placeholder", "Search"); // it no longer names a key
+
+  // Kept in this browser: a reload does not turn it on again.
+  await page.reload();
+  await expect(key).not.toBeChecked();
+  await page.getByRole("heading", { level: 1 }).click();
+  await page.keyboard.press("/");
+  await expect(box).not.toBeFocused();
+
+  await key.check();
+  await page.getByRole("heading", { level: 1 }).click();
+  await page.keyboard.press("/");
+  await expect(box).toBeFocused();
+});
+
+test("the preferences screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes();
+});
+
+test("a token is made for a build, shown once, does what it was limited to, and is revoked", async ({
+  playwright,
+  baseURL,
+}) => {
+  await page.goto("/account/tokens");
+  await page.getByLabel("Name", { exact: true }).fill(TOKEN);
+  await page.getByRole("radio", { name: "Only read" }).check();
+  await page.getByRole("button", { name: "Create token" }).click();
+
+  const made = page.getByRole("region", { name: `The token ${TOKEN} is made` });
+  await expect(made.getByRole("heading")).toBeFocused();
+  const secret = (await made.locator("code").textContent()) ?? "";
+  expect(secret).toMatch(/^mga_/);
+  await made.getByRole("button", { name: "Copy the token" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(secret);
+
+  // The token signs in for its owner, and may only read.
+  const build = await playwright.request.newContext({
+    baseURL,
+    extraHTTPHeaders: { Authorization: `Bearer ${secret}` },
+  });
+  expect((await build.get("/api/v1/content")).status()).toBe(200);
+  const refused = await build.post(`/api/v1/content/${REPOSITORY}/upload`, {
+    multipart: { file: { name: "t.txt", mimeType: "text/plain", buffer: Buffer.from("x") } },
+  });
+  expect(refused.status()).toBe(403);
+
+  // Once the panel is closed the secret is nowhere on the page, and cannot be had again.
+  await made.getByRole("button", { name: "I have copied it" }).click();
+  await expect(page.getByRole("heading", { name: "Your tokens" })).toBeFocused();
+  await expect(page.getByRole("main")).not.toContainText(secret);
+  const row = page.getByRole("row", { name: new RegExp(TOKEN) });
+  await expect(row).toContainText("repository:*:*:read");
+  await expect(row).toContainText(`${secret.slice(0, 8)}…`);
+
+  await row.getByRole("button", { name: `Revoke ${TOKEN}` }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revoke" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Revoked the token ${TOKEN}.`,
+  );
+  await expect(page.getByText("You have no token.")).toBeVisible();
+  expect((await build.get("/api/v1/content")).status()).toBe(401);
+  await build.dispose();
+});
+
+test("the tokens screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText("You have no token.")).toBeVisible();
+  });
+});
+
+test("the administration is in the navigation, in a row that nothing lies over", async () => {
+  const main = page.getByRole("navigation", { name: "Main" });
+  const overlaps = async () => {
+    const [row, box] = await Promise.all([
+      main.boundingBox(),
+      page.getByRole("search", { name: "Search components" }).boundingBox(),
+    ]);
+    if (row === null || box === null) return true;
+    return !(box.y + box.height <= row.y || row.y + row.height <= box.y);
+  };
+  // At the narrowest width that shows the navigation at all, and at a usual one.
+  for (const width of [1024, 1280]) {
+    await page.setViewportSize({ width, height: 720 });
+    await expect(main.getByRole("link", { name: "Anonymous access" })).toBeVisible();
+    expect(await overlaps()).toBe(false);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+  }
+
+  await main.getByRole("link", { name: "Roles" }).click();
+  await expect(page).toHaveURL(/\/admin\/roles$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Roles" })).toBeVisible();
+  await expect(page).toHaveTitle("Roles · MegooArti");
+  await expect(main.getByRole("link", { name: "Roles" })).toHaveAttribute("aria-current", "page");
+});
+
+test("a role is written row by row, and opens again as it was saved", async () => {
+  await page.getByRole("link", { name: "New role" }).click();
+  await page.getByLabel("Name", { exact: true }).fill(ROLE);
+  await page.getByLabel("Description").fill("May use the releases");
+  await page.getByRole("button", { name: "Add a permission" }).click();
+  const first = page.getByRole("group", { name: "Permission 1" });
+  // The row that was added has the keyboard.
+  await expect(first.getByLabel("About")).toBeFocused();
+  await first.getByLabel("Format").selectOption("maven");
+  await first.getByLabel("Repository").selectOption(RELEASES);
+  await first.getByLabel("Action").selectOption("*");
+  await expect(first).toContainText(`repository:maven:${RELEASES}:*`);
+  await expect(first).toContainText(`Everything in the maven repository ${RELEASES}.`);
+  // What the lists cannot say is typed by hand.
+  await page.getByRole("button", { name: "Add a permission" }).click();
+  const second = page.getByRole("group", { name: "Permission 2" });
+  await second.getByLabel("About").selectOption("typed");
+  await second.getByLabel("Pattern").fill("not a pattern");
+  await page.getByRole("button", { name: "Create role" }).click();
+  // Not saved while a row is no pattern: the keyboard is at it.
+  await expect(second.getByLabel("Pattern")).toBeFocused();
+  await expect(second.getByLabel("Pattern")).toHaveAttribute("aria-invalid", "true");
+  await second.getByLabel("Pattern").fill("repository:raw");
+  await page.getByRole("button", { name: "Create role" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/admin/roles/${ROLE}$`));
+  await expect(page.getByRole("heading", { level: 1, name: ROLE })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Created the role ${ROLE}.`,
+  );
+
+  // Asked of the server again, it is what was written: the lists, and what was typed.
+  await page.reload();
+  const rows = page.getByRole("group", { name: /^Permission \d$/ });
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: `repository:maven:${RELEASES}:*` })).toHaveCount(1);
+  await expect(rows.getByLabel("Pattern")).toHaveValue("repository:raw");
+});
+
+test("the role screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("group", { name: "Permission 2" })).toBeVisible();
+  });
+});
+
+test("a user is made with a generated password, signs in with it, and may do what the role says", async ({
+  browser,
+  baseURL,
+}) => {
+  await page.goto("/admin/users");
+  await expect(page).toHaveTitle("Users · MegooArti");
+  await page.getByRole("link", { name: "New user" }).click();
+  await page.getByLabel("User name").fill(ALICE);
+  await page.getByLabel("Name", { exact: true }).fill("Alice Example");
+  await page.getByRole("button", { name: "Generate one" }).click();
+  const generated = await page.getByLabel("Password", { exact: true }).inputValue();
+  expect(generated).toMatch(/^[A-HJ-NP-Za-km-z2-9]{20}$/);
+  await page.getByRole("checkbox", { name: ROLE }).check();
+  await page.getByRole("button", { name: "Create user" }).click();
+
+  const created = page.getByRole("region", { name: `The user ${ALICE} is created` });
+  await expect(created.getByRole("heading")).toBeFocused();
+  await expect(created.locator("code")).toHaveText(generated);
+
+  // In a browser of her own: the password works once, and she then chooses her own.
+  const hers = await browser.newContext({ baseURL, colorScheme: "dark" });
+  const alice = await hers.newPage();
+  await alice.goto("/login");
+  await alice.getByLabel("User name").fill(ALICE);
+  await alice.getByLabel("Password").fill(generated);
+  await alice.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    alice.getByRole("heading", { level: 1, name: "Choose a new password" }),
+  ).toBeVisible();
+  await alice.getByLabel("Current password").fill(generated);
+  await alice.getByLabel("New password", { exact: true }).fill(HER_PASSWORD);
+  await alice.getByLabel("New password, again").fill(HER_PASSWORD);
+  await alice.getByRole("button", { name: "Change password" }).click();
+  await expect(alice.getByRole("heading", { level: 1, name: "Repositories" })).toBeVisible();
+
+  // She sees what her role grants (the repository chosen from the lists, and the raw ones
+  // of the row typed by hand) and no other, may upload, and administers nothing.
+  await expect(alice.getByRole("link", { name: RELEASES, exact: true })).toBeVisible();
+  await expect(alice.getByRole("link", { name: REPOSITORY, exact: true })).toBeVisible();
+  await expect(alice.getByRole("link", { name: IMAGES, exact: true })).toHaveCount(0);
+  const navigation = alice.getByRole("navigation", { name: "Main" });
+  await expect(navigation.getByRole("link", { name: "Upload" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Users" })).toHaveCount(0);
+  await expect(navigation.getByText("Administration")).toHaveCount(0);
+  // The address typed by hand says no, as the API does.
+  await alice.goto("/admin/users");
+  await expect(alice.getByRole("main").getByRole("alert")).toContainText(
+    "You do not have permission to do this.",
+  );
+  await hers.close();
+
+  await created.getByRole("link", { name: `Open ${ALICE}` }).click();
+  await expect(page.getByRole("heading", { level: 1, name: ALICE })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: ROLE })).toBeChecked();
+});
+
+test("the user screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("checkbox", { name: ROLE })).toBeChecked();
+  });
+});
+
+test("a user who is disabled cannot sign in, and is deleted only by whoever types their name", async ({
+  browser,
+  baseURL,
+}) => {
+  await page.getByRole("radio", { name: "Disabled" }).check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Saved ${ALICE}.`,
+  );
+  await expect(page.getByRole("button", { name: "Save" })).toBeFocused();
+
+  const hers = await browser.newContext({ baseURL });
+  const alice = await hers.newPage();
+  await alice.goto("/login");
+  await alice.getByLabel("User name").fill(ALICE);
+  await alice.getByLabel("Password").fill(HER_PASSWORD);
+  await alice.getByRole("button", { name: "Sign in" }).click();
+  await expect(alice.locator("form").getByRole("alert")).toBeVisible();
+  await expect(alice).toHaveURL(/\/login$/);
+  await hers.close();
+
+  await page.getByRole("button", { name: "Delete user" }).click();
+  const dialog = page.getByRole("alertdialog", { name: `Delete the user ${ALICE}?` });
+  const confirm = dialog.getByRole("button", { name: "Delete user" });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByLabel(`Type ${ALICE} to go on`).fill(ALICE);
+  await confirm.click();
+
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Deleted the user ${ALICE}.`,
+  );
+  await expect(page).toHaveURL(/\/admin\/users$/);
+  await expect(page.getByRole("table", { name: "Users" })).toBeVisible();
+  await expect(page.getByRole("link", { name: ALICE, exact: true })).toHaveCount(0);
+  // The users that are built in are there, and one's own account cannot be deleted.
+  await page.getByRole("link", { name: "admin", exact: true }).click();
+  await expect(page.getByText("This is your own account: you cannot delete it.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete user" })).toHaveCount(0);
+});
+
+test("a role is deleted after asking, and the one that makes an administrator is changed by nobody", async () => {
+  await page.goto(`/admin/roles/${ROLE}`);
+  await page.getByRole("button", { name: "Delete role" }).click();
+  const dialog = page.getByRole("alertdialog", { name: `Delete the role ${ROLE}?` });
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Delete role" }).click();
+
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Deleted the role ${ROLE}.`,
+  );
+  await expect(page).toHaveURL(/\/admin\/roles$/);
+  await expect(page.getByRole("link", { name: ROLE, exact: true })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "admin", exact: true }).click();
+  await expect(page.getByText("It grants everything, and cannot be changed.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Delete role" })).toHaveCount(0);
+});
+
+test("anonymous access is turned on only after asking, and the page says what a visitor may do", async ({
+  browser,
+  baseURL,
+}) => {
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Anonymous access" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Anonymous access" })).toBeVisible();
+  await expect(page.getByText("Off", { exact: true })).toBeVisible();
+  await expect(page.getByText("Read in every repository.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Change its roles" })).toBeVisible();
+  const visits = async () => {
+    const fresh = await browser.newContext({ baseURL });
+    const visitor = await fresh.newPage();
+    await visitor.goto("/");
+    await expect(visitor.getByRole("heading", { level: 1 })).toBeVisible();
+    const where = new URL(visitor.url()).pathname;
+    await fresh.close();
+    return where;
+  };
+  expect(await visits()).toBe("/login");
+
+  const turnOn = page.getByRole("button", { name: "Turn on" });
+  await turnOn.click();
+  const dialog = page.getByRole("alertdialog", { name: "Turn anonymous access on?" });
+  await expect(dialog).toContainText("Anyone who can reach this server");
+  // Asked, and answered no: it stays off.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(turnOn).toBeFocused();
+  expect(await visits()).toBe("/login");
+
+  await turnOn.click();
+  await dialog.getByRole("button", { name: "Turn on" }).click();
+  await expect(page.getByText("On", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "Anonymous access is on.",
+  );
+  expect(await visits()).toBe("/");
+
+  await page.getByRole("button", { name: "Turn off" }).click();
+  await expect(page.getByText("Off", { exact: true })).toBeVisible();
+  expect(await visits()).toBe("/login");
+});
+
+test("the anonymous access screen meets WCAG 2.1 AA in both modes", async () => {
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByText("Read in every repository.")).toBeVisible();
+  });
 });
 
 test("an upload refused because the session was replaced in another tab goes through at the next try", async () => {
