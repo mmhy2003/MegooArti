@@ -107,10 +107,10 @@ The values above are those of `frontend/src/styles/tokens.css`, which is the aut
 
 ## 6. The shell
 
-- **Header:** the wordmark, the navigation, and at its end the mode switch and the user menu (or "Sign in").
+- **Header:** the wordmark, and at its end the search box, the mode switch and the user menu (or "Sign in"). From 1024 pixels the navigation is a row of its own under them, which wraps where its items do not fit in one line (plan 10b, A14).
 - **Navigation:** two areas, browsing and administration, each a list of items from the registry (D11). An area with no visible item is not shown. Below 1024 pixels the navigation is behind a menu button.
 - **A skip link** is the first thing focus reaches, and leads to the main content.
-- **The user menu:** the user's name, "Change password", and "Sign out".
+- **The user menu:** the user's name, "Account" (plan 10b; it was "Change password"), and "Sign out".
 - **States:** a screen that is loading shows a skeleton of itself; one with nothing to show says so and what to do; one that failed shows the error (D15) and a way to try again.
 
 Plan 9 registers one item, the home screen. Plan 10 registers the rest.
@@ -308,6 +308,18 @@ A person's own account, and what an administrator does about people: users, role
 - **The navigation** gets its Administration area: Users, Roles, Anonymous access, each shown to whoever holds the permission to read it.
 - **A screen whose data the caller may not read** says so (the API's `403`), as every screen does. A form whose data they may read but not change is shown with its fields and without the button that saves.
 - **The areas of administration** the rows know are those the API has: users, roles, tokens, settings, blob stores, repositories. The actions on a repository are browse, read, add, edit, delete.
+
+#### Settled while building plan 10b
+
+| # | What | Why |
+| --- | --- | --- |
+| A14 | In a wide window the navigation is a row of its own in the header, under the wordmark and the search box, and wraps where it does not fit. | With the administration's three items beside the browsing ones, the navigation ran under the search box, which then took the clicks meant for "Roles". Plan 10c adds more. A sidebar is the other way to do it, and is put to the product owner. |
+| A15 | Whether an element is on the screen is asked of the browser in one place (`lib/browser.ts`), where a test can stand in for it. | A12 needs it, and the test environment lays nothing out. |
+| A16 | The rows of a role keep to themselves once they are shown: a pattern typed by hand stays a typed row, though it becomes one the lists could say. | Otherwise the field would turn into lists under the hands that are typing in it. |
+| A17 | A row that is added gets the keyboard. Where a thing that had the keyboard goes (a row removed, a token revoked, the panel of a token or a user that was just made), the keyboard is put at what is nearest to it: the button that adds, the list of tokens, the form's first field. | B11 of plan 10a, kept to. |
+| A18 | A new user's password is shown once more after the user is made, with a button that copies it, until the page is left. A password set for an existing user stays in its field for the same reason. | The administrator has to pass it on, and may not have copied it before pressing the button. |
+| A19 | What a visitor may do is shown as the patterns of the anonymous user's roles and of the roles they contain, and of those only what concerns repositories. | The server allows a request without credentials nothing else, whatever the roles say. |
+| A20 | A token's secret is not kept by the store of what was fetched: the request that makes it is forgotten as soon as its answer is handed over. | A5. |
 
 ### 12.4 Repositories and the system (plan 10c, outline)
 

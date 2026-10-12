@@ -92,6 +92,9 @@ anything must send it in an `X-CSRF-Token` header.
 
 ## Access control
 
+Users, roles, your own API tokens and anonymous access are managed in the web UI
+(Administration, and Account under your name) or through the API, as below.
+
 - **Roles** hold permission patterns such as `admin:users:*` or
   `repository:maven:releases:read`. `*` matches one segment, and a pattern shorter than
   the permission grants everything beneath it, so `repository:maven` covers every Maven
@@ -864,9 +867,9 @@ curl -u alice 'https://repo.example.com/api/v1/search?sha1=2ef7bde608ce5404e97d5
 ## The web UI
 
 The UI is at the root of the installation's address. It has what a person who uses
-the repositories needs: browsing them, search, upload and delete. Administration
-(users, roles, repositories, blob stores) is done through the API for now, and its
-screens follow.
+the repositories needs (browsing them, search, upload and delete), a person's own
+account, and the administration of users, roles and anonymous access. Repositories
+and blob stores are created through the API for now, and their screens follow.
 
 - **Browsing.** A repository opens one folder at a time, with the way there as a path
   above it. Choosing a file shows everything known of it beside the folder: its size,
@@ -895,6 +898,28 @@ screens follow.
 - **What you may not do is not offered.** Without the permission to add there is no
   upload, without the permission to delete no delete. The server decides in every
   case: the screens only leave out what it would refuse.
+- **Your account** is under your name in the header: your API tokens, your password,
+  and your preferences.
+  - **API tokens.** A token gets a name, an expiry (never, 30 days, 90 days, a year,
+    or a day you choose) and a limit: everything you may do, only read, or the
+    permissions you choose. Its secret is shown once, when it is made, with a button
+    that copies it. A token is revoked from the same page.
+  - **Preferences** are kept in the browser: the mode, and whether `/` goes to the
+    search box. They are reached from the mode menu too, by a visitor as well.
+- **Administration** is shown to whoever holds the permission to read each part.
+  - **Users.** Create a user with a password you type or have generated, and tick
+    the roles they hold. A user's page changes their name, email, roles and state,
+    sets a new password, lists and revokes their API tokens, and deletes them after
+    you type their name. Your own account cannot be disabled or deleted there, and a
+    built-in user cannot be deleted.
+  - **Roles.** A role's permissions are rows: choose what a row is about (a
+    repository, or an area of administration), then the format, repository and
+    action from lists. The pattern the row makes is shown with what it grants in
+    words. A pattern the lists cannot make is typed by hand, and a role that was
+    written through the API opens with nothing lost. The `admin` role is shown and
+    cannot be changed.
+  - **Anonymous access** is one switch, which asks before it is turned on, and shows
+    what someone who is not signed in may then do.
 - **Signing in** uses the session cookie the API sets. It is marked `Secure`, so a
   browser keeps it over HTTPS, and over plain HTTP only on the machine itself
   (`localhost`). If you reach the UI over plain HTTP at another name or address,
@@ -911,8 +936,8 @@ screens follow.
   with a link that skips to its content, and meets WCAG 2.1 AA contrast in both modes.
   When a screen changes under the keyboard (a folder is entered, a file is deleted,
   another page of results is shown), the keyboard is put at what changed. `/` reaches
-  the search box from anywhere that is not a place to type; it cannot be turned off
-  yet.
+  the search box from anywhere that is not a place to type, and can be turned off
+  under Preferences.
 
 ## Behind your own reverse proxy
 
