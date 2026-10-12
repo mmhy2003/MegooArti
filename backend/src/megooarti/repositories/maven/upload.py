@@ -121,6 +121,10 @@ def plan(fields: Mapping[str, str], files: Sequence[tuple[str, str]]) -> Plan:
             # Everything else reads a path to know what a file is, so the path must
             # read back as what was given: a version of `-SNAPSHOT` alone does not.
             raise InvalidUpload(part, "The group, artifact and version do not make a Maven path.")
+        if paths.split_checksum(path)[1] is not None:
+            # Stored, it would sit where the checksum of another file is asked for,
+            # and never be served.
+            raise InvalidUpload(part, "A checksum is computed from its file. It is not uploaded.")
         if path in targets:
             raise InvalidUpload(part, f"Two files of the form would be {path.rpartition('/')[2]}.")
         targets.append(path)

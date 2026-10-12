@@ -386,3 +386,13 @@ async def test_no_database_connection_is_held_while_the_form_arrives(
 
     assert response.status_code == 201, response.text
     assert in_transaction == [False]
+
+
+async def test_the_api_document_says_an_upload_is_a_form(client):
+    document = (await client.get("/api/v1/openapi.json")).json()
+
+    described = document["paths"]["/api/v1/content/{repository}/upload"]["post"]
+
+    assert list(described["requestBody"]["content"]) == ["multipart/form-data"]
+    assert described["requestBody"]["required"] is True
+    assert "201" in described["responses"]

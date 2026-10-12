@@ -424,7 +424,25 @@ def _not_readable(reason: object) -> ApiError:
     return ApiError(422, "validation_error", f"The form cannot be read: {reason}.", details)
 
 
-@router.post("/{repository}/upload", response_model=Uploaded, status_code=201)
+# The body is read as it arrives, not by the framework, so the document is told of it here.
+_FORM = {
+    "requestBody": {
+        "required": True,
+        "description": "The fields and files the repository's format takes. See the README.",
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"file": {"type": "string", "format": "binary"}},
+                    "additionalProperties": {"type": "string"},
+                }
+            }
+        },
+    }
+}
+
+
+@router.post("/{repository}/upload", response_model=Uploaded, status_code=201, openapi_extra=_FORM)
 async def upload(
     repository: str,
     request: Request,

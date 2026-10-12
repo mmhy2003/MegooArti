@@ -140,3 +140,15 @@ async def test_a_form_that_does_not_say_what_to_store_is_refused(client, release
         assert (response.status_code, error_code(response)) == (422, "validation_error")
         assert [detail["field"] for detail in response.json()["error"]["details"]] == [field]
     assert tree.json()["items"] == []
+
+
+async def test_a_checksum_is_not_uploaded_as_a_file(client, releases, root):
+    """A folder of a local repository, sent whole, has a `.sha1` beside every file."""
+    response = await send(
+        client, root, APP, ("file", "app-1.0.jar", JAR), ("file", "app-1.0.jar.sha1", b"0" * 40)
+    )
+    tree = await client.get("/api/v1/content/releases/tree", headers=root)
+
+    assert (response.status_code, error_code(response)) == (422, "validation_error")
+    assert "computed" in response.json()["error"]["details"][0]["message"]
+    assert tree.json()["items"] == []
