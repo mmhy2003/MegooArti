@@ -5,11 +5,13 @@ import { useTranslations } from "next-intl";
 
 import { StatusTag } from "@/components/ui/alert";
 import { CopyButton } from "@/components/ui/copy-button";
+import { AppLink } from "@/components/ui/link";
 import { PageHeader, Panel } from "@/components/ui/panel";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { Table, Td, Th } from "@/components/ui/table";
 import { api } from "@/lib/api/client";
 import type { Page, RepositoryView } from "@/lib/api/types";
+import { browseHref } from "@/lib/paths";
 
 // As many as one request may ask for. An installation has tens of repositories.
 const AT_ONCE = 200;
@@ -27,7 +29,14 @@ function Rows({ repositories }: { repositories: RepositoryView[] }) {
     <tbody>
       {repositories.map((repository) => (
         <tr key={repository.name} className="hover:bg-raised">
-          <Td className="font-mono font-medium break-all">{repository.name}</Td>
+          <Td>
+            <AppLink
+              href={browseHref(repository.name)}
+              className="font-mono font-medium break-all text-ink-cyan underline-offset-4 hover:underline"
+            >
+              {repository.name}
+            </AppLink>
+          </Td>
           <Td>{repository.format}</Td>
           <Td>{isKnownType(repository.type) ? t(`types.${repository.type}`) : repository.type}</Td>
           <Td>

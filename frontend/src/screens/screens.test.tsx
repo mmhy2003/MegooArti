@@ -276,6 +276,10 @@ describe("the home screen", () => {
       "npmjs",
       "all",
     ]);
+    expect(within(rows[0] as HTMLElement).getByRole("link", { name: "releases" })).toHaveAttribute(
+      "href",
+      "/browse/releases",
+    );
     expect(rows[0]).toHaveTextContent("Hosted");
     expect(rows[0]).toHaveTextContent("Online");
     expect(rows[1]).toHaveTextContent("Proxy");
@@ -361,7 +365,11 @@ describe("an address with nothing at it", () => {
   test("says so, and leads home", async () => {
     renderUi(<NotFoundScreen />);
 
-    expect(screen.getByRole("heading", { name: "There is nothing at this address" })).toBeVisible();
+    // The page's one heading: a screen reader's list of headings starts with it.
+    expect(
+      screen.getByRole("heading", { level: 1, name: "There is nothing at this address" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(screen.getByRole("link", { name: "Go to the repositories" })).toHaveAttribute(
       "href",
       "/",
