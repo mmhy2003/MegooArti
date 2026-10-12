@@ -50,8 +50,12 @@ def _invalid(field: str, message: str) -> ApiError:
     return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
+# What is enforced for a repository whose stored settings name no policy.
+NO_POLICY = "allow_redeploy"
+
+
 def _hosted_settings(hosted: dict[str, Any] | None, default: str) -> dict[str, Any]:
-    """`default` is the policy of a repository that is given none: its format's to say."""
+    """`default` is the policy of a repository when none is sent."""
     policy = (hosted or {}).get("deployment_policy") or default
     if policy not in DEPLOYMENT_POLICIES:
         choices = ", ".join(DEPLOYMENT_POLICIES)
@@ -297,7 +301,13 @@ def _settings(
     )
     settings: dict[str, Any] = {}
     if type == "hosted":
-        default = handler.default_deployment_policy(config)
+        if current is None:
+            # A repository that is made is given its format's own policy.
+            default = handler.default_deployment_policy(config)
+        else:
+            # One that is replaced keeps the policy it has: leaving it out, to take a
+            # repository offline, is not a word about what may be deployed to it.
+            default = (current.get("hosted") or {}).get("deployment_policy") or NO_POLICY
         settings["hosted"] = _hosted_settings(hosted, default)
     if type == "proxy":
         settings["proxy"] = _proxy_settings(proxy, (current or {}).get("proxy"))

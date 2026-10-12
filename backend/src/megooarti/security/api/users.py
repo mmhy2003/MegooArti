@@ -158,8 +158,11 @@ async def reset_password(
 ) -> None:
     user = await _load(db, user_id)
     if user.id == principal.user.id:
-        # Here nobody is asked who they are: a session left open, or a stolen cookie,
-        # would be enough to keep the account.
+        # One's own password has one place, and that place asks for the present one.
+        # This is not a wall against a stolen session of an administrator, who can do
+        # as much by other requests (make a user, make a token): it keeps the direct
+        # way shut, and with it the mistake of setting one's own password "to be
+        # changed at next sign-in", which ended the session it was set from.
         raise ApiError(
             409,
             "own_password",

@@ -218,6 +218,10 @@ function RepositoryForm({
               onChange={(value) => set({ deploymentPolicy: value })}
               options={option("policies", DEPLOYMENT_POLICIES)}
             />
+            {draft.deploymentPolicy === null ? (
+              // Not yet a choice: it would change with the version policy, below.
+              <p className="text-sm text-fg-subtle">{t("hints.policyFollows")}</p>
+            ) : null}
             {refused.at["hosted.deployment_policy"] ? (
               <Alert tone="danger">{refused.at["hosted.deployment_policy"]}</Alert>
             ) : null}

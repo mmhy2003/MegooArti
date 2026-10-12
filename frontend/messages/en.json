@@ -674,6 +674,7 @@
       "online": "Offline, package clients are refused. It can still be browsed and set up here.",
       "blobStore": "Where its files are kept. It cannot be changed later.",
       "blobStoreUnreadable": "You may not see the blob stores, so the default one is used.",
+      "policyFollows": "Until you choose one, this follows the format and the version policy.",
       "remoteUrl": "An http or https address, without a user name, a password, a query or a fragment.",
       "secret": "It is sealed before it is stored, and shown to nobody again.",
       "secretStored": "One is stored. Leave this empty to keep it, or type another to replace it.",

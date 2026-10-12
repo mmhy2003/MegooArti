@@ -35,4 +35,16 @@ def keep_broken_setup(report, directory: Path = DIRECTORY) -> Path | None:
     """
     if not report.failed or report.when == "call":
         return None
-    return keep_failure(directory, report.nodeid, report.when, report.longreprtext)
+    try:
+        return keep_failure(directory, report.nodeid, report.when, report.longreprtext)
+    except OSError:
+        # A place that cannot be written must not cost the run: what failed is still
+        # in the run's own output.
+        return None
+
+
+def say_where(write_line, kept: list[Path]) -> None:
+    """For pytest's `pytest_terminal_summary`: a file nobody knows of is read by nobody."""
+    if kept:
+        setups = "setup" if len(kept) == 1 else "setups"
+        write_line(f"{len(kept)} failed {setups} kept in {kept[0].parent}")

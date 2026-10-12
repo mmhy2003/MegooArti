@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from tests import containers
 from tests.clients import client_for
 from tests.databases import reset_schema
-from tests.failures import KEPT, keep_failure
+from tests.failures import KEPT, keep_broken_setup, keep_failure, say_where
 
 
 async def test_client_for_runs_the_application_lifespan():
@@ -75,10 +75,17 @@ def test_a_setup_that_fails_is_kept_and_a_test_that_fails_is_not(pytester):
     pytester.makeconftest(
         """
         from pathlib import Path
-        from tests.failures import keep_broken_setup
+        from tests.failures import keep_broken_setup, say_where
+
+        kept = []
 
         def pytest_runtest_logreport(report):
-            keep_broken_setup(report, Path("kept"))
+            path = keep_broken_setup(report, Path("kept"))
+            if path is not None:
+                kept.append(path)
+
+        def pytest_terminal_summary(terminalreporter):
+            say_where(terminalreporter.write_line, kept)
         """
     )
     pytester.makepyfile(
@@ -103,6 +110,22 @@ def test_a_setup_that_fails_is_kept_and_a_test_that_fails_is_not(pytester):
     (kept,) = (pytester.path / "kept").iterdir()
     assert "-setup-" in kept.name
     assert "the database went away" in kept.read_text(encoding="utf-8")
+    # A file nobody knows of is a file nobody reads: the run says where it is.
+    result.stdout.fnmatch_lines(["*1 failed setup kept in *kept*"])
+
+
+def test_a_failure_that_cannot_be_kept_does_not_cost_the_run(tmp_path):
+    # Where the folder should be there is a file: nothing can be written into it.
+    (tmp_path / "taken").write_text("not a folder", encoding="utf-8")
+
+    class Report:
+        failed, when, nodeid, longreprtext = True, "setup", "tests/test_x.py::test_y", "OSError"
+
+    assert keep_broken_setup(Report(), tmp_path / "taken") is None
+    # And nothing is said of failures that were not kept.
+    said: list[str] = []
+    say_where(said.append, [])
+    assert said == []
 
 
 def _docker_answers(monkeypatch, returncode: int, stderr: str) -> None:

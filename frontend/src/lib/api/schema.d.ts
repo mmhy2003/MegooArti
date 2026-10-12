@@ -843,6 +843,7 @@ export interface components {
         HostedSettings: {
             /**
              * Deployment Policy
+             * @default allow_redeploy
              * @enum {string}
              */
             deployment_policy: "allow_redeploy" | "disable_redeploy" | "read_only";

@@ -228,6 +228,28 @@ describe("a new repository (R2)", () => {
     expect(sent(calls).hosted).toEqual({ deployment_policy: "read_only" });
   });
 
+  test("keeps the policy that is shown once it is pressed, whatever is changed after (H1)", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+    const follows = "Until you choose one, this follows the format and the version policy.";
+
+    // Not yet a choice, and the form says so: it would change with the version policy.
+    expect(screen.getByText(follows)).toBeVisible();
+    await user.click(screen.getByRole("radio", { name: "Disable redeploy" })); // the one shown
+    expect(screen.queryByText(follows)).toBeNull();
+
+    await user.click(screen.getByRole("radio", { name: "Mixed" }));
+    expect(screen.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+    await user.type(screen.getByLabelText("Name"), "both");
+    await user.click(create());
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      hosted: { deployment_policy: "disable_redeploy" },
+      format_config: { version_policy: "mixed" },
+    });
+  });
+
   test("a Maven repository for releases is made refusing redeploy when nothing is chosen (H1)", async () => {
     const user = userEvent.setup();
     const { calls } = fresh();
@@ -563,6 +585,15 @@ describe("the settings of a repository", () => {
     return { ...renderUi(<RepositorySettingsScreen />, { session }), ...api };
   }
   const save = () => screen.getByRole("button", { name: "Save" });
+
+  test("say nothing of a policy that follows: the one a repository has is its own", async () => {
+    settings();
+
+    await screen.findByRole("radio", { name: "Allow redeploy" });
+    expect(
+      screen.queryByText("Until you choose one, this follows the format and the version policy."),
+    ).toBeNull();
+  });
 
   test("show what cannot change as facts, and the rest as it is set (R3)", async () => {
     settings(repository("releases", { hosted: { deployment_policy: "read_only" } }));

@@ -277,23 +277,73 @@ async def test_a_hosted_repository_given_no_policy_gets_its_formats_own(
     }
 
 
-async def test_replacing_a_repository_without_a_policy_gives_it_its_formats_own(admin_client):
-    for name, format in (("releases", "maven"), ("files", "raw")):
-        wanted = {"name": name, "format": format, "type": "hosted"}
-        await admin_client.post(
-            REPOSITORIES, json={**wanted, "hosted": {"deployment_policy": "read_only"}}
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"online": False},
+        {"online": False, "hosted": None},
+        {"online": False, "hosted": {}},
+        {"online": False, "hosted": {"deployment_policy": None}},
+    ],
+)
+async def test_replacing_a_repository_without_a_policy_keeps_the_one_it_has(admin_client, change):
+    # Taking a repository offline is not a word about what may be deployed to it: only
+    # a repository that is made is given its format's own policy.
+    for name, format, policy in (
+        ("frozen", "raw", "read_only"),
+        # As every Maven repository for releases was made before the rule.
+        ("releases", "maven", "allow_redeploy"),
+        ("once", "npm", "disable_redeploy"),
+    ):
+        made = await admin_client.post(
+            REPOSITORIES,
+            json={
+                "name": name,
+                "format": format,
+                "type": "hosted",
+                "hosted": {"deployment_policy": policy},
+            },
+        )
+        assert made.status_code == 201
+
+        replaced = await admin_client.put(f"{REPOSITORIES}/{name}", json=change)
+
+        assert replaced.status_code == 200, replaced.text
+        assert (replaced.json()["online"], replaced.json()["hosted"]) == (
+            False,
+            {"deployment_policy": policy},
         )
 
-    releases = await admin_client.put(f"{REPOSITORIES}/releases", json={"online": True})
-    files = await admin_client.put(f"{REPOSITORIES}/files", json={"online": True})
-    kept = await admin_client.put(
-        f"{REPOSITORIES}/releases",
-        json={"online": True, "hosted": {"deployment_policy": "allow_redeploy"}},
+
+async def test_replacing_a_repository_with_a_policy_changes_it(admin_client):
+    await admin_client.post(
+        REPOSITORIES, json={"name": "releases", "format": "maven", "type": "hosted"}
     )
 
-    assert releases.json()["hosted"] == {"deployment_policy": "disable_redeploy"}
-    assert files.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
-    assert kept.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
+    changed = await admin_client.put(
+        f"{REPOSITORIES}/releases", json={"hosted": {"deployment_policy": "allow_redeploy"}}
+    )
+
+    assert changed.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
+
+
+async def test_a_repository_stored_without_a_policy_is_one_that_allows_redeploy(admin_client, db):
+    # No version of this server stored one so, but a row is only a row: it is answered
+    # with what is enforced for it, and it does not take the whole list down.
+    await admin_client.post(
+        REPOSITORIES, json={"name": "releases", "format": "maven", "type": "hosted"}
+    )
+    stored = await db.scalar(select(Repository).where(Repository.name == "releases"))
+    stored.config = {**stored.config, "hosted": {}}
+    await db.commit()
+
+    one = await admin_client.get(f"{REPOSITORIES}/releases")
+    listed = await admin_client.get(REPOSITORIES)
+    replaced = await admin_client.put(f"{REPOSITORIES}/releases", json={"online": False})
+
+    assert (one.status_code, one.json()["hosted"]) == (200, {"deployment_policy": "allow_redeploy"})
+    assert listed.status_code == 200
+    assert replaced.json()["hosted"] == {"deployment_policy": "allow_redeploy"}
 
 
 async def test_a_proxy_and_a_group_have_no_deployment_policy(admin_client):

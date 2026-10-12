@@ -541,6 +541,7 @@
       "HostedSettings": {
         "properties": {
           "deployment_policy": {
+            "default": "allow_redeploy",
             "enum": [
               "allow_redeploy",
               "disable_redeploy",
@@ -550,9 +551,6 @@
             "type": "string"
           }
         },
-        "required": [
-          "deployment_policy"
-        ],
         "title": "HostedSettings",
         "type": "object"
       },

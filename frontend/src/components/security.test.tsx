@@ -270,6 +270,34 @@ describe("one of a few, and any of a list", () => {
     await expectAccessible();
   });
 
+  test("a press on the choice that is shown is a choice too", async () => {
+    // A browser says nothing when the radio that is checked is pressed. Where what is
+    // shown is only a default, pressing it is how a person says "this one".
+    const user = userEvent.setup();
+    const chosen = vi.fn();
+    renderUi(
+      <ChoiceGroup
+        legend="State"
+        value="active"
+        onChange={chosen}
+        options={[
+          { value: "active", label: "Active" },
+          { value: "disabled", label: "Disabled" },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Active" }));
+    expect(chosen).toHaveBeenCalledWith("active");
+    chosen.mockClear();
+    await user.click(screen.getByText("Active")); // its label
+    expect(chosen).toHaveBeenCalledWith("active");
+    chosen.mockClear();
+    screen.getByRole("radio", { name: "Active" }).focus();
+    await user.keyboard(" ");
+    expect(chosen).toHaveBeenCalledWith("active");
+  });
+
   test("any of a list is ticks, and says so when there is nothing to tick", async () => {
     const user = userEvent.setup();
     function Roles() {

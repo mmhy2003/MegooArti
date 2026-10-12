@@ -29,12 +29,15 @@ DeploymentPolicy = Literal["allow_redeploy", "disable_redeploy", "read_only"]
 
 
 class HostedSettings(BaseModel):
-    deployment_policy: DeploymentPolicy
+    # Every repository this server made has one. A row that has none is answered with
+    # what is enforced for it.
+    deployment_policy: DeploymentPolicy = service.NO_POLICY
 
 
 class HostedIn(BaseModel):
-    # Left out, the server chooses: a Maven repository for releases refuses to replace
-    # what was deployed, and every other one allows it.
+    # Left out of a repository that is made, the server chooses: a Maven repository for
+    # releases refuses to replace what was deployed, and every other one allows it.
+    # Left out of one that is replaced, the policy it has is kept.
     deployment_policy: DeploymentPolicy | None = None
 
 

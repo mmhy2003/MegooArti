@@ -246,6 +246,11 @@ export function ChoiceGroup({
             checked={option.value === value}
             aria-describedby={option.hint ? `${id}-${index}-hint` : undefined}
             onChange={() => onChange(option.value)}
+            // A browser says nothing when the one that is checked is pressed. Where what
+            // is shown is a default, pressing it is how a person says "this one".
+            onClick={() => {
+              if (option.value === value) onChange(option.value);
+            }}
             className="mt-1 size-4 shrink-0 accent-primary"
           />
           <OptionText id={`${id}-${index}`} option={option} />
