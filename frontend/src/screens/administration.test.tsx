@@ -510,7 +510,8 @@ describe("a new repository (R2)", () => {
         "A repository named mirror already exists.",
       ),
     );
-    expect(screen.getByLabelText("Name")).toHaveFocus();
+    // The keyboard is moved after the refusal is drawn, not with it.
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveFocus());
     first.unmount();
 
     const second = fresh({
