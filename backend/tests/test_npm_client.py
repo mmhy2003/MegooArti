@@ -263,7 +263,8 @@ def group_token(token, administrator) -> str:
         "name": PROXY,
         "format": "npm",
         "type": "proxy",
-        "proxy": {"remote_url": "https://registry.npmjs.org"},
+        # Not left alone after one failure: the internet may be slow once (L7).
+        "proxy": {"remote_url": "https://registry.npmjs.org", "auto_block": False},
     }
     public = {
         "name": GROUP,

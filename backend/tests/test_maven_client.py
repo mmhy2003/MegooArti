@@ -1,11 +1,13 @@
-"""Maven's own client against the built image.
+"""The clients of a Maven repository against the built image: Maven, Gradle and sbt.
 
-Run with `pytest -m docker`. Besides a Docker daemon these need internet access: Maven
-fetches its plugins from Maven Central.
+Run with `pytest -m docker`. Besides a Docker daemon these need internet access: each
+client fetches its plugins, and what the test libraries depend on, from Maven Central,
+through the proxy the tests make.
 """
 
 import base64
 import hashlib
+import json
 import random
 import re
 import subprocess
@@ -114,6 +116,146 @@ CONSUMER_POM = """<project xmlns="http://maven.apache.org/POM/4.0.0">
 </project>
 """
 
+# Gradle. It publishes what Maven does and a file of its own beside the POM (the
+# "module"), with four checksums of each, and prefers the module when it resolves.
+GRADLE_IMAGE = "gradle:8-jdk21"
+GRADLE_CACHE = f"{PROJECT}-gradle-cache"
+GRADLE = "gradle --no-daemon --console=plain"
+GRADLE_LIBRARY = "io/megooarti/test/gradle-library"
+# One repository of the installation, as a Gradle build names it. Plain HTTP must be
+# allowed by name: the stack has no TLS.
+GRADLE_REPOSITORY = """{{
+        url = uri('{server}/{name}')
+        allowInsecureProtocol = true
+        credentials {{
+            username = '{username}'
+            password = '{password}'
+        }}
+    }}"""
+
+GRADLE_LIBRARY_BUILD = """plugins {{
+    id 'java-library'
+    id 'maven-publish'
+}}
+
+group = 'io.megooarti.test'
+version = '{version}'
+
+java {{
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}}
+
+repositories {{
+    maven {everything}
+}}
+
+dependencies {{
+    api 'org.apache.commons:commons-lang3:3.14.0'
+}}
+
+publishing {{
+    publications {{
+        library(MavenPublication) {{
+            from components.java
+        }}
+    }}
+    repositories {{
+        maven {target}
+    }}
+}}
+"""
+
+GRADLE_LIBRARY_SOURCE = """package io.megooarti.test;
+
+import org.apache.commons.lang3.StringUtils;
+
+public class GradleLibrary {
+    public static String greeting() {
+        return StringUtils.capitalize("hello");
+    }
+}
+"""
+
+GRADLE_CONSUMER_BUILD = """plugins {{
+    id 'java'
+}}
+
+repositories {{
+    maven {everything}
+}}
+
+dependencies {{
+    implementation 'io.megooarti.test:gradle-library:{version}'
+}}
+"""
+
+GRADLE_CONSUMER_SOURCE = """package io.megooarti.test.consumer;
+
+import io.megooarti.test.GradleLibrary;
+
+public class Consumer {
+    public static String greeting() {
+        return GradleLibrary.greeting();
+    }
+}
+"""
+
+# sbt. It resolves with Coursier and publishes with Ivy, in Maven's layout. The image
+# is the one that has this sbt and this Scala in it, so that only what the build
+# depends on is fetched.
+SBT_IMAGE = "sbtscala/scala-sbt:eclipse-temurin-21.0.12_8_1.13.0_2.13.18"
+SBT = "sbt -batch -Dsbt.color=false -Dsbt.supershell=false"
+SBT_LIBRARY = "io/megooarti/test/sbt-library"
+# What every sbt build of these tests says of the installation: where everything comes
+# from, and who asks. The realm is the one the server names when it asks who is there.
+SBT_SERVER = """ThisBuild / scalaVersion := "2.13.18"
+ThisBuild / organization := "io.megooarti.test"
+ThisBuild / crossPaths := false
+ThisBuild / autoScalaLibrary := false
+ThisBuild / credentials += Credentials("MegooArti", "gateway", "{username}", "{password}")
+ThisBuild / externalResolvers := Seq(
+  ("megooarti" at "{server}/maven-public").withAllowInsecureProtocol(true)
+)
+"""
+
+SBT_LIBRARY_BUILD = """name := "sbt-library"
+version := "{version}"
+libraryDependencies += "org.apache.commons" % "commons-text" % "1.12.0"
+publishMavenStyle := true
+publishTo := {{
+  val name = if (isSnapshot.value) "snapshots" else "releases"
+  Some(("megooarti-" + name at "{server}/" + name).withAllowInsecureProtocol(true))
+}}
+"""
+
+SBT_LIBRARY_SOURCE = """package io.megooarti.test;
+
+import org.apache.commons.text.WordUtils;
+
+public class SbtLibrary {
+    public static String greeting() {
+        return WordUtils.capitalize("hello");
+    }
+}
+"""
+
+SBT_CONSUMER_BUILD = """name := "sbt-consumer"
+version := "1"
+libraryDependencies += "io.megooarti.test" % "sbt-library" % "{version}"
+"""
+
+SBT_CONSUMER_SOURCE = """package io.megooarti.test.consumer;
+
+import io.megooarti.test.SbtLibrary;
+
+public class Consumer {
+    public static String greeting() {
+        return SbtLibrary.greeting();
+    }
+}
+"""
+
 CONSUMER_SOURCE = """package io.megooarti.test.consumer;
 
 import io.megooarti.test.Library;
@@ -195,19 +337,23 @@ def consumers(directory: Path, versions: dict[str, str]) -> Path:
     return write(directory, files)
 
 
-def maven(project: Path, script: str) -> subprocess.CompletedProcess[str]:
-    """Run a shell script in the Maven image, in a copy of `project`, beside the stack."""
+def client(
+    image: str, cache: str | None, project: Path, script: str
+) -> subprocess.CompletedProcess[str]:
+    """Run a shell script in a client's image, in a copy of `project`, beside the stack.
+
+    `cache` is a volume and where the client keeps what it fetched, as `name:/path`.
+    """
     command = [
         "docker",
         "run",
         "--rm",
         "--network",
         NETWORK,
-        "--volume",
-        f"{CACHE}:/root/.m2",
+        *(["--volume", cache] if cache else []),
         "--volume",
         f"{project}:/src:ro",
-        IMAGE,
+        image,
         "sh",
         "-c",
         f"cp -r /src /work && cd /work && {script}",
@@ -221,6 +367,19 @@ def maven(project: Path, script: str) -> subprocess.CompletedProcess[str]:
         timeout=1800,
         check=False,
     )
+
+
+def maven(project: Path, script: str) -> subprocess.CompletedProcess[str]:
+    return client(IMAGE, f"{CACHE}:/root/.m2", project, script)
+
+
+def gradle(project: Path, script: str) -> subprocess.CompletedProcess[str]:
+    return client(GRADLE_IMAGE, f"{GRADLE_CACHE}:/home/gradle/.gradle", project, script)
+
+
+def sbt(project: Path, script: str) -> subprocess.CompletedProcess[str]:
+    # No volume: the image has sbt and the compiler it names, and the rest is fetched.
+    return client(SBT_IMAGE, None, project, script)
 
 
 def fetch(path: str) -> bytes:
@@ -252,7 +411,8 @@ def repositories(administrator) -> Iterator[None]:
         "name": "central",
         "format": "maven",
         "type": "proxy",
-        "proxy": {"remote_url": "https://repo1.maven.org/maven2"},
+        # Not left alone after one failure: the internet may be slow once (L7).
+        "proxy": {"remote_url": "https://repo1.maven.org/maven2", "auto_block": False},
     }
     everything = {
         "name": "maven-public",
@@ -279,7 +439,10 @@ def repositories(administrator) -> Iterator[None]:
     status, _, body = call("POST", "/users", user, administrator)
     assert status == 201, body
     yield
-    subprocess.run(["docker", "volume", "rm", "--force", CACHE], capture_output=True, check=False)
+    for volume in (CACHE, GRADLE_CACHE):
+        subprocess.run(
+            ["docker", "volume", "rm", "--force", volume], capture_output=True, check=False
+        )
 
 
 def test_maven_deploys_a_release_and_two_snapshot_builds_and_resolves_them(repositories, tmp_path):
@@ -519,3 +682,142 @@ def test_a_jar_uploaded_through_the_api_is_resolved_by_a_build(repositories, tmp
         )
         assert downloaded in resolved.stdout, resolved.stdout[-4000:]
     assert "The POM for io.megooarti.test:library:jar:3.0 is" not in resolved.stdout
+
+
+def gradle_repository(name: str) -> str:
+    return GRADLE_REPOSITORY.format(server=INSIDE, name=name, username=USERNAME, password=PASSWORD)
+
+
+def gradle_library(directory: Path, version: str) -> Path:
+    target = "snapshots" if version.endswith("-SNAPSHOT") else "releases"
+    files = {
+        "settings.gradle": "rootProject.name = 'gradle-library'\n",
+        "build.gradle": GRADLE_LIBRARY_BUILD.format(
+            version=version,
+            everything=gradle_repository("maven-public"),
+            target=gradle_repository(target),
+        ),
+        "src/main/java/io/megooarti/test/GradleLibrary.java": GRADLE_LIBRARY_SOURCE,
+    }
+    return write(directory, files)
+
+
+def gradle_consumer(directory: Path, version: str) -> Path:
+    files = {
+        "settings.gradle": "rootProject.name = 'gradle-consumer'\n",
+        "build.gradle": GRADLE_CONSUMER_BUILD.format(
+            version=version, everything=gradle_repository("maven-public")
+        ),
+        "src/main/java/io/megooarti/test/consumer/Consumer.java": GRADLE_CONSUMER_SOURCE,
+    }
+    return write(directory, files)
+
+
+def test_gradle_publishes_a_release_and_snapshots_and_resolves_them_through_the_group(
+    repositories, tmp_path
+):
+    release = gradle_library(tmp_path / "release", "3.0")
+    snapshot = gradle_library(tmp_path / "snapshot", "3.1-SNAPSHOT")
+
+    # The library needs a library of Maven Central's, which comes through the group.
+    published = gradle(release, f"{GRADLE} publish")
+    assert published.returncode == 0, said(published)
+    again = gradle(release, f"{GRADLE} publish")
+    assert again.returncode != 0, "a release was published twice"
+    assert "status code 403" in again.stdout + again.stderr, said(again)
+    for _ in range(2):
+        built = gradle(snapshot, f"{GRADLE} publish")
+        assert built.returncode == 0, said(built)
+
+    # What Gradle published is there as Gradle left it: the module beside the POM, and
+    # each with the checksums a client checks it by.
+    directory = f"releases/{GRADLE_LIBRARY}/3.0"
+    jar = fetch(f"{directory}/gradle-library-3.0.jar")
+    module = fetch(f"{directory}/gradle-library-3.0.module")
+    assert jar.startswith(b"PK")
+    assert json.loads(module)["component"]["version"] == "3.0"
+    assert b"published-with-gradle-metadata" in fetch(f"{directory}/gradle-library-3.0.pom")
+    for name, content in (("gradle-library-3.0.jar", jar), ("gradle-library-3.0.module", module)):
+        assert fetch(f"{directory}/{name}.sha1").decode() == hashlib.sha1(content).hexdigest()
+        assert fetch(f"{directory}/{name}.sha256").decode() == hashlib.sha256(content).hexdigest()
+        assert fetch(f"{directory}/{name}.sha512").decode() == hashlib.sha512(content).hexdigest()
+    listed = metadata.parse(fetch(f"releases/{GRADLE_LIBRARY}/maven-metadata.xml"))
+    assert (listed.versions, listed.release) == (("3.0",), "3.0")
+
+    builds = metadata.parse(fetch(f"snapshots/{GRADLE_LIBRARY}/3.1-SNAPSHOT/maven-metadata.xml"))
+    newest = {entry.extension: entry.value for entry in builds.snapshot_versions}
+    assert builds.snapshot_build == 2
+    assert {"jar", "pom", "module"} <= set(newest)
+    assert newest["jar"].endswith("-2")
+
+    # A Gradle that has never seen either: everything comes from the server, the public
+    # library through the proxy, and Gradle reads its own module file to find it.
+    for version in ("3.0", "3.1-SNAPSHOT"):
+        project = gradle_consumer(tmp_path / f"consumer-{version}", version)
+        resolved = gradle(
+            project, f"{GRADLE} --gradle-user-home /tmp/never-used --info compileJava"
+        )
+        assert resolved.returncode == 0, said(resolved)
+        assert "BUILD SUCCESSFUL" in resolved.stdout
+        assert f"{INSIDE}/maven-public/{GRADLE_LIBRARY}/{version}/" in resolved.stdout
+        assert "commons-lang3-3.14.0.jar" in resolved.stdout
+
+
+def said(result: subprocess.CompletedProcess[str]) -> str:
+    """The end of what a client printed, for when it failed."""
+    return (result.stdout + result.stderr)[-6000:]
+
+
+def sbt_project(directory: Path, build: str, sources: dict[str, str]) -> Path:
+    server = SBT_SERVER.format(server=INSIDE, username=USERNAME, password=PASSWORD)
+    files = {
+        "project/build.properties": "sbt.version=1.13.0\n",
+        "build.sbt": server + build,
+        **sources,
+    }
+    return write(directory, files)
+
+
+def sbt_library(directory: Path, version: str) -> Path:
+    build = SBT_LIBRARY_BUILD.format(version=version, server=INSIDE)
+    source = {"src/main/java/io/megooarti/test/SbtLibrary.java": SBT_LIBRARY_SOURCE}
+    return sbt_project(directory, build, source)
+
+
+def sbt_consumer(directory: Path, version: str) -> Path:
+    build = SBT_CONSUMER_BUILD.format(version=version)
+    source = {"src/main/java/io/megooarti/test/consumer/Consumer.java": SBT_CONSUMER_SOURCE}
+    return sbt_project(directory, build, source)
+
+
+def test_sbt_publishes_a_release_and_a_snapshot_and_resolves_them_through_the_group(
+    repositories, tmp_path
+):
+    release = sbt_library(tmp_path / "release", "4.0")
+    snapshot = sbt_library(tmp_path / "snapshot", "4.1-SNAPSHOT")
+
+    # The library needs one of Maven Central's, which Coursier fetches through the group.
+    published = sbt(release, f"{SBT} publish")
+    assert published.returncode == 0, said(published)
+    again = sbt(release, f"{SBT} publish")
+    assert again.returncode != 0, "a release was published twice"
+    built = sbt(snapshot, f"{SBT} publish")
+    assert built.returncode == 0, said(built)
+
+    directory = f"releases/{SBT_LIBRARY}/4.0"
+    jar = fetch(f"{directory}/sbt-library-4.0.jar")
+    assert jar.startswith(b"PK")
+    assert fetch(f"{directory}/sbt-library-4.0.jar.sha1").decode() == hashlib.sha1(jar).hexdigest()
+    pom = fetch(f"{directory}/sbt-library-4.0.pom")
+    assert b"<artifactId>sbt-library</artifactId>" in pom and b"commons-text" in pom
+    # sbt also publishes the sources and the documentation, each as a jar of its own.
+    for classifier in ("sources", "javadoc"):
+        assert fetch(f"{directory}/sbt-library-4.0-{classifier}.jar").startswith(b"PK")
+    listed = metadata.parse(fetch(f"releases/{SBT_LIBRARY}/maven-metadata.xml"))
+    assert (listed.versions, listed.release) == (("4.0",), "4.0")
+
+    for version in ("4.0", "4.1-SNAPSHOT"):
+        project = sbt_consumer(tmp_path / f"consumer-{version}", version)
+        resolved = sbt(project, f"{SBT} compile")
+        assert resolved.returncode == 0, said(resolved)
+        assert "[success]" in resolved.stdout

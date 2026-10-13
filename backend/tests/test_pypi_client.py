@@ -269,7 +269,8 @@ def group_index(token, administrator) -> str:
         "name": PROXY,
         "format": "pypi",
         "type": "proxy",
-        "proxy": {"remote_url": "https://pypi.org"},
+        # Not left alone after one failure: the internet may be slow once (L7).
+        "proxy": {"remote_url": "https://pypi.org", "auto_block": False},
     }
     public = {
         "name": GROUP,

@@ -327,7 +327,8 @@ def test_a_group_serves_what_was_pushed_and_what_is_public_and_what_was_pushed_w
     signed_in, administrator, tmp_path
 ):
     config = signed_in
-    hub = {"remote_url": "https://registry-1.docker.io"}
+    # Not left alone after one failure: the internet may be slow once (L7).
+    hub = {"remote_url": "https://registry-1.docker.io", "auto_block": False}
     repositories = [
         {"name": "team-images", "format": "docker", "type": "hosted"},
         {"name": "hub-mirror", "format": "docker", "type": "proxy", "proxy": hub},
