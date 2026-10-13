@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 from megooarti.config import ConfigurationError, Settings, get_settings, load_settings
 
@@ -128,3 +129,50 @@ def test_the_npm_publish_limit(monkeypatch):
     monkeypatch.setenv("MEGOOARTI_NPM_MAX_PUBLISH_BYTES", "2048")
 
     assert Settings(_env_file=None).npm_max_publish_bytes == 2048
+
+
+ANY = "p@ss/w:rd#1 ?%&$"
+
+
+def test_a_password_given_apart_is_put_into_the_address_whatever_is_in_it():
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql://megooarti@db:5432/megooarti",
+        database_password=ANY,
+    )
+    address = make_url(settings.database_url)
+
+    assert (address.username, address.password, address.host) == ("megooarti", ANY, "db")
+    assert (address.port, address.database) == (5432, "megooarti")
+    assert address.drivername == "postgresql+asyncpg"
+    # As it is written, no character of it stands for anything but itself.
+    assert ANY not in settings.database_url
+
+
+def test_a_password_given_apart_goes_before_one_in_the_address():
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql://megooarti:old@db:5432/megooarti?sslmode=require",
+        database_password="new",
+    )
+    address = make_url(settings.database_url)
+
+    assert address.password == "new"
+    assert address.query == {"ssl": "require"}
+
+
+@pytest.mark.parametrize("apart", [None, ""])
+def test_without_a_password_apart_the_address_is_as_it_was_given(apart):
+    given = "postgresql://megooarti:megooarti@db:5432/megooarti"
+
+    settings = Settings(_env_file=None, database_url=given, database_password=apart)
+
+    assert settings.database_url == "postgresql+asyncpg://megooarti:megooarti@db:5432/megooarti"
+
+
+def test_the_password_apart_comes_from_the_environment(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEGOOARTI_DATABASE_URL", "postgresql://megooarti@db/megooarti")
+    monkeypatch.setenv("MEGOOARTI_DATABASE_PASSWORD", ANY)
+
+    assert make_url(load_settings().database_url).password == ANY

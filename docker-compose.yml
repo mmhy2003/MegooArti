@@ -1,3 +1,6 @@
+# A complete installation: the database, the backend, the web UI and a gateway.
+# What an installation must choose is in .env (copy .env.example): without the
+# database's password nothing starts.
 name: megooarti
 
 services:
@@ -5,7 +8,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: megooarti
-      POSTGRES_PASSWORD: megooarti
+      POSTGRES_PASSWORD: ${MEGOOARTI_DB_PASSWORD:?Set MEGOOARTI_DB_PASSWORD. Copy .env.example to .env and choose one}
       POSTGRES_DB: megooarti
     ports:
       # Loopback only: the database is published for development tools, not for the network.
@@ -20,9 +23,18 @@ services:
 
   # The API, the repositories and the registry. It is reached through the gateway only.
   backend:
-    build: ./backend
+    # `docker compose build` makes the image under the name a registry would hold it by.
+    image: megooarti/backend:${MEGOOARTI_VERSION:-0.1.0}
+    build:
+      context: ./backend
+      args:
+        VERSION: ${MEGOOARTI_VERSION:-0.1.0}
     environment:
-      MEGOOARTI_DATABASE_URL: postgresql://megooarti:megooarti@db:5432/megooarti
+      MEGOOARTI_DATABASE_URL: postgresql://megooarti@db:5432/megooarti
+      # Apart from the address, so that it may hold any character.
+      MEGOOARTI_DATABASE_PASSWORD: ${MEGOOARTI_DB_PASSWORD:?Set MEGOOARTI_DB_PASSWORD. Copy .env.example to .env and choose one}
+      # Passed on if it is set. Without it the backend makes a key in its data directory.
+      MEGOOARTI_SECRET_KEY:
       # This container is not published: requests from outside come through the
       # gateway, which says who is calling and overwrites what a client says of itself.
       MEGOOARTI_FORWARDED_ALLOW_IPS: "*"
@@ -49,7 +61,11 @@ services:
   # The web UI. It holds no data and no secret, and never calls the backend: the
   # browser does.
   frontend:
-    build: ./frontend
+    image: megooarti/frontend:${MEGOOARTI_VERSION:-0.1.0}
+    build:
+      context: ./frontend
+      args:
+        VERSION: ${MEGOOARTI_VERSION:-0.1.0}
     healthcheck:
       test:
         - CMD

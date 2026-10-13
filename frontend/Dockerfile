@@ -34,3 +34,11 @@ USER node
 EXPOSE 3000
 
 CMD ["node", "server.js"]
+
+# What the image is. Last, so that a new version does not build the layers above again.
+ARG VERSION=0.0.0
+LABEL org.opencontainers.image.title="MegooArti frontend" \
+      org.opencontainers.image.description="The web UI of MegooArti" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/mmhy2003/MegooArti"

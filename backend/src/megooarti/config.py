@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode
 
-from pydantic import ValidationError, field_validator
+from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 ENV_PREFIX = "MEGOOARTI_"
 _POSTGRES_SCHEMES = {"postgres", "postgresql", "postgresql+asyncpg"}
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
     )
 
     database_url: str
+    # The password of that address, when it is kept apart from it. An address gives
+    # a meaning to some characters (@ / # ? %); apart, a password may hold any.
+    database_password: str | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     host: str = "0.0.0.0"
     port: int = 8000
@@ -59,6 +63,13 @@ class Settings(BaseSettings):
             ]
             rest = f"{location}?{urlencode(options)}"
         return f"postgresql+asyncpg://{rest}"
+
+    @model_validator(mode="after")
+    def _put_the_password_into_the_address(self) -> "Settings":
+        if self.database_password:
+            address = make_url(self.database_url).set(password=self.database_password)
+            self.database_url = address.render_as_string(hide_password=False)
+        return self
 
     @field_validator("log_level", mode="before")
     @classmethod

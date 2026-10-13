@@ -352,7 +352,7 @@ These are decisions already made. Designs must conform to them.
 
 | ID | Assumption |
 | --- | --- |
-| A-1 | The licence is Apache-2.0. This is a placeholder pending the owner's confirmation. |
+| A-1 | The licence is MIT, as the owner chose (release readiness design, D1). |
 | A-2 | "Nexus OSS parity" means the feature set of Nexus Repository OSS 3.x as summarised in Appendix A. Formats added to Nexus after this baseline are considered release by release. |
 | A-3 | Operators provide TLS termination, backups of the database volume and blob storage, and monitoring infrastructure. |
 | A-4 | A deployment is a single logical instance serving one organisation. |

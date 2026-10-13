@@ -3,11 +3,22 @@
 import hashlib
 import json
 import os
+import subprocess
 import urllib.request
 
 import pytest
 
-from tests.containers import BACKEND_DIR, DATA_FILE, HTTP_PORT, call, compose, run_in_backend
+from tests.containers import (
+    BACKEND_DIR,
+    DATA_FILE,
+    ENVIRONMENT,
+    HTTP_PORT,
+    REPOSITORY_ROOT,
+    VERSION,
+    call,
+    compose,
+    run_in_backend,
+)
 
 UNREACHABLE = "MEGOOARTI_DATABASE_URL=postgresql://megooarti:megooarti@nowhere.invalid:5432/m"
 
@@ -57,6 +68,49 @@ def test_container_does_not_run_as_root(stack):
     result = run_in_backend("--entrypoint", "id", "backend", "-u")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "10001"
+
+
+@pytest.mark.docker
+@pytest.mark.parametrize("name", ["backend", "frontend"])
+def test_the_images_are_built_under_their_names_and_say_what_they_are(stack, name):
+    inspected = subprocess.run(
+        ["docker", "image", "inspect", f"megooarti/{name}:{VERSION}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert inspected.returncode == 0, inspected.stderr
+    labels = json.loads(inspected.stdout)[0]["Config"]["Labels"]
+
+    assert labels["org.opencontainers.image.title"] == f"MegooArti {name}"
+    assert labels["org.opencontainers.image.version"] == VERSION
+    assert labels["org.opencontainers.image.licenses"] == "MIT"
+    assert labels["org.opencontainers.image.source"].startswith("https://")
+
+
+@pytest.mark.docker
+def test_nothing_starts_without_the_databases_password(tmp_path):
+    # Neither in the environment nor in a file: as a checkout that was started at once.
+    (tmp_path / "empty.env").write_text("", encoding="utf-8")
+    environment = {
+        name: value for name, value in ENVIRONMENT.items() if name != "MEGOOARTI_DB_PASSWORD"
+    }
+
+    result = subprocess.run(
+        ["docker", "compose", "--env-file", str(tmp_path / "empty.env"), "config"],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "MEGOOARTI_DB_PASSWORD" in result.stderr
+    assert ".env.example" in result.stderr
 
 
 @pytest.mark.docker

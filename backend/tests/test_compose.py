@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from megooarti import __version__
 from megooarti.config import Settings
 
 COMPOSE_FILE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
@@ -53,7 +54,7 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"build", "healthcheck"}
+    assert set(frontend) == {"image", "build", "healthcheck"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
@@ -98,3 +99,50 @@ def test_the_gateway_passes_a_path_on_exactly_as_it_was_sent():
 )
 def test_the_gateway_does_what_artifacts_and_package_clients_need(directive):
     assert directive in GATEWAY
+
+
+def test_nothing_starts_with_a_password_everybody_knows():
+    whole = COMPOSE_FILE.read_text(encoding="utf-8")
+    password = services()["db"]["environment"]["POSTGRES_PASSWORD"]
+    address = services()["backend"]["environment"]["MEGOOARTI_DATABASE_URL"]
+
+    # `:?` stops Compose, with these words, where the variable is not set or is empty.
+    assert password.startswith("${MEGOOARTI_DB_PASSWORD:?Set MEGOOARTI_DB_PASSWORD.")
+    assert ".env.example" in password
+    # Apart from the address: in it, a password with an @ or a / would be read as a host
+    # or a path.
+    assert address == "postgresql://megooarti@db:5432/megooarti"
+    assert services()["backend"]["environment"]["MEGOOARTI_DATABASE_PASSWORD"] == password
+    assert "megooarti:megooarti" not in whole
+
+
+@pytest.mark.parametrize("name", ["backend", "frontend"])
+def test_the_images_are_named_as_a_registry_would_hold_them(name):
+    service = services()[name]
+    tag = f"${{MEGOOARTI_VERSION:-{__version__}}}"
+
+    assert service["image"] == f"megooarti/{name}:{tag}"
+    # The image is told the version it is built as, for its label.
+    assert service["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
+
+
+def test_the_secret_key_is_passed_on_only_if_it_is_set():
+    environment = services()["backend"]["environment"]
+
+    # No value: Compose passes on what its own environment has, and nothing otherwise.
+    assert "MEGOOARTI_SECRET_KEY" in environment
+    assert environment["MEGOOARTI_SECRET_KEY"] is None
+
+
+def test_the_example_names_everything_the_compose_file_asks_of_the_environment():
+    whole = COMPOSE_FILE.read_text(encoding="utf-8")
+    example = (COMPOSE_FILE.parent / ".env.example").read_text(encoding="utf-8")
+    asked = set(re.findall(r"\$\{(MEGOOARTI_[A-Z_]+)", whole))
+    asked |= {name for name, value in services()["backend"]["environment"].items() if value is None}
+
+    named = set(re.findall(r"^#?(MEGOOARTI_[A-Z_]+)=", example, flags=re.MULTILINE))
+
+    assert named == asked
+    # The one thing that must be chosen is chosen for nobody.
+    assert re.search(r"^MEGOOARTI_DB_PASSWORD=$", example, flags=re.MULTILINE)
+    assert len(re.findall(r"^MEGOOARTI_", example, flags=re.MULTILINE)) == 1

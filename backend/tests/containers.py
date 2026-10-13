@@ -11,7 +11,16 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = BACKEND_DIR.parent
 PROJECT = "megooarti-test"
 HTTP_PORT = "18000"
-ENVIRONMENT = {**os.environ, "MEGOOARTI_HTTP_PORT": HTTP_PORT, "MEGOOARTI_DB_PORT": "15432"}
+# The tag the tests' images are built under: not the one an installation runs.
+VERSION = "test"
+ENVIRONMENT = {
+    **os.environ,
+    "MEGOOARTI_HTTP_PORT": HTTP_PORT,
+    "MEGOOARTI_DB_PORT": "15432",
+    # With what an address would take for something else: it is given apart from it.
+    "MEGOOARTI_DB_PASSWORD": "only for these tests: @/#?%&$",
+    "MEGOOARTI_VERSION": VERSION,
+}
 DATA_FILE = "/var/lib/megooarti/admin.password"
 
 

@@ -30,3 +30,11 @@ EXPOSE 8000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "-m", "megooarti"]
+
+# What the image is. Last, so that a new version does not build the layers above again.
+ARG VERSION=0.0.0
+LABEL org.opencontainers.image.title="MegooArti backend" \
+      org.opencontainers.image.description="The API, the repositories and the registry of MegooArti" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/mmhy2003/MegooArti"
