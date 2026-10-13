@@ -428,7 +428,7 @@ def _not_readable(reason: object) -> ApiError:
 _FORM = {
     "requestBody": {
         "required": True,
-        "description": "The fields and files the repository's format takes. See the README.",
+        "description": "The fields and files the repository's format takes. See docs/api.md.",
         "content": {
             "multipart/form-data": {
                 "schema": {

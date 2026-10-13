@@ -3042,7 +3042,7 @@
               }
             }
           },
-          "description": "The fields and files the repository's format takes. See the README.",
+          "description": "The fields and files the repository's format takes. See docs/api.md.",
           "required": true
         },
         "responses": {

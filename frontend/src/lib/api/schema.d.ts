@@ -1974,7 +1974,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description The fields and files the repository's format takes. See the README. */
+        /** @description The fields and files the repository's format takes. See docs/api.md. */
         requestBody: {
             content: {
                 "multipart/form-data": {
