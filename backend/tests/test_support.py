@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from tests import containers
 from tests.clients import client_for
-from tests.databases import reset_schema
+from tests.databases import connected, reset_schema
 from tests.failures import (
     KEPT,
     keep_broken_setup,
@@ -168,7 +168,10 @@ class _Report:
         self.failed, self.when = failed, when
         self.nodeid = "tests/test_pypi_client.py::test_pip_installs"
         self.longreprtext = "AssertionError: pip: exit 1"
-        self.keywords = {"docker": 1} if docker else {}
+        # As `mark_of_the_stack` leaves it. Not the keywords: among those pytest counts
+        # the names of a test's folders, and there is one called `docker`.
+        self.of_the_stack = docker
+        self.keywords = {"docker": 1}
 
 
 def test_what_the_stack_said_is_kept_when_a_test_of_it_fails(tmp_path):
@@ -209,3 +212,76 @@ def test_the_end_of_the_run_says_how_many_of_each_were_kept(tmp_path):
         f"1 failed setup kept in {tmp_path}",
         f"2 logs of the stack kept in {tmp_path}",
     ]
+
+
+def test_only_a_test_that_is_marked_is_one_of_the_stack(pytester):
+    pytester.makeini("[pytest]\nmarkers = docker: needs a Docker daemon\n")
+    pytester.makeconftest(
+        """
+        from pathlib import Path
+
+        import pytest
+
+        from tests.failures import keep_stack_logs, mark_of_the_stack
+
+        @pytest.hookimpl(hookwrapper=True)
+        def pytest_runtest_makereport(item, call):
+            outcome = yield
+            mark_of_the_stack(item, outcome.get_result())
+
+        def pytest_runtest_logreport(report):
+            keep_stack_logs(report, lambda: "what the stack said", Path("kept"))
+        """
+    )
+    # A unit test of the registry's own code, in the folder its format is named after.
+    pytester.mkdir("docker")
+    pytester.makepyfile(
+        **{
+            "docker/test_names": "def test_of_a_unit():\n    assert 1 == 2\n",
+            "test_client": (
+                "import pytest\n\n"
+                "@pytest.mark.docker\n"
+                "def test_of_the_stack():\n    assert 1 == 2\n"
+            ),
+        }
+    )
+
+    result = pytester.runpytest_inprocess("-p", "no:cacheprovider", "-p", "no:asyncio")
+
+    result.assert_outcomes(failed=2)
+    (kept,) = (pytester.path / "kept").iterdir()
+    assert "test_of_the_stack" in kept.name
+
+
+class _Engine:
+    """An engine whose first connections are dropped before they are made."""
+
+    def __init__(self, dropped: int, error: Exception) -> None:
+        self.dropped, self.error, self.asked = dropped, error, 0
+
+    async def connect(self) -> str:
+        self.asked += 1
+        if self.asked <= self.dropped:
+            raise self.error
+        return "a connection"
+
+
+async def test_a_connection_to_the_test_database_that_windows_drops_is_asked_for_again():
+    # As it was met once in many runs of the suite, on a port that Docker publishes.
+    dropped = OSError(121, "The semaphore timeout period has expired")
+    twice, always = _Engine(2, dropped), _Engine(3, dropped)
+
+    assert await connected(twice) == "a connection"
+    assert twice.asked == 3
+    with pytest.raises(OSError, match="semaphore"):
+        await connected(always)
+    assert always.asked == 3
+
+
+async def test_a_database_that_refuses_is_not_asked_again():
+    # Only a connection that was not made: an answer is an answer.
+    refused = _Engine(1, RuntimeError("password authentication failed"))
+
+    with pytest.raises(RuntimeError):
+        await connected(refused)
+    assert refused.asked == 1

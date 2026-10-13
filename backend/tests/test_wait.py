@@ -66,7 +66,7 @@ def with_changes(url: str, **changes: str) -> str:
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"password": "wrong"}, "rejected the credentials"),
+        ({"password": "wrong"}, "rejected the user name or the password"),
         ({"database": "no_such_database"}, "does not exist"),
         ({"query": {"bogus_option": "1"}}, "option the driver does not accept"),
     ],
@@ -80,3 +80,16 @@ async def test_fails_at_once_when_waiting_cannot_help(database_url, changes, mes
     assert time.monotonic() - started < 10
     assert "MEGOOARTI_DATABASE_URL" in str(caught.value)
     assert "wrong" not in str(caught.value)
+
+
+async def test_a_password_the_database_does_not_take_is_blamed_on_where_it_was_given(database_url):
+    # Under Compose nobody set MEGOOARTI_DATABASE_URL: the password is given apart.
+    with pytest.raises(ConfigurationError) as caught:
+        await wait_for_database(with_changes(database_url, password="wrong"), timeout_seconds=30)
+
+    said = str(caught.value)
+    assert "MEGOOARTI_DATABASE_PASSWORD" in said and "MEGOOARTI_DB_PASSWORD" in said
+    assert "MEGOOARTI_DATABASE_URL" in said
+    # Changing it in .env changes nothing in a database that is there already.
+    assert "the one it was first made with" in said
+    assert "wrong" not in said

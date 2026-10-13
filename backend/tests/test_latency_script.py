@@ -5,6 +5,7 @@ import importlib.util
 import subprocess
 import sys
 
+import httpx
 import pytest
 
 from tests.containers import BACKEND_DIR, HTTP_PORT, PROJECT, call
@@ -79,6 +80,61 @@ def test_a_server_that_answered_nothing_is_said_to_have_answered_nothing():
     measured = latency.read("raw file", 40, silent)
 
     assert measured.line() == f"{'raw file':<24} no request was answered (40 failed)"
+
+
+def _installation(there: set[str], deleted: list[str]) -> httpx.AsyncClient:
+    """An installation that has the repositories `there`, and writes down what is deleted."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        name = request.url.path.rsplit("/", 1)[-1]
+        if request.method == "DELETE":
+            deleted.append(name)
+            return httpx.Response(204 if name in there else 404)
+        return httpx.Response(200 if name in there else 404, json={"name": name})
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(answer), base_url="http://measured")
+
+
+async def test_the_script_removes_the_repositories_it_makes_and_no_other():
+    # `latency-dashboards` is somebody's own: its name begins as the script's do.
+    there, deleted = {"latency-dashboards", "latency-raw", "releases"}, []
+
+    async with _installation(there, deleted) as client:
+        await latency.clean_up(client)
+
+    assert sorted(deleted) == sorted(latency.NAMES)
+    assert latency.NAMES == [
+        "latency-maven-proxy",  # first: a proxy before what it is a proxy of
+        "latency-raw",
+        "latency-maven",
+        "latency-npm",
+        "latency-pypi",
+        "latency-docker",
+    ]
+
+
+async def test_the_script_does_not_begin_where_a_repository_of_its_names_is_there():
+    there, deleted = {"latency-npm", "latency-raw"}, []
+
+    async with _installation(there, deleted) as client:
+        with pytest.raises(SystemExit) as stopped:
+            await latency.claim(client, replace=False)
+
+    # It may be what an earlier run left, and it may be somebody's: the script does not know.
+    assert "latency-raw, latency-npm" in str(stopped.value)
+    assert "--replace" in str(stopped.value)
+    assert deleted == []
+
+
+async def test_the_script_begins_where_none_is_there_or_where_it_is_told_to_replace_them():
+    deleted: list[str] = []
+    async with _installation(set(), deleted) as client:
+        await latency.claim(client, replace=False)
+    assert deleted == []
+
+    async with _installation({"latency-raw"}, deleted) as client:
+        await latency.claim(client, replace=True)
+    assert "latency-raw" in deleted
 
 
 @pytest.mark.docker

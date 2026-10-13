@@ -54,7 +54,7 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"image", "build", "healthcheck"}
+    assert set(frontend) == {"image", "pull_policy", "build", "healthcheck"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
@@ -124,6 +124,9 @@ def test_the_images_are_named_as_a_registry_would_hold_them(name):
     assert service["image"] == f"megooarti/{name}:{tag}"
     # The image is told the version it is built as, for its label.
     assert service["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
+    # Built here, always: a name on a public registry belongs to whoever took it there,
+    # and `docker compose pull` would run what they put under it.
+    assert service["pull_policy"] == "build"
 
 
 def test_the_secret_key_is_passed_on_only_if_it_is_set():

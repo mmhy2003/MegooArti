@@ -57,3 +57,20 @@ def reset_schema(url: str) -> None:
             f"refusing to reset database {name!r}: the name must end in _test or _test_migrations"
         )
     run_sql(url, "DROP SCHEMA public CASCADE", "CREATE SCHEMA public")
+
+
+async def connected(engine, tries: int = 3):
+    """A connection of `engine`, asked for again where a try is dropped before it is made.
+
+    On Windows, a connection to a port that Docker publishes ends now and then in an
+    OSError (WinError 121, "The semaphore timeout period has expired") in place of a
+    connection: once in many runs of the suite. What the database answers, a refusal
+    included, is no OSError, and is not asked for again.
+    """
+    for last in [False] * (tries - 1) + [True]:
+        try:
+            return await engine.connect()
+        except OSError:
+            if last:
+                raise
+    raise AssertionError("the last try answers or raises")

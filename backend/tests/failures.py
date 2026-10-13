@@ -43,6 +43,16 @@ def keep_broken_setup(report, directory: Path = DIRECTORY) -> Path | None:
         return None
 
 
+def mark_of_the_stack(item, report) -> None:
+    """For pytest's `pytest_runtest_makereport`: say on the report whether the test is one
+    of the running stack, which is one that is marked `docker`.
+
+    Not one that has the word among its keywords: there pytest counts the names of a
+    test's folders, and the unit tests of the registry are in a folder called `docker`.
+    """
+    report.of_the_stack = item.get_closest_marker("docker") is not None
+
+
 def keep_stack_logs(report, logs, directory: Path = DIRECTORY) -> Path | None:
     """For a test of the running stack that failed: keep what the stack said.
 
@@ -51,7 +61,7 @@ def keep_stack_logs(report, logs, directory: Path = DIRECTORY) -> Path | None:
     has what the backend logs once on its first start, the administrator's first
     password: of a stack that these tests made and remove.
     """
-    if not report.failed or "docker" not in report.keywords:
+    if not report.failed or not getattr(report, "of_the_stack", False):
         return None
     try:
         said = logs()

@@ -25,6 +25,8 @@ services:
   backend:
     # `docker compose build` makes the image under the name a registry would hold it by.
     image: megooarti/backend:${MEGOOARTI_VERSION:-0.1.0}
+    # Built here, and never fetched: on a public registry the name is whoever's took it.
+    pull_policy: build
     build:
       context: ./backend
       args:
@@ -62,6 +64,7 @@ services:
   # browser does.
   frontend:
     image: megooarti/frontend:${MEGOOARTI_VERSION:-0.1.0}
+    pull_policy: build
     build:
       context: ./frontend
       args:

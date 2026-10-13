@@ -11,7 +11,12 @@ from sqlalchemy.pool import NullPool
 
 from megooarti.config import ConfigurationError, get_settings
 
-_REJECTED = "the database rejected the credentials in MEGOOARTI_DATABASE_URL"
+_REJECTED = (
+    "the database rejected the user name or the password. The password is "
+    "MEGOOARTI_DATABASE_PASSWORD if that is set (under Docker Compose, from "
+    "MEGOOARTI_DB_PASSWORD), and otherwise the one in MEGOOARTI_DATABASE_URL. A database "
+    "keeps the one it was first made with, whatever is set afterwards"
+)
 _PERMANENT_SQLSTATES = {
     "28000": _REJECTED,
     "28P01": _REJECTED,

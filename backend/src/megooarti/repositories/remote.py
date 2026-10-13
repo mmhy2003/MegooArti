@@ -402,8 +402,10 @@ async def _send(client: httpx.AsyncClient, build: Callable[[], httpx.Request]) -
     """Send a request and return the answer with its body unread.
 
     A connection that could not be made is tried again (CONNECT_WAITS). Not one that
-    took too long to make: that has waited already. And not a request that was sent:
-    whatever became of it, the remote may have seen it.
+    took too long to make: that has waited already. And not a request whose answer
+    failed: the remote has seen it. Where the remote answered with a redirect and the
+    host it named took no connection, the whole is asked again, the first request with
+    it: these are requests to read, which may be made twice.
     """
     for wait in (*CONNECT_WAITS, None):
         try:

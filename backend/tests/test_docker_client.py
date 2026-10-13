@@ -285,7 +285,9 @@ def test_images_are_pulled_through_proxies_of_public_registries(signed_in, admin
     # `library/`. registry.k8s.io asks for no sign-in and sends every request elsewhere.
     remotes = {"docker-hub": "https://registry-1.docker.io", "k8s": "https://registry.k8s.io"}
     for name, remote in remotes.items():
-        body = {"name": name, "format": "docker", "type": "proxy", "proxy": {"remote_url": remote}}
+        # Not left alone after one failure: the internet may be slow once (L7).
+        proxy = {"remote_url": remote, "auto_block": False}
+        body = {"name": name, "format": "docker", "type": "proxy", "proxy": proxy}
         status, _, answer = call("POST", "/repositories", body, administrator)
         assert status == 201, answer
     hello = f"{REGISTRY}/docker-hub/hello-world:latest"

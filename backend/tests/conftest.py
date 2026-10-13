@@ -27,8 +27,8 @@ from megooarti.security.models import User
 from tests.accounts import PASSWORD, sign_in
 from tests.clients import client_for
 from tests.containers import DATA_FILE, call, compose
-from tests.databases import ensure_database, reset_schema
-from tests.failures import keep_broken_setup, keep_stack_logs, say_where
+from tests.databases import connected, ensure_database, reset_schema
+from tests.failures import keep_broken_setup, keep_stack_logs, mark_of_the_stack, say_where
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://megooarti:megooarti@localhost:5432/megooarti_test"
 
@@ -44,6 +44,12 @@ _logs: list[Path] = []
 def _stack_logs() -> str:
     said = compose("logs", "--no-color", "--tail", "4000", "backend", "gateway", check=False)
     return said.stdout
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    mark_of_the_stack(item, outcome.get_result())
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
@@ -118,12 +124,15 @@ async def db_connection(database_url: str) -> AsyncIterator[AsyncConnection]:
     """One connection whose transaction is rolled back when the test ends."""
     engine = create_async_engine(database_url, poolclass=NullPool)
     try:
-        async with engine.connect() as connection:
+        connection = await connected(engine)
+        try:
             transaction = await connection.begin()
             try:
                 yield connection
             finally:
                 await transaction.rollback()
+        finally:
+            await connection.close()
     finally:
         await engine.dispose()
 

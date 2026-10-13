@@ -7,7 +7,9 @@ token of an administrator. Against the Compose stack of this repository:
         --network megooarti_default --inside-url http://gateway
 
 It makes a repository of each format, named `latency-...`, and puts one small thing
-into each, as that format's clients would. Then, for each format, `--clients` clients
+into each, as that format's clients would. It does not begin where a repository of one
+of those names is there already, unless `--replace` says that they are a stopped run's
+and may go. Then, for each format, `--clients` clients
 at once ask, `--requests` times each, for what a client asks for before anything else:
 Maven's metadata of an artifact, npm's document of a package, PyPI's page of a project,
 a registry's manifest by tag, a Raw file. It prints how long the answers took, and
@@ -41,6 +43,11 @@ import httpx
 
 GENERATOR = "ghcr.io/hatoo/oha:1.16.0"
 PREFIX = "latency"
+FORMATS = ("raw", "maven", "npm", "pypi", "docker")
+PROXY = f"{PREFIX}-maven-proxy"
+# Every repository this script makes, and the only ones it removes. The proxy first: it
+# is a proxy of another of them.
+NAMES = [PROXY, *(f"{PREFIX}-{format}" for format in FORMATS)]
 PACKAGE = "latency-package"
 JAR = "com/acme/latency/1.0/latency-1.0.jar"
 MAVEN_METADATA = "com/acme/latency/maven-metadata.xml"
@@ -190,7 +197,7 @@ async def _push_image(client: httpx.AsyncClient, repository: str) -> None:
 
 async def set_up(client: httpx.AsyncClient, inside_url: str | None, token: str) -> list[tuple]:
     """Make the repositories and what is in them. Returns (name, path, headers) to ask for."""
-    for format in ("raw", "maven", "npm", "pypi", "docker"):
+    for format in FORMATS:
         body = {"name": f"{PREFIX}-{format}", "format": format, "type": "hosted"}
         _expect(await client.post("/api/v1/repositories", json=body), 201)
     _expect(await client.put(f"/repository/{PREFIX}-raw/a/file.txt", content=b"a file"), 201)
@@ -209,7 +216,7 @@ async def set_up(client: httpx.AsyncClient, inside_url: str | None, token: str) 
     ]
     if inside_url:
         proxy = {
-            "name": f"{PREFIX}-maven-proxy",
+            "name": PROXY,
             "format": "maven",
             "type": "proxy",
             "proxy": {
@@ -218,18 +225,33 @@ async def set_up(client: httpx.AsyncClient, inside_url: str | None, token: str) 
             },
         }
         _expect(await client.post("/api/v1/repositories", json=proxy), 201)
-        path = f"/repository/{PREFIX}-maven-proxy/{MAVEN_METADATA}"
+        path = f"/repository/{PROXY}/{MAVEN_METADATA}"
         _expect(await client.get(path), 200)  # fetched once: from now on it is the cache's
         targets.append(("maven metadata, proxy", path, {}))
     return targets
 
 
 async def clean_up(client: httpx.AsyncClient) -> None:
-    listed = _expect(await client.get("/api/v1/repositories", params={"limit": 200}), 200)
-    ours = [item for item in listed.json()["items"] if item["name"].startswith(f"{PREFIX}-")]
-    # A proxy before what it is a proxy of: nothing else here depends on anything.
-    for repository in sorted(ours, key=lambda item: item["type"] != "proxy"):
-        _expect(await client.delete(f"/api/v1/repositories/{repository['name']}"), 204, 404)
+    """Remove the repositories this script makes: those names, and no other."""
+    for name in NAMES:
+        _expect(await client.delete(f"/api/v1/repositories/{name}"), 204, 404)
+
+
+async def claim(client: httpx.AsyncClient, *, replace: bool) -> None:
+    """See that the names are free. One that is taken may be somebody's own repository."""
+    taken = []
+    for name in NAMES:
+        found = _expect(await client.get(f"/api/v1/repositories/{name}"), 200, 404)
+        if found.status_code == 200:
+            taken.append(name)
+    if taken and not replace:
+        raise SystemExit(
+            f"There already: {', '.join(taken)}. If a run of this script that was stopped "
+            "left them, run it with --replace, which removes them first. If they are "
+            "yours, this script is not for this installation as it is."
+        )
+    if taken:
+        await clean_up(client)
 
 
 async def run(arguments: argparse.Namespace) -> int:
@@ -240,7 +262,7 @@ async def run(arguments: argparse.Namespace) -> int:
     async with httpx.AsyncClient(
         base_url=arguments.url.rstrip("/"), headers=credential, timeout=60.0
     ) as client:
-        await clean_up(client)  # of a run that was stopped
+        await claim(client, replace=arguments.replace)
         failed = 0
         try:
             targets = await set_up(client, arguments.inside_url, arguments.token)
@@ -273,6 +295,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network", default="host", help="the Docker network of the generator")
     parser.add_argument("--inside-url", help="the installation, as containers on it reach it")
     parser.add_argument("--keep", action="store_true", help="leave the repositories it made")
+    parser.add_argument(
+        "--replace", action="store_true", help="remove repositories of its names that are there"
+    )
     return parser
 
 
