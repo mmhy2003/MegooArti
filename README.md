@@ -11,9 +11,14 @@ repositories and the Docker registry, and a web UI (Next.js) that uses that API.
 Requires Docker with Compose.
 
 ```bash
+cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD in it
 docker compose up --build --detach --wait
 curl http://localhost:8000/api/v1/status/ready
 ```
+
+Nothing starts until the database has a password of your choosing: `.env.example`
+says what else an installation may choose. `docker compose build` makes the images
+`megooarti/backend` and `megooarti/frontend`, tagged with the version.
 
 The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
 The web UI is at <http://localhost:8000>, and interactive API documentation at
@@ -31,6 +36,7 @@ All configuration is by environment variable.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MEGOOARTI_DATABASE_URL` | required | PostgreSQL URL, for example `postgresql://user:password@host:5432/dbname` |
+| `MEGOOARTI_DATABASE_PASSWORD` | unset | The password of that URL, when it is kept apart from it. Any characters: in a URL, `@`, `/`, `#`, `?` and `%` would have to be escaped. It goes before a password in the URL |
 | `MEGOOARTI_RUN_MIGRATIONS` | `true` | When `true`, the container waits for the database and applies migrations before starting. Any other value skips both |
 | `MEGOOARTI_DB_WAIT_TIMEOUT_SECONDS` | `60` | How long the container waits for the database before exiting with an error |
 | `MEGOOARTI_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
@@ -49,7 +55,9 @@ All configuration is by environment variable.
 | `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords; use a long random value. If unset or empty, a key is generated into `secret.key` in the data directory on first use |
 | `MEGOOARTI_NPM_MAX_PUBLISH_BYTES` | `104857600` | Largest `npm publish` request accepted. A publish is read into memory, so this bounds what one costs |
 
-Docker Compose also reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
+Docker Compose reads `MEGOOARTI_DB_PASSWORD`, which it gives to the database and, as
+`MEGOOARTI_DATABASE_PASSWORD`, to the backend: nothing starts without it. It also
+reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
 `MEGOOARTI_DB_PORT` if another PostgreSQL already uses 5432. The database port is
 published on `127.0.0.1` only. `MEGOOARTI_HTTP_PORT` is the gateway's: the backend and
@@ -190,6 +198,8 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 - A path the remote does not have is remembered for `negative_cache.ttl_minutes`
   (default 1440), so the remote is not asked again for it.
 - A cached file is kept even if the remote later stops having it.
+- A connection to the remote that cannot be made is tried twice more, a moment
+  apart, before it counts as a failure: a network drops one now and then.
 - After a connection failure, or a `502`, `503`, `504` or `429` from the remote, it is
   left alone for a minute, doubling with each further failure up to an hour. Set
   `"blocked": true` to stop contacting it altogether, or `"auto_block": false` to turn
@@ -1011,6 +1021,40 @@ browser) pass through it. Towards the backend, your proxy must do what it does:
 Do not publish the backend's or the frontend's own port beside it: the session cookie
 and the content security policy assume one origin.
 
+## Backup and restore
+
+A backup is two files: the database, and the data directory, which holds the blob
+stores and the key that stored secrets are sealed with.
+
+```bash
+sh scripts/backup.sh /path/to/backup
+```
+
+Run it beside `docker-compose.yml`. Nothing is stopped. The database is dumped first
+and the files are copied after: a file is on the disk before the database names it,
+and stays for a day after nothing names it, so a copy made after the dump has every
+file the dump names. It writes `database.dump`, `data.tar` and `VERSION` into the
+directory, and names any blob store whose directory is outside the data directory:
+those files are not in the backup, and are yours to copy.
+
+To restore, into an installation that has nothing in it yet (a new machine, or after
+`docker compose down --volumes`, which destroys what is there):
+
+```bash
+cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD: this installation's own
+sh scripts/restore.sh /path/to/backup
+```
+
+It refuses a database or a data directory that is not empty. Users, sessions, API
+tokens, repositories and their content are then as they were when the backup was
+made, and what was stored after it is gone. A backup of an older version is brought
+up to this one when the backend starts.
+
+Without the key (`secret.key` in the data directory, or `MEGOOARTI_SECRET_KEY` if you
+set one) a proxy's stored password cannot be read and must be entered again. Nothing
+else depends on it. If you set `MEGOOARTI_SECRET_KEY`, keep it with the backup: it is
+not in it.
+
 ## Health endpoints
 
 | Endpoint | Meaning |
@@ -1085,6 +1129,7 @@ Rules for migrations:
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
+cp .env.example .env          # with MEGOOARTI_DB_PASSWORD=megooarti: the tests expect it
 docker compose up --detach --wait db
 cd backend
 cp .env.example .env
@@ -1100,8 +1145,29 @@ Tests create and use the databases `megooarti_test` and `megooarti_test_migratio
 Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server.
 
 A test whose setup fails leaves what it said in `backend/.test-failures/`, one file
-for each, and the end of the run says so. The newest fifty are kept; Git does not see
-the folder.
+for each, and the end of the run says so. A test of the running stack that fails
+leaves the stack's logs there too. The newest fifty are kept; Git does not see the
+folder.
+
+The tests marked `docker` run the clients themselves against a stack built from the
+working tree: Maven, Gradle and sbt; npm, pnpm and yarn; pip, uv, poetry and twine;
+docker; a browser; and the backup and restore scripts. Their images are tagged
+`test`, and their stack has a project name and ports of its own.
+
+**Known vulnerabilities** in what is depended on are looked for with:
+
+```bash
+cd backend
+uv export --frozen --no-emit-project --output-file requirements.txt
+uvx pip-audit --requirement requirements.txt --disable-pip
+cd ../frontend
+pnpm audit --prod             # what the image has
+pnpm audit                    # and what development uses
+```
+
+**How long answers take** with many clients at once is measured by
+`backend/scripts/latency.py`, against a running installation, with a load generator
+it runs in a container. Its first lines say how.
 
 ### The web UI
 
@@ -1149,3 +1215,9 @@ at port 3000, without an API beside it.
 - **Next.js 16 is not the Next.js of earlier years.** Its documentation is in
   `frontend/node_modules/next/dist/docs/`; read the page for what you are about to
   change. `frontend/AGENTS.md` says the same to coding agents.
+
+## Licence
+
+MIT: see [LICENSE](LICENSE). Swagger UI, which draws the API's documentation page, is
+another project's and Apache-2.0: its files are in
+`backend/src/megooarti/static/swagger-ui/`, with its licence beside them.

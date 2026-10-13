@@ -127,6 +127,21 @@ The API's version does not change: nothing that worked for a client that did wha
 | L7 | The real-client tests' proxies of public registries are not left alone after one failure (`auto_block` off), so one slow answer from the internet does not fail everything that follows it. | A test failed that way on `main`: the proxy stopped asking, and the group then answered 404 for what it had not cached. |
 | L8 | The commands that scan the dependencies of the backend and of the frontend for known vulnerabilities are written down, run once, and what they find is dealt with or recorded. | NFR-10, without CI (D2). |
 
+### Settled while building plan 11b
+
+| # | What | Why |
+| --- | --- | --- |
+| L9 | The copyright line of `LICENSE` names "The MegooArti Authors". | Whose name stands there is the owner's to say; this names nobody wrongly. |
+| L10 | The tests' stack has a password and an image tag (`test`) of its own, given in the environment, which goes before a `.env` file. | The images are now named for everybody: a stack of tests that built `megooarti/backend:0.1.0` would have replaced the one an installation on the same machine runs. |
+| L11 | Backup and restore are two scripts, `scripts/backup.sh` and `scripts/restore.sh`, and the test runs those. The database is dumped before the files are copied. Restore refuses an installation that is not empty. The backup names the blob stores it cannot have, those whose directory is outside the data directory. | A procedure that is a script is the same every time, and is what the test runs. The order is what makes the two halves fit while the installation runs: a file is written before the database names it, and kept for a day after. |
+| L12 | A connection to a remote that could not be made is tried twice more (after 0.2 s and 1 s) before it is a failure. A connection that timed out, and a request that was sent, are not tried again. | The logs L7 keeps showed what failed the client tests now and then: `ConnectError` from the backend's container to Maven Central, on a request whose neighbours succeeded. Behind a group that one dropped connection was "not there" to the client, which does not ask twice. |
+| L13 | L7's logs are kept by the same hook that keeps a failed setup: of a test marked `docker` that fails, what the backend and the gateway said. They hold the first-start administrator's password of the tests' own stack, which is removed with it. | The stack is gone when its module ends, and it was the only place that said why. |
+| L14 | sbt publishes a snapshot under one name (`sbt-library-4.1-SNAPSHOT.jar`), not Maven's dated ones, and the repository takes it. Gradle publishes a file of its own beside the POM (`.module`) and SHA-256 and SHA-512 checksums, and reads them back. Both went through without a change to the Maven format. | L5. Found by running them. |
+| L15 | The latency script runs a load generator (`oha` 1.16.0) in a container to do the asking. | Written in Python first, it could ask about 170 times a second and measured itself: it said 3 s where the generator, on the same stack, says 0.56 s. |
+| L16 | NFR-4 is not met. On a laptop (Intel i7-1165G7, 4 cores and 8 threads, Docker Desktop on Windows with 8 CPUs and 11.5 GiB), with 100 clients at once and a token, a request for cached metadata is answered in about 0.5 s at the median and 2 to 3 s at the 95th percentile, 105 to 140 a second, where NFR-4 asks 200 ms. An address that needs neither the database nor a caller's name is answered 2,100 times a second through the gateway. The backend is one process and uses one core, which is full; finding who is calling is several questions to the database for every request. | L6 measures; it does not mend. What would: more than one process, and not asking again within a few seconds who a token belongs to. Both are decisions (section 8). |
+| L17 | The dependency scan found nothing in what the backend depends on, nothing in what the frontend's image has, and one advisory in what the frontend's development uses: `braces` (GHSA-vfj7-8cjw-p6xm), under `eslint-config-next`, with no patched version. It is not in the image, and takes patterns from this repository only. | L8. |
+| L18 | The backend takes the database's password apart from its address (`MEGOOARTI_DATABASE_PASSWORD`), and Compose gives it that way. The tests' stack has a password with `@`, `/`, `#`, `?`, `%`, `&` and `$` in it. | In the address, a password that a password manager made would be read as a host or a path, and the first start would fail with words about neither. |
+
 ## 6. Documents (plan 11c)
 
 `README.md` becomes: what MegooArti is, a quick start that ends at a signed-in administrator, and a map of the guides. The rest of what it holds today moves, reorganised and checked against the product as it is.
@@ -153,6 +168,8 @@ A proxy whose remote fails answers `502`; a group takes that as "not here" and, 
 It stays as it is. A group answers for several repositories, and a build that names more than one of them moves on after `404` and stops after `502`: with one member's remote down for a day, every miss would stop builds that today go on. What was asked for is logged with the member's failure, and the proxy's state is on its settings page.
 
 ## 8. Known and left
+
+**How long answers take** (L16): NFR-4 is a "Should" and is missed by an order of magnitude. Running several processes of the backend, and remembering for a few seconds who a token belongs to, are the two changes that would bring it near; the first needs the backend proven with more than one process, the second delays a revoked token by as long as it is remembered.
 
 **Asking again for the present password** before a credential is made or changed (another user's password, a new user, an API token): today an open session of an administrator is enough for each (H19).
 
