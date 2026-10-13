@@ -20,7 +20,7 @@ from sqlalchemy.pool import NullPool
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import alembic_config
 from megooarti.main import create_app
-from megooarti.repositories import service
+from megooarti.repositories import remote, service
 from megooarti.repositories.models import Repository
 from megooarti.security import passwords, tokens, users
 from megooarti.security.models import User
@@ -28,7 +28,7 @@ from tests.accounts import PASSWORD, sign_in
 from tests.clients import client_for
 from tests.containers import DATA_FILE, call, compose
 from tests.databases import ensure_database, reset_schema
-from tests.failures import keep_broken_setup, say_where
+from tests.failures import keep_broken_setup, keep_stack_logs, say_where
 
 DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://megooarti:megooarti@localhost:5432/megooarti_test"
 
@@ -38,17 +38,30 @@ pytest_plugins = ["pytester"]
 
 
 _kept: list[Path] = []
+_logs: list[Path] = []
+
+
+def _stack_logs() -> str:
+    said = compose("logs", "--no-color", "--tail", "4000", "backend", "gateway", check=False)
+    return said.stdout
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    """Keep what a failed setup said, whatever becomes of the run's own output."""
+    """Keep what a failed setup said, whatever becomes of the run's own output.
+
+    And of a test of the running stack that failed, what the stack said.
+    """
     path = keep_broken_setup(report)
     if path is not None:
         _kept.append(path)
+    logs = keep_stack_logs(report, _stack_logs)
+    if logs is not None:
+        _logs.append(logs)
 
 
 def pytest_terminal_summary(terminalreporter) -> None:
     say_where(terminalreporter.write_line, _kept)
+    say_where(terminalreporter.write_line, _logs, "log of the stack", "logs of the stack")
 
 
 def _configured_test_database_url() -> str:
@@ -61,6 +74,12 @@ def _fresh_settings_cache():
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_waiting_for_remotes(monkeypatch):
+    """A remote that refuses a connection is asked again after a wait: in tests, at once."""
+    monkeypatch.setattr(remote, "CONNECT_WAITS", (0.0, 0.0))
 
 
 @pytest.fixture(scope="session")

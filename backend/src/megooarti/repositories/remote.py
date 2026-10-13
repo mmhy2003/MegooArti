@@ -4,6 +4,7 @@ Every outcome is a value, not an exception, so the proxy engine decides what a f
 means: serve a cached copy, answer 404, or count it towards blocking the remote.
 """
 
+import asyncio
 import base64
 import hashlib
 import ipaddress
@@ -30,6 +31,12 @@ Stage = Callable[[AsyncIterator[bytes], int | None], Awaitable[StagedBlob]]
 
 # What a HEAD answer passes on to the client.
 _HEAD_HEADERS = ("Content-Length", "Content-Type", "Last-Modified", "ETag")
+
+# A connection that could not be made is tried again before it is called a failure, and
+# this is how long is waited before each further try. Nothing was sent, so nothing is
+# repeated; and one connection that a network dropped is not an outage, though behind
+# a group it would be answered as "not there".
+CONNECT_WAITS = (0.2, 1.0)
 
 
 @dataclass(frozen=True)
@@ -340,13 +347,15 @@ async def _token(
     if authorization and authorization.startswith("Basic "):
         # The remote named this address as the place its users sign in.
         headers["Authorization"] = authorization
-    request = client.build_request(
-        "GET",
-        challenge.realm,
-        params={name: value for name, value in wanted.items() if value},
-        headers=headers,
+    response = await _send(
+        client,
+        lambda: client.build_request(
+            "GET",
+            challenge.realm,
+            params={name: value for name, value in wanted.items() if value},
+            headers=headers,
+        ),
     )
-    response = await client.send(request, stream=True)
     try:
         if response.status_code in (401, 403):
             # No status: this is not the remote's answer about what was asked for, and
@@ -389,6 +398,23 @@ async def _read(response: httpx.Response, limit: int) -> bytes | None:
     return bytes(received)
 
 
+async def _send(client: httpx.AsyncClient, build: Callable[[], httpx.Request]) -> httpx.Response:
+    """Send a request and return the answer with its body unread.
+
+    A connection that could not be made is tried again (CONNECT_WAITS). Not one that
+    took too long to make: that has waited already. And not a request that was sent:
+    whatever became of it, the remote may have seen it.
+    """
+    for wait in (*CONNECT_WAITS, None):
+        try:
+            return await client.send(build(), stream=True)
+        except httpx.ConnectError:
+            if wait is None:
+                raise
+            await asyncio.sleep(wait)
+    raise AssertionError("the last try answers or raises")
+
+
 async def _open(
     client: httpx.AsyncClient,
     method: str,
@@ -407,7 +433,7 @@ async def _open(
 
     async def send(credential: str | None) -> httpx.Response:
         sent = {**headers, "Authorization": credential} if credential else headers
-        return await client.send(client.build_request(method, url, headers=sent), stream=True)
+        return await _send(client, lambda: client.build_request(method, url, headers=sent))
 
     if sign_in is None:
         return await send(authorization)

@@ -11,7 +11,13 @@ from fastapi import FastAPI
 from tests import containers
 from tests.clients import client_for
 from tests.databases import reset_schema
-from tests.failures import KEPT, keep_broken_setup, keep_failure, say_where
+from tests.failures import (
+    KEPT,
+    keep_broken_setup,
+    keep_failure,
+    keep_stack_logs,
+    say_where,
+)
 
 
 async def test_client_for_runs_the_application_lifespan():
@@ -153,3 +159,53 @@ def test_a_compose_command_that_may_fail_is_answered_as_it_ended(monkeypatch):
     result = containers.compose("down", "--volumes", check=False)
 
     assert (result.returncode, result.stderr) == (1, "no such service")
+
+
+class _Report:
+    """What pytest reports of one phase of one test, as far as the hooks look at it."""
+
+    def __init__(self, *, failed: bool, when: str = "call", docker: bool = True) -> None:
+        self.failed, self.when = failed, when
+        self.nodeid = "tests/test_pypi_client.py::test_pip_installs"
+        self.longreprtext = "AssertionError: pip: exit 1"
+        self.keywords = {"docker": 1} if docker else {}
+
+
+def test_what_the_stack_said_is_kept_when_a_test_of_it_fails(tmp_path):
+    said = "backend-1  | remote_failed repository=pypi-proxy reason=it did not answer in time\n"
+
+    kept = keep_stack_logs(_Report(failed=True), lambda: said, tmp_path)
+
+    assert kept is not None and "-call-logs-" in kept.name
+    assert "remote_failed repository=pypi-proxy" in kept.read_text(encoding="utf-8")
+
+
+def test_the_stack_is_not_asked_when_nothing_failed_or_the_test_is_not_of_it(tmp_path):
+    def asked() -> str:
+        raise AssertionError("the stack was asked")
+
+    assert keep_stack_logs(_Report(failed=False), asked, tmp_path) is None
+    assert keep_stack_logs(_Report(failed=True, docker=False), asked, tmp_path) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_stack_that_says_nothing_or_cannot_be_asked_does_not_cost_the_run(tmp_path):
+    def gone() -> str:
+        raise FileNotFoundError("docker")
+
+    assert keep_stack_logs(_Report(failed=True, when="setup"), lambda: "  \n", tmp_path) is None
+    assert keep_stack_logs(_Report(failed=True), gone, tmp_path) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_end_of_the_run_says_how_many_of_each_were_kept(tmp_path):
+    said: list[str] = []
+    one, two = tmp_path / "a.txt", tmp_path / "b.txt"
+
+    say_where(said.append, [one])
+    say_where(said.append, [one, two], "log of the stack", "logs of the stack")
+
+    assert said == [
+        f"1 failed setup kept in {tmp_path}",
+        f"2 logs of the stack kept in {tmp_path}",
+    ]

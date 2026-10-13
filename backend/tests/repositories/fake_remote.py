@@ -25,8 +25,12 @@ class _Transport(httpx.AsyncBaseTransport):
         self._inner = httpx.ASGITransport(app=remote.app)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self._remote.connections += 1
         if self._remote.down:
             raise httpx.ConnectError("connection refused", request=request)
+        if self._remote.refuses > 0:
+            self._remote.refuses -= 1
+            raise httpx.ConnectError("connection reset", request=request)
         return await self._inner.handle_async_request(request)
 
 
@@ -38,6 +42,10 @@ class FakeRemote:
         self.declared_extra = 0
         self.redirect_to: str | None = None
         self.down = False
+        # How many connections are still refused before one is taken, and how many
+        # were tried at all.
+        self.refuses = 0
+        self.connections = 0
         self.delay = 0.0
         self.set_cookie: str | None = None
         self.content_encoding: str | None = None

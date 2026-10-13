@@ -124,6 +124,77 @@ async def test_an_unreachable_remote_is_a_blockable_failure(fake, stage):
     assert outcome == remote.Failed("ConnectError", blockable=True)
 
 
+async def test_a_connection_that_could_not_be_made_is_tried_again(fake, stage):
+    # A network that drops one connection, or two, is not a remote that is down.
+    fake.refuses = 2
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Fetched)
+    assert (fake.connections, len(fake.requests)) == (3, 1)
+
+
+async def test_a_remote_that_takes_no_connection_is_a_failure_after_three_tries(
+    fake, stage, monkeypatch
+):
+    waited: list[float] = []
+
+    async def wait(seconds: float) -> None:
+        waited.append(seconds)
+
+    monkeypatch.setattr(remote, "CONNECT_WAITS", (0.2, 1.0))
+    monkeypatch.setattr(remote.asyncio, "sleep", wait)
+    fake.down = True
+
+    outcome = await fetch(fake, stage)
+
+    assert outcome == remote.Failed("ConnectError", blockable=True)
+    assert fake.connections == 3
+    assert waited == [0.2, 1.0]  # a little longer before each further try
+
+
+@pytest.mark.parametrize("ask", ["download", "fetch", "head"])
+async def test_every_way_of_asking_tries_a_connection_again(fake, stage, ask):
+    fake.refuses = 1
+    async with fake.client() as client:
+        if ask == "download":
+            outcome = await remote.download(client, URL, authorization=None, stage=stage)
+        elif ask == "fetch":
+            outcome = await remote.fetch(client, URL, authorization=None, limit=1000)
+        else:
+            outcome = await remote.head(client, URL, authorization=None)
+
+    assert not isinstance(outcome, remote.Failed)
+    assert fake.connections == 2
+
+
+async def test_a_request_that_was_answered_is_not_sent_again(fake, stage):
+    # 503 is an answer: the remote saw the request. Only what was never sent is repeated.
+    fake.status = 503
+
+    outcome = await fetch(fake, stage)
+
+    assert isinstance(outcome, remote.Failed)
+    assert (fake.connections, len(fake.requests)) == (1, 1)
+
+
+async def test_a_connection_that_took_too_long_is_not_tried_again(stage):
+    connections = 0
+
+    class Slow(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            nonlocal connections
+            connections += 1
+            raise httpx.ConnectTimeout("timed out", request=request)
+
+    async with remote.new_client(transport=Slow()) as client:
+        outcome = await remote.download(client, URL, authorization=None, stage=stage)
+
+    # It has waited as long as a connection may take: three times that is no help.
+    assert outcome == remote.Failed("ConnectTimeout", blockable=True)
+    assert connections == 1
+
+
 async def test_a_file_shorter_than_declared_is_a_failure_and_leaves_nothing(fake, stage, tmp_path):
     fake.declared_extra = 5
 

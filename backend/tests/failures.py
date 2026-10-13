@@ -43,8 +43,28 @@ def keep_broken_setup(report, directory: Path = DIRECTORY) -> Path | None:
         return None
 
 
-def say_where(write_line, kept: list[Path]) -> None:
+def keep_stack_logs(report, logs, directory: Path = DIRECTORY) -> Path | None:
+    """For a test of the running stack that failed: keep what the stack said.
+
+    `logs` asks the stack, and answers its text. The stack is gone when its module of
+    tests ends, and with it the one place that says why a client was refused. The text
+    has what the backend logs once on its first start, the administrator's first
+    password: of a stack that these tests made and remove.
+    """
+    if not report.failed or "docker" not in report.keywords:
+        return None
+    try:
+        said = logs()
+        if not said.strip():
+            return None  # no stack: its build failed, and that is in the setup's own text
+        return keep_failure(directory, report.nodeid, f"{report.when}-logs", said)
+    except Exception:  # noqa: BLE001 (whatever Docker does, the run goes on)
+        return None
+
+
+def say_where(
+    write_line, kept: list[Path], one: str = "failed setup", many: str = "failed setups"
+) -> None:
     """For pytest's `pytest_terminal_summary`: a file nobody knows of is read by nobody."""
     if kept:
-        setups = "setup" if len(kept) == 1 else "setups"
-        write_line(f"{len(kept)} failed {setups} kept in {kept[0].parent}")
+        write_line(f"{len(kept)} {one if len(kept) == 1 else many} kept in {kept[0].parent}")
