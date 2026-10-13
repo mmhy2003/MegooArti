@@ -40,16 +40,26 @@ if [ "$tables" != 0 ]; then
     echo "restore: the database is not empty. Restore into a new installation." >&2
     exit 3
 fi
+# An image that is not there yet is built before it is run, and the building is
+# printed where the answer goes: the answer is the line that says it is one.
+echo "restore: looking at the data directory (the backend's image is built first, if it is not there)"
 found=$(docker compose run --rm --no-deps -T --entrypoint sh backend \
-    -c 'ls -A /var/lib/megooarti | wc -l') || {
+    -c 'echo "found:$(ls -A /var/lib/megooarti | wc -l)"') || {
     echo "restore: the backend's image could not be run. Nothing was restored." >&2
     exit 1
 }
-found=$(printf '%s' "$found" | tr -d '\r ')
-if [ "$found" != 0 ]; then
-    echo "restore: the data directory is not empty. Restore into a new installation." >&2
-    exit 3
-fi
+found=$(printf '%s\n' "$found" | tr -d '\r ' | sed -n 's/^found:\([0-9][0-9]*\)$/\1/p' | tail -n 1)
+case "$found" in
+    0) ;;
+    '')
+        echo "restore: the data directory could not be looked at. Nothing was restored." >&2
+        exit 1
+        ;;
+    *)
+        echo "restore: the data directory is not empty. Restore into a new installation." >&2
+        exit 3
+        ;;
+esac
 
 # Read through first: a restore that stops between its halves leaves a database that
 # names files that are not there.

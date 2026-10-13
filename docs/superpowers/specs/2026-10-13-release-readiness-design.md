@@ -185,6 +185,17 @@ Every command in a guide is one a test runs or was run while the guide was writt
 | G5 | The changelog's 0.1.0 has no date. | Nothing is released: a date is written when one is. |
 | G6 | The API's own description of an upload, and the comment at the head of the gateway's configuration, point at the guides where they pointed at the README. | What they pointed at has moved. |
 
+### Settled by the review of plan 11c
+
+| # | What | Why |
+| --- | --- | --- |
+| G7 | `restore.sh` asks the backend's image for a line that says it is the answer (`found:<n>`), and tells a data directory that "could not be looked at" from one that "is not empty". `docs/backup.md` builds the images before a restore on a machine that has none. | On a machine without the image, `docker compose run` builds it and prints the building where the answer goes: the script took the build's words for a data directory that was not empty, on exactly the new machine a restore is for. (L24 met the same thing and went round it.) |
+| G8 | "Behind your own reverse proxy" has the shape the Compose file is made for: your proxy in front of the gateway, the gateway published to it alone (`MEGOOARTI_HTTP_PORT=127.0.0.1:8000`) and passing on what it says of the client. The other shape, your proxy in the gateway's place, is said with what of the Compose file must then change. The first was run before it was written. | "Put your own reverse proxy in its place" could not be followed: Compose publishes neither service, and fixes whom the backend believes. |
+| G9 | The guides say what somebody with only the guide would have met: that the limit of failed sign-ins is by address too, and who shares one; the first sign-in whole with `curl`, and `403 password_change_required` until then; the password file's path in Git Bash, and the line of the log; where a blob store may be; that an older version started on a newer database exits, and the gateway answers `502`; the six areas of administration a role may be given; what does not have the API's shape of an error; that a token cannot make a token; what a request id may be. | Each was run on a stack of its own before it was written, and four were not as the guide had them. |
+| G10 | The changelog's known issues have what section 8 says they have: the lists that stop at 200, a refusal's text that stays, the generated password, the limit shared by an address, the slowness with its machine and its numbers. And one that was found while G9 was run: a blob store whose directory cannot be written is made without a complaint, and uploads to its repositories answer `500`. | A known fault that the changelog does not have is one a reader finds for themselves. |
+| G11 | G3 looks up more: the default Compose gives each variable; the method and the query an address is asked with, in a sentence and in each `curl` command; every code of an error that a guide names; how long a page of a list may be; the service and the port of each of the gateway's routes; each client as a word of its own; the areas of administration. Not looked up, and said here: whether a sentence is true; whether a file named without its folder is in the root or in `backend/`. `CLIENTS` is kept by hand, and the guide to adding a format says so. | The review found that the test looked up less than G3 said it did. |
+| G12 | Left: the sentence about sbt publishing a snapshot again, which no test runs; what `docs/administration.md` and `docs/configuration.md` say twice; the API's description of an upload naming the guide and not its section. | Each is small, and none is untrue. |
+
 ## 7. A group and a member that could not answer
 
 A proxy whose remote fails answers `502`; a group takes that as "not here" and, if no other member has the file, answers `404` (storage design, plan 3b). A client told `404` does not try again, where one told `502` might.
@@ -200,6 +211,8 @@ It stays as it is. A group answers for several repositories, and a build that na
 From the reviews of plans 10a to 10c, none of which stops a release: page titles that could say more; lists of choices capped where a later page exists; a refusal's text staying after its field is edited; the generated password not announced; a proxy secret's hint that is untrue once the kind of sign-in changes; a proxy's failure state cleared by a save without a word; a notification that covers the buttons under it for some seconds; names that break every few characters at phone width; the settings form's missing heading; `repository-settings.tsx` to be split; the browser tests' complaint filter letting `409` through.
 
 They are listed in the changelog's "Known issues" where a person would meet them.
+
+**A blob store whose directory cannot be written** is made without a complaint, and an upload to one of its repositories is then answered with `500 internal_error` (G10). Refusing the store when it is made, or saying what is wrong when the upload fails, is a change to the product and not to its documents: it is in the changelog and in `docs/repositories.md` until it is made.
 
 ## 9. Risks
 

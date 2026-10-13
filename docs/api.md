@@ -26,11 +26,17 @@ old one kept for a while.
 
 A request with no credentials acts as the `anonymous` user if anonymous access is on.
 `401` is the answer to a caller who is not known, and `403` to one who is known and
-may not. API tokens are made at `/api/v1/me/tokens`, or in the web UI under Account.
+may not. API tokens are made at `/api/v1/me/tokens`, or in the web UI under Account,
+by a caller who signed in with a password: a token can neither make a token nor
+change a password (`403 interactive_auth_required`).
+
+Signing in with a password is limited. After five failures for one user name, or
+from one address, within fifteen minutes, the answer is `429 too_many_attempts` with
+a `Retry-After` header, whatever the password. A token is not refused by this.
 
 ## Errors
 
-Every error has one shape:
+Every error the API answers with has one shape:
 
 ```json
 {
@@ -46,10 +52,17 @@ Every error has one shape:
 - **`code`** is for a program: it does not change with the wording. **`message`** is
   for a person.
 - **`details`** names the fields of a request that were refused, where there are any
-  (`422 validation_error`): a field of the body as `body.<field>`, or by its own name
-  where it was refused for what it would do and not for how it is written.
+  (`422 validation_error`): a field of the body as `body.<field>`, a parameter of
+  the address as `query.<name>` or `path.<name>`, or a field by its own name where it
+  was refused for what it would do and not for how it is written.
 - **`request_id`** is also in the `X-Request-ID` header of every answer, and in the
-  server's log lines for the request. A caller may send its own in that header.
+  server's log lines for the request. A caller may send its own in that header: 1 to
+  64 letters, digits, `.`, `_` or `-`. Anything else is replaced by one of the
+  server's.
+- **An answer that is not the API's** does not have this shape. When the backend is
+  not running, or does not answer in time, what stands in front of it answers in its
+  own way: the gateway of the Compose file with `502` or `504` and a page of HTML.
+  Where the body is not JSON, go by the status.
 - Under `/v2/`, errors have the registry API's own shape, which container clients
   show.
 

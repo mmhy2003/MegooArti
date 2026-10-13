@@ -30,14 +30,36 @@ Users, roles, your own API tokens and anonymous access are managed in the web UI
   present one. `PUT /api/v1/users/{id}/password` sets another user's, and refuses
   your own with `409 own_password`.
 - Five failed sign-ins for one username, or from one address, within 15 minutes block
-  further attempts until the window ends. A valid API token is never refused by this
-  limit. Behind a reverse proxy, set `MEGOOARTI_FORWARDED_ALLOW_IPS` to the proxy's
-  address; otherwise every client appears to come from the proxy and shares one limit.
+  further attempts until the window ends: for that name from anywhere, and for every
+  name from that address. The answer is `429 too_many_attempts`, with a `Retry-After`
+  header. A valid API token is never refused by this limit. Clients that reach
+  MegooArti from one address share its limit, so a reverse proxy must say who they
+  are: see [Installation](installation.md#behind-your-own-reverse-proxy).
 - Requests without credentials can only ever be allowed `repository:` permissions,
   whatever roles the `anonymous` user holds.
 
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.
+
+### What an administrator may be given
+
+The built-in `admin` role holds `*`, which is everything. A role of your own can hold
+a part of it. Each area below has `:read`, to see, and `:write`, to change; the
+area's name alone gives both.
+
+| Permission | What it allows |
+| --- | --- |
+| `admin:users` | The users: making, changing and deleting them, the roles they hold, and setting another user's password |
+| `admin:roles` | The roles, and the permission patterns they hold |
+| `admin:tokens` | Seeing which API tokens another user has, and revoking one. Nobody sees a token's value but its owner, once, when it is made |
+| `admin:repositories` | Making, changing and deleting repositories, having a proxy check its remote again, and rebuilding an index |
+| `admin:blobstores` | The blob stores |
+| `admin:settings` | The base URL and anonymous access; to read, also what is running (`/api/v1/system/information`) |
+
+What a repository holds is not given by these, but by `repository:` permissions:
+see [Repositories](repositories.md). Whoever may change roles, or the roles a user
+holds, can give out everything: give `admin:roles:write` and `admin:users:write` as
+you would give `*`.
 
 ## What is running
 

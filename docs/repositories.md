@@ -51,8 +51,16 @@ In place of a password, use an API token as the password, or send it as
 - **Identical content is stored once.** Deleting a file frees its content only after
   nothing has used it for `MEGOOARTI_BLOB_GRACE_SECONDS`.
 - A repository's name, format, type and blob store cannot be changed after creation.
-- Each blob store needs a directory of its own: one that overlaps another store's
-  directory is refused.
+- **A blob store is a directory in the backend's container.** Given a name alone
+  (`"path": "second"`, or no path at all), it is a directory under the data
+  directory, beside `default`: in the data volume, and in a backup. An absolute path
+  (`/srv/blobs`) is taken as it is, and must be a volume you mount into the
+  backend's container, which the user the backend runs as (uid 10001) can write.
+  What is written to a path that is no volume is gone when the container is made
+  again, and [a backup](backup.md#what-a-backup-does-not-have) does not have a store
+  outside the data directory. A directory that cannot be written is not refused
+  when the store is made: uploads to its repositories then answer `500`. Each store
+  needs a directory of its own: one that overlaps another store's is refused.
 
 ## Proxy repositories
 

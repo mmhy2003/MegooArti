@@ -25,7 +25,7 @@ says what else an installation may choose. `docker compose build` makes the imag
 tagged with the version. They are named for the project's own place in GitHub's
 registry; nothing is published there yet, so they are built here.
 
-The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
+The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
 The web UI is at <http://localhost:8000>, and interactive API documentation at
 <http://localhost:8000/api/docs>.
 
@@ -35,14 +35,16 @@ The first start makes an administrator, and writes its password to a file:
 docker compose exec backend cat /var/lib/megooarti/admin.password
 ```
 
+(In Git Bash on Windows, with two slashes: `//var/lib/megooarti/admin.password`.)
 Sign in with it, as `admin`, at <http://localhost:8000>, and choose a password of
 your own. [Installation](docs/installation.md) says the rest.
 
 Compose starts four containers: the database, the backend, the frontend, and a
 gateway (nginx) that is the one published address and sends each request to the
-backend or the frontend. The gateway is for development and testing. In production,
-put [your own reverse proxy](docs/installation.md#behind-your-own-reverse-proxy) in
-its place.
+backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
+development and testing. In production, put
+[your own reverse proxy](docs/installation.md#behind-your-own-reverse-proxy), with
+TLS, in front of it or in its place.
 
 ## Guides
 

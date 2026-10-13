@@ -42,7 +42,10 @@ The frontend container has no configuration. It reads `PORT` (default `3000`) an
 the backend.
 
 `MEGOOARTI_DATABASE_URL` accepts `postgres://`, `postgresql://` and libpq-style
-`?sslmode=require` URLs as handed out by managed PostgreSQL services.
+`?sslmode=require` URLs as handed out by managed PostgreSQL services. A database of
+your own must be one the backend's role may make its tables in: PostgreSQL 17 is what
+the tests run on, and the `pg_trgm` extension is needed
+([Upgrading](upgrade.md#what-happens-to-the-database) says who makes it).
 
 If you raise `MEGOOARTI_SHUTDOWN_GRACE_SECONDS`, raise `stop_grace_period` in
 `docker-compose.yml` (or your orchestrator's equivalent) to a larger value as well;
@@ -56,7 +59,7 @@ it. `.env.example` has each with what it is for.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MEGOOARTI_DB_PASSWORD` | required | The database's password. Given to the database when it is first made, and to the backend as `MEGOOARTI_DATABASE_PASSWORD` |
-| `MEGOOARTI_HTTP_PORT` | `8000` | The port the gateway is published on |
+| `MEGOOARTI_HTTP_PORT` | `8000` | The port the gateway is published on. With an address before it (`127.0.0.1:8000`), on that address only |
 | `MEGOOARTI_DB_PORT` | `5432` | The port the database is published on, on `127.0.0.1` only |
 | `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Passed on to the backend |
 | `MEGOOARTI_SECRET_KEY` | unset | Passed on to the backend if it is set |

@@ -113,6 +113,11 @@ Name the group as the place everything is resolved from, and the hosted reposito
 as where a build publishes to:
 
 ```groovy
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
 repositories {
     maven {
         url = uri('https://repo.example.com/repository/maven-public')
@@ -145,7 +150,7 @@ publishing {
 - Gradle publishes a file of its own beside the POM (`.module`), and SHA-256 and
   SHA-512 checksums beside the SHA-1 and MD5 ones. They are taken as Maven's are: the
   module is stored, and the checksums are compared with the files.
-- Over plain HTTP, which Gradle refuses as Maven does, a repository must say
+- Gradle refuses a repository over plain HTTP unless the repository says
   `allowInsecureProtocol = true`.
 
 ## sbt

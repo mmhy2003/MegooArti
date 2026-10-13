@@ -23,6 +23,21 @@
 | G5 | The changelog's 0.1.0 has no date. | Nothing is released. |
 | G6 | The API's description of an upload, and the comment at the head of the gateway's configuration, point at the guides. | What they pointed at has moved. |
 
+**Changed after the whole-branch review.** The task bodies below show the guides and the test as the tasks made them. The branch differs from them as follows; the change to the script was made test-first, each new lookup was seen to fail with what it guards broken by hand (12 of 12), and everything the guides now tell a reader to type was run on a stack of its own first. The spec's section 6 records what they settle as G7 to G12.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `scripts/restore.sh` has the image print `found:<n>` and reads that line alone; no such line is exit 1, "could not be looked at". `test_backup_restore.py`: the stand-in prints what a build prints before the answer (`FAKE_BUILT`), and three tests more. `docs/backup.md` has `docker compose build` before the restore. | I1: a restore on a new machine was refused with "the data directory is not empty", because the image was built first and its building was read as the answer. |
+| F2 | `docs/installation.md`, "Behind your own reverse proxy": your proxy in front of the gateway (published to it alone, two lines of `gateway/nginx.conf` changed), or in its place, with what of the Compose file must then change. `MEGOOARTI_HTTP_PORT` may have an address before the port (`docs/configuration.md`, `.env.example`). The README, the Compose file's comment and the gateway's say "in front of it or in its place". | I2: "in its place" could not be followed with the Compose file. |
+| F3 | The limit of failed sign-ins by address, and who shares one: `docs/installation.md`, `docs/administration.md`, `docs/api.md` (`429 too_many_attempts`, `Retry-After`), the changelog. | I3. |
+| F4 | The first sign-in with `curl` ends with `PUT /api/v1/me/password`, and says `403 password_change_required`; the path with two slashes for Git Bash, and the log's line. | I4, I5. |
+| F5 | `docs/repositories.md` says where a blob store may be, what an absolute path must be, and what happens when it cannot be written. | I6. |
+| F6 | `docs/upgrade.md`: an older version started on a newer database exits, and the gateway answers `502`; `503` is what a backend that was already running says. The sentence about `pg_trgm` is where the database is spoken of, and `docs/configuration.md` says what a database of your own must allow. `MEGOOARTI_VERSION` in `.env` is to change with the version. | I7, and three of the minors. |
+| F7 | The changelog's known issues: the slowness with its machine and numbers, the limit shared by an address, the blob store that cannot be written, the lists that stop at 200, a refusal's text that stays, the generated password. `docs/development.md` has the advisory in `braces`. | I8. |
+| F8 | `docs/api.md`: what does not have the shape of an error, `query.<name>`, what a request id may be, that a token cannot make a token. `docs/administration.md`: "What an administrator may be given". | I9, I10. |
+| F9 | `test_documents.py` looks up the default Compose gives, methods and queries (in sentences and in `curl` commands), codes of errors, the page length, the service and port of the gateway's routes, clients as words, and the areas of administration: 136 tests where there were 115. | I11. |
+| F10 | Small things a reader would have tripped on: "the last command" in the README; a backup's files on Windows; what else the key seals; the Gradle `plugins` block; three more places in the guide to adding a format; the test database's name; the Compose version; that a new installation has no repository. | Minors of the review that were untrue sentences or steps that could not be followed. |
+
 ## Global Constraints
 
 - **A guide says what the product does, as it is.** Nothing is promised that no test shows, and what is known to be wrong is in the changelog.

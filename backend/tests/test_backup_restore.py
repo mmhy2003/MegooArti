@@ -110,6 +110,10 @@ case "$*" in
     printf '%s\r\n' "${FAKE_TABLES-0}"
     exit "${FAKE_PSQL:-0}" ;;
   "compose run --rm --no-deps -T --entrypoint sh backend "*)
+    # An image that is not there yet is built first, and Compose prints the building
+    # where the answer goes.
+    [ -z "${FAKE_BUILT:-}" ] || printf '#1 [backend] load build definition\r\n#1 DONE 0.1s\r\n'
+    case "$*" in *found:*) printf 'found:' ;; esac
     printf '%s\r\n' "${FAKE_FOUND-0}"
     exit "${FAKE_RUN:-0}" ;;
   "compose exec -T db pg_restore --list") cat > /dev/null; exit "${FAKE_DUMP_READ:-0}" ;;
@@ -303,9 +307,11 @@ def test_a_restore_that_stops_between_its_halves_says_what_is_left_and_what_to_d
     [
         ({"tables": 14}, 3, "the database is not empty"),
         ({"found": 2}, 3, "the data directory is not empty"),
+        ({"found": 2, "built": 1}, 3, "the data directory is not empty"),
         # Not being able to look is not the same as having found something.
         ({"psql": 1}, 1, "the database could not be asked"),
         ({"run": 125}, 1, "the backend's image could not be run"),
+        ({"found": ""}, 1, "the data directory could not be looked at"),
     ],
 )
 def test_an_installation_that_is_not_empty_or_cannot_be_looked_at_is_left_alone(
@@ -318,6 +324,16 @@ def test_an_installation_that_is_not_empty_or_cannot_be_looked_at_is_left_alone(
     assert result.returncode == status
     assert f"restore: {said}" in result.stderr
     assert "pg_restore" not in faked.asked and "--extract" not in faked.asked
+
+
+@without_a_daemon
+def test_a_restore_that_had_to_build_the_image_first_sees_that_the_directory_is_empty(faked):
+    source = a_backup(faked.directory / "backup")
+
+    result = faked.run("restore.sh", source.as_posix(), built=1)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.rstrip().endswith("restore: done")
 
 
 @without_a_daemon

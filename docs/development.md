@@ -20,7 +20,8 @@ uv run python -m megooarti    # serve on http://localhost:8000 using .env
 ### Tests
 
 Tests create and use the databases `megooarti_test` and `megooarti_test_migrations`.
-Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server.
+Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server. The tests empty the
+database they are given, and refuse one whose name does not end in `_test`.
 
 A test whose setup fails leaves what it said in `backend/.test-failures/`, one file
 for each, and the end of the run says so. A test of the running stack that fails
@@ -29,7 +30,7 @@ folder.
 
 The tests marked `docker` run the clients themselves against a stack built from the
 working tree: Maven, Gradle and sbt; npm, pnpm and yarn; pip, uv, poetry and twine;
-docker; a browser; and the backup and restore scripts. Their images are tagged
+Docker and skopeo; a browser; and the backup and restore scripts. Their images are tagged
 `test`, and their stack has a project name and ports of its own.
 
 Name the test files of one directory together on a `pytest` command line: pytest
@@ -46,6 +47,10 @@ cd ../frontend
 pnpm audit --prod             # what the image has
 pnpm audit                    # and what development uses
 ```
+
+As this is written, `pnpm audit` names one advisory: `braces` (GHSA-vfj7-8cjw-p6xm),
+under `eslint-config-next`, which has no patched version. It is in what development
+uses, takes patterns from this repository only, and is not in the image.
 
 **How long answers take** with many clients at once is measured by
 `backend/scripts/latency.py`, against a running installation, with a load generator

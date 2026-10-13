@@ -78,8 +78,9 @@ services:
       retries: 12
       start_period: 10s
 
-  # The one published address. For development and testing: in production your own
-  # reverse proxy takes its place, with the rules of gateway/nginx.conf.
+  # The one published address, over plain HTTP. For development and testing: in
+  # production your own reverse proxy, with TLS, stands in front of it or takes its
+  # place, as docs/installation.md says.
   gateway:
     image: nginx:stable-alpine
     depends_on:

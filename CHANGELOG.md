@@ -46,14 +46,32 @@ The first version.
 ### Known issues
 
 - **Under many clients at once, answers are slow.** With a hundred clients asking for
-  cached metadata at once, an answer takes about half a second at the median and two
-  to three seconds for the slowest twentieth, on a four-core machine. The backend is
-  one process, and finds out who is calling anew for every request.
+  cached metadata at once, each with an API token, 105 to 140 requests are answered a
+  second, and an answer takes 0.13 to 0.6 seconds at the median and two to three
+  seconds for the slowest twentieth. That was measured on a laptop with four cores,
+  under Docker Desktop on Windows; the aim was 200 milliseconds for the slowest
+  twentieth. The backend is one process, and finds out who is calling anew for
+  every request.
 - **An administrator's open session is enough to make another administrator or an API
   token.** Neither asks for the password again.
 - **A group answers "not found" when a member's remote could not be asked** (except a
   Docker group). A connection that could not be made is tried three times first.
+- **Signing in with a password is limited by address as well as by name.** Clients
+  that share an address share the limit: behind one NAT, or under Docker Desktop,
+  where the gateway sees one address for every client. Five failures by any of them
+  stop every sign-in with a password from there for fifteen minutes. API tokens are
+  not refused.
+- **A blob store whose directory cannot be written is made without a complaint**, and
+  uploads to its repositories then answer `500`.
 - **In the web UI:**
+  - lists that are not paged stop at 200: the home page shows the first 200
+    repositories and says how many there are, and the first 200 are what there is to
+    choose from where a repository or a role is chosen, and what is shown of a
+    user's API tokens;
+  - what the server refused stays written under a field after the field is edited,
+    until the form is sent again;
+  - a password made with "Generate one" is put into the field, and is not announced
+    to a screen reader;
   - at 1024 pixels of width the navigation takes three rows;
   - a notification covers the buttons under it for a few seconds;
   - a proxy's page does not say that saving it clears what it last met at its remote;

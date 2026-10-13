@@ -1,15 +1,18 @@
 # Installation
 
 MegooArti is installed with Docker Compose, from this repository: the images are built
-on the machine that runs them. It needs Docker with Compose, and nothing else: the
-database is one of its containers.
+on the machine that runs them. It needs Docker with Compose (`docker compose`, version
+2.1.1 or later, which has `up --wait`), and nothing else: the database is one of its
+containers.
 
 ## What runs
 
 Compose starts four containers: the database (PostgreSQL), the backend, the frontend,
 and a gateway (nginx) that is the one published address and sends each request to the
-backend or the frontend. The gateway is for development and testing. In production,
-put [your own reverse proxy](#behind-your-own-reverse-proxy) in its place.
+backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
+development and testing. In production, put
+[your own reverse proxy](#behind-your-own-reverse-proxy), with TLS, in front of it or
+in its place.
 
 What an installation holds is in two volumes: the database's, and the backend's data
 directory (`/var/lib/megooarti`), which has the blob stores, where file content is
@@ -28,6 +31,9 @@ and choose, in `.env`:
   is set when the database is first made: changing it later changes nothing in a
   database that exists.
 - **`MEGOOARTI_HTTP_PORT`**, if the gateway is not to be at port 8000.
+- **`MEGOOARTI_DB_PORT`**, if something on this machine has port 5432 already: the
+  database is published there, on `127.0.0.1` only, and nothing starts while the port
+  is taken.
 - **`MEGOOARTI_SECRET_KEY`**, if you want to keep the key that seals stored secrets
   yourself. Without it the backend makes one in its data directory.
 
@@ -44,6 +50,9 @@ The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok
 The web UI is at <http://localhost:8000>, and the API's documentation at
 <http://localhost:8000/api/docs>.
 
+A new installation has one blob store, `default`, and no repository:
+[Repositories](repositories.md) makes the first.
+
 `docker compose down` stops and removes the containers and keeps what they hold.
 `docker compose down --volumes` destroys that too.
 
@@ -56,6 +65,11 @@ to `admin.password` in the data directory, and logs it once:
 docker compose exec backend cat /var/lib/megooarti/admin.password
 ```
 
+In Git Bash on Windows, write the path with two slashes at its start
+(`//var/lib/megooarti/admin.password`): Git Bash makes a Windows path of it otherwise.
+The password is also in the line of `docker compose logs backend` that says
+`initial_admin_password`.
+
 Sign in with it, as `admin`, at <http://localhost:8000>. You must then choose a new
 password, after which the file is deleted. The same with `curl`:
 
@@ -63,10 +77,18 @@ password, after which the file is deleted. The same with `curl`:
 curl -c cookies.txt -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<the generated password>"}' \
   http://localhost:8000/api/v1/auth/login
+
+curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
+  -H 'X-CSRF-Token: <the csrf_token of the first answer>' \
+  -d '{"current_password":"<the generated password>","new_password":"<one of your own>"}' \
+  http://localhost:8000/api/v1/me/password
 ```
 
-The response contains a `csrf_token`. Requests that use the session cookie and change
-anything must send it in an `X-CSRF-Token` header.
+The first answer contains a `csrf_token`. Requests that use the session cookie and
+change anything must send it in an `X-CSRF-Token` header, as the second does. The
+second answers `204`, with nothing in it. Until the password has been changed, every
+other request as `admin` is refused with `403 password_change_required`, with the
+session and with the password alike.
 
 ## The base URL
 
@@ -91,8 +113,7 @@ not make the web UI, or the Docker registry, work under that path.
 
 ## Behind your own reverse proxy
 
-One address serves everything. Whatever stands in front must send each request to
-the right service:
+One address serves everything, and each request goes to the right service:
 
 | Path | To | What it is |
 | --- | --- | --- |
@@ -101,9 +122,38 @@ the right service:
 | `/v2/` | backend, port 8000 | The Docker registry |
 | everything else | frontend, port 3000 | The web UI |
 
-[gateway/nginx.conf](../gateway/nginx.conf) is a complete example: it is what Compose
-runs, and the real-client tests of this project (Maven, npm, pip, Docker and a
-browser) pass through it. Towards the backend, your proxy must do what it does:
+[gateway/nginx.conf](../gateway/nginx.conf) does that: it is what Compose runs, and
+the real-client tests of this project (Maven, npm, pip, Docker and a browser) pass
+through it. It speaks plain HTTP, so something of yours terminates TLS, in one of two
+places.
+
+**In front of the gateway.** This is what the Compose file is made for, and nothing
+in it changes. Your proxy sends every request to the gateway's port, and:
+
+1. The gateway is published where only your proxy reaches it. For a proxy on the
+   same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8000` in `.env` publishes it on that
+   machine alone.
+2. The gateway passes on what your proxy says of the client, in place of what it
+   sees itself, which is now your proxy. In `gateway/nginx.conf`:
+
+   ```nginx
+   proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+   proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+   ```
+
+   and then `docker compose up --detach --force-recreate gateway`. Left as it was,
+   the gateway gives every client your proxy's address: all of them share one limit
+   of failed sign-ins, the log names the proxy for each, and the backend takes every
+   request for plain HTTP, so that the [base URL](#the-base-url) has to be set.
+
+**In the gateway's place.** Your proxy does what the gateway does, by the table
+above. The Compose file has to be changed for that: it publishes neither the backend
+nor the frontend, and your proxy must reach both, while nothing else may. It also
+sets `MEGOOARTI_FORWARDED_ALLOW_IPS` to `*` on the backend, which is right only
+while nothing but the gateway reaches the backend: set it to the address your
+proxy's requests come from.
+
+Either way, your proxy must do what the gateway does towards the backend:
 
 - **Pass the path on exactly as it was sent.** An npm scope arrives as an encoded
   slash (`@scope%2fname`) and must stay one. In nginx that means `proxy_pass` with no
@@ -116,10 +166,10 @@ browser) pass through it. Towards the backend, your proxy must do what it does:
   from its remote before the first byte comes back (`proxy_read_timeout 600s`).
 - **Speak HTTP/1.1 to the backend** (`proxy_http_version 1.1`), so that a body of
   unknown length can be passed on as it arrives.
-- **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`**, and set
-  `MEGOOARTI_FORWARDED_ALLOW_IPS` on the backend to your proxy's address. The backend
-  writes the addresses it gives to clients (tarball links, the registry's token
-  address) from them, unless the base URL is set in the system settings.
+- **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`.** The backend writes
+  the addresses it gives to clients (tarball links, the registry's token address)
+  from them, unless the base URL is set in the system settings. It believes them
+  only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
 - **Write `X-Forwarded-For` yourself, from the address you see.** Do not pass on the
   one a client sent: the backend counts failed sign-ins by that address and writes it
   to its log, and a client that could choose it could evade the limit or lock out
@@ -128,8 +178,10 @@ browser) pass through it. Towards the backend, your proxy must do what it does:
 - **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
   leaves compression to you as well.
 
-Do not publish the backend's or the frontend's own port beside it: the session cookie
-and the content security policy assume one origin.
+Clients reach one address and no other. Do not let them at the backend's or the
+frontend's own port beside it: the session cookie and the content security policy
+assume one origin, and the backend of the Compose file believes whatever reaches it
+about who is calling.
 
 ## Before it faces a network
 
@@ -139,7 +191,12 @@ and the content security policy assume one origin.
 - **Signing in is limited by user name and by address**: five failures within fifteen
   minutes stop further attempts for that name, from anywhere, until the window ends.
   Whoever can reach the sign-in can therefore keep a name, `admin` included, out of
-  the web UI by guessing at it. An API token is never refused by this limit.
+  the web UI by guessing at it. Five failures from one address, whatever the names,
+  stop every sign-in with a password from that address for as long
+  (`429 too_many_attempts`, with a `Retry-After` header). Clients that share an
+  address share that limit: behind one NAT, behind a proxy that does not say who
+  they are, and under Docker Desktop, where the gateway sees one address for every
+  client. An API token is never refused by this limit.
 - **A page on another site cannot make a visitor's browser change anything**, signing
   in included. A page on a sibling of your host's name (`other.example.com` beside
   `repo.example.com`) counts as the site itself, as browsers have it: do not serve

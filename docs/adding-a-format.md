@@ -36,12 +36,18 @@ raises.
 3. **Say what is its own** by overriding what the table below lists. Start from what
    the format's own client sends: which requests it makes, in which order, and what
    it does with each answer.
-4. **Give the web UI its name**: `FORMATS` in `frontend/src/lib/repository-form.ts`,
+4. **Give the web UI its name**: `FORMATS` in `frontend/src/lib/repository-form.ts`
+   and in `frontend/src/components/permission-rows.tsx`,
    and, if a hosted repository of it takes uploads through the API, `UPLOADABLE` in
    `frontend/src/lib/content.ts` and in `frontend/src/screens/upload.tsx`, which
    also has the fields of each format's form.
-5. **Write its guide** as `docs/formats/<name>.md`, and add it to the README's table.
-   A test fails until every registered format has one.
+5. **Write its guide** as `docs/formats/<name>.md`, add it to the README's table,
+   and name the clients it is tested with in `CLIENTS` in
+   `backend/tests/test_documents.py`. A test fails until every registered format has
+   a guide that names them.
+6. **If its clients reach it at an address of its own**, as Docker's do at `/v2/`,
+   send that address to the backend in `gateway/nginx.conf`, and add it to the table
+   in [Installation](installation.md#behind-your-own-reverse-proxy).
 
 ## What a format says of itself
 

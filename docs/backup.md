@@ -16,7 +16,9 @@ is on the disk before the database names it, and stays for
 the dump has every file the dump names, as long as the backup takes less than that.
 
 It writes `database.dump`, `data.tar` and `VERSION` into the directory, readable by
-their owner alone: the dump has every password's hash, and the copy has the key. A
+their owner alone where the file system keeps such permissions (on Windows it does
+not: choose a directory that only you can read). The dump has every password's hash,
+and the copy has the key. A
 backup that is there already is replaced only when the new one is whole; if anything
 fails, the script says so, ends with an error, and leaves the old one as it was. It
 names any blob store whose directory is outside the data directory: those files are
@@ -27,11 +29,14 @@ To restore, into an installation that has nothing in it yet (a new machine, or a
 
 ```bash
 cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD: this installation's own
+docker compose build          # where the images have not been built yet
 sh scripts/restore.sh /path/to/backup
 ```
 
-It refuses a database or a data directory that is not empty, and reads both files
-through before it writes anything. Should it stop between its two halves, it says so:
+It starts the database, refuses a database or a data directory that is not empty,
+and reads both files through before it writes anything. (Without the build, the
+script's first look at the data directory builds the backend's image, and says
+nothing for as long as that takes.) Should it stop between its two halves, it says so:
 what is there is then not whole, and `docker compose down --volumes` empties it for
 another try. Users, sessions, API tokens, repositories and their content are then as
 they were when the backup was made, and what was stored after it is gone. A backup of
@@ -39,8 +44,12 @@ an older version is brought up to this one when the backend starts.
 
 Without the key (`secret.key` in the data directory, or `MEGOOARTI_SECRET_KEY` if you
 set one) a proxy's stored password cannot be read and must be entered again. Nothing
-else depends on it. If you set `MEGOOARTI_SECRET_KEY`, keep it with the backup: it is
-not in it.
+else that is kept depends on it. If you set `MEGOOARTI_SECRET_KEY`, keep it with the
+backup: it is not in it.
+
+Keep a backup as you would keep a password. Besides the hashes, it has the key, which
+also seals the tokens a container client is given when it signs in: they last five
+minutes, and whoever has the key can make one for any user.
 
 ## What a backup does not have
 
