@@ -13,6 +13,7 @@ PROJECT = "megooarti-test"
 HTTP_PORT = "18000"
 # The tag the tests' images are built under: not the one an installation runs.
 VERSION = "test"
+IMAGE = "ghcr.io/mmhy2003/megooarti-{name}:" + VERSION
 ENVIRONMENT = {
     **os.environ,
     "MEGOOARTI_HTTP_PORT": HTTP_PORT,

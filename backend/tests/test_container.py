@@ -13,6 +13,7 @@ from tests.containers import (
     DATA_FILE,
     ENVIRONMENT,
     HTTP_PORT,
+    IMAGE,
     REPOSITORY_ROOT,
     VERSION,
     call,
@@ -74,7 +75,7 @@ def test_container_does_not_run_as_root(stack):
 @pytest.mark.parametrize("name", ["backend", "frontend"])
 def test_the_images_are_built_under_their_names_and_say_what_they_are(stack, name):
     inspected = subprocess.run(
-        ["docker", "image", "inspect", f"megooarti/{name}:{VERSION}"],
+        ["docker", "image", "inspect", IMAGE.format(name=name)],
         capture_output=True,
         text=True,
         encoding="utf-8",

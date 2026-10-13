@@ -54,7 +54,7 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"image", "pull_policy", "build", "healthcheck"}
+    assert set(frontend) == {"image", "build", "healthcheck"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
@@ -101,6 +101,10 @@ def test_the_gateway_does_what_artifacts_and_package_clients_need(directive):
     assert directive in GATEWAY
 
 
+def dockerfile(name: str) -> str:
+    return (COMPOSE_FILE.parent / name / "Dockerfile").read_text(encoding="utf-8")
+
+
 def test_nothing_starts_with_a_password_everybody_knows():
     whole = COMPOSE_FILE.read_text(encoding="utf-8")
     password = services()["db"]["environment"]["POSTGRES_PASSWORD"]
@@ -121,12 +125,17 @@ def test_the_images_are_named_as_a_registry_would_hold_them(name):
     service = services()[name]
     tag = f"${{MEGOOARTI_VERSION:-{__version__}}}"
 
-    assert service["image"] == f"megooarti/{name}:{tag}"
+    # In the place of a registry that is this project's own, where only its owner puts
+    # an image. A short name on the public registry is whoever's took it there, and
+    # `docker compose pull` would have run what they put under it.
+    assert service["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:{tag}"
+    source = re.search(r'image\.source="https://github\.com/([^"]+)"', dockerfile(name))[1]
+    assert service["image"].startswith(f"ghcr.io/{source.split('/')[0].lower()}/")
     # The image is told the version it is built as, for its label.
     assert service["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
-    # Built here, always: a name on a public registry belongs to whoever took it there,
-    # and `docker compose pull` would run what they put under it.
-    assert service["pull_policy"] == "build"
+    # Not built again at every command: what `docker compose run` prints must be what
+    # was run, and a build writes into the same place.
+    assert "pull_policy" not in service
 
 
 def test_the_secret_key_is_passed_on_only_if_it_is_set():

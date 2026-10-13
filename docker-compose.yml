@@ -23,10 +23,9 @@ services:
 
   # The API, the repositories and the registry. It is reached through the gateway only.
   backend:
-    # `docker compose build` makes the image under the name a registry would hold it by.
-    image: megooarti/backend:${MEGOOARTI_VERSION:-0.1.0}
-    # Built here, and never fetched: on a public registry the name is whoever's took it.
-    pull_policy: build
+    # `docker compose build` makes the image under the name a registry would hold it by:
+    # in this project's own place there, where nobody else can put one.
+    image: ghcr.io/mmhy2003/megooarti-backend:${MEGOOARTI_VERSION:-0.1.0}
     build:
       context: ./backend
       args:
@@ -63,8 +62,7 @@ services:
   # The web UI. It holds no data and no secret, and never calls the backend: the
   # browser does.
   frontend:
-    image: megooarti/frontend:${MEGOOARTI_VERSION:-0.1.0}
-    pull_policy: build
+    image: ghcr.io/mmhy2003/megooarti-frontend:${MEGOOARTI_VERSION:-0.1.0}
     build:
       context: ./frontend
       args:
