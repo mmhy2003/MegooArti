@@ -18,7 +18,8 @@ curl http://localhost:8000/api/v1/status/ready
 
 Nothing starts until the database has a password of your choosing: `.env.example`
 says what else an installation may choose. `docker compose build` makes the images
-`megooarti/backend` and `megooarti/frontend`, tagged with the version.
+`megooarti/backend` and `megooarti/frontend`, tagged with the version. Compose builds
+them here and never fetches them: nothing is published under those names.
 
 The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
 The web UI is at <http://localhost:8000>, and interactive API documentation at
@@ -1030,12 +1031,20 @@ stores and the key that stored secrets are sealed with.
 sh scripts/backup.sh /path/to/backup
 ```
 
-Run it beside `docker-compose.yml`. Nothing is stopped. The database is dumped first
-and the files are copied after: a file is on the disk before the database names it,
-and stays for a day after nothing names it, so a copy made after the dump has every
-file the dump names. It writes `database.dump`, `data.tar` and `VERSION` into the
-directory, and names any blob store whose directory is outside the data directory:
-those files are not in the backup, and are yours to copy.
+It backs up the installation that `docker compose` finds from the repository's
+directory; if yours was started under another project name, set
+`COMPOSE_PROJECT_NAME` to it. Nothing is stopped, but the database and the backend
+must be running. The database is dumped first and the files are copied after: a file
+is on the disk before the database names it, and stays for
+`MEGOOARTI_BLOB_GRACE_SECONDS` (a day) after nothing names it, so a copy made after
+the dump has every file the dump names, as long as the backup takes less than that.
+
+It writes `database.dump`, `data.tar` and `VERSION` into the directory, readable by
+their owner alone: the dump has every password's hash, and the copy has the key. A
+backup that is there already is replaced only when the new one is whole; if anything
+fails, the script says so, ends with an error, and leaves the old one as it was. It
+names any blob store whose directory is outside the data directory: those files are
+not in the backup, and are yours to copy.
 
 To restore, into an installation that has nothing in it yet (a new machine, or after
 `docker compose down --volumes`, which destroys what is there):
@@ -1045,10 +1054,12 @@ cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD: this installatio
 sh scripts/restore.sh /path/to/backup
 ```
 
-It refuses a database or a data directory that is not empty. Users, sessions, API
-tokens, repositories and their content are then as they were when the backup was
-made, and what was stored after it is gone. A backup of an older version is brought
-up to this one when the backend starts.
+It refuses a database or a data directory that is not empty, and reads both files
+through before it writes anything. Should it stop between its two halves, it says so:
+what is there is then not whole, and `docker compose down --volumes` empties it for
+another try. Users, sessions, API tokens, repositories and their content are then as
+they were when the backup was made, and what was stored after it is gone. A backup of
+an older version is brought up to this one when the backend starts.
 
 Without the key (`secret.key` in the data directory, or `MEGOOARTI_SECRET_KEY` if you
 set one) a proxy's stored password cannot be read and must be entered again. Nothing
@@ -1218,6 +1229,8 @@ at port 3000, without an API beside it.
 
 ## Licence
 
-MIT: see [LICENSE](LICENSE). Swagger UI, which draws the API's documentation page, is
-another project's and Apache-2.0: its files are in
-`backend/src/megooarti/static/swagger-ui/`, with its licence beside them.
+MIT: see [LICENSE](LICENSE). Two things in the repository are other projects' and
+keep their own licences, each beside its files: Swagger UI, which draws the API's
+documentation page (Apache-2.0, in `backend/src/megooarti/static/swagger-ui/`), and
+the three typefaces of the web UI, Oxanium, Inter and JetBrains Mono (SIL Open Font
+License, in `frontend/src/fonts/`).

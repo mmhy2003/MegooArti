@@ -27,6 +27,19 @@
 | L17 | The dependency scans are commands in the README, run once in Task 6; what they found is in the spec. | L8, without CI. |
 | L18 | `MEGOOARTI_DATABASE_PASSWORD`: the backend takes the database's password apart from its address, and Compose gives it that way. | In the address, a password a password manager made is read as a host or a path. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change to the code was made test-first, and the spec's section 5 records what they settle as L19 to L26.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `scripts/backup.sh` is written again: `umask 077`; the directory made whole before the script changes its own; `docker compose exec -T db true` and `... backend true` first; tar run through `sh -c` so that it prints `tar-status:<n>` to stderr; the three files written as `*.part` and renamed at the end; `fail()` ends with status 1, "NOT done", and the parts removed; no `--exclude`; the blob stores asked for are those outside `/var/lib/megooarti`. | The review (Critical): an empty archive written over a good one, and "done". |
+| F2 | `scripts/restore.sh` is written again: both files must be there and not empty; `pg_restore --list` and `tar --list` before anything is written (exit 2, "Nothing was restored"); `pg_restore --single-transaction`; `half()` for a stop between the halves; psql or the image failing is exit 1 and not "is not empty"; the backup's version is said. | The review: a database restored and then a stop, with nothing said. |
+| F3 | `test_backup_restore.py` has a stand-in for `docker` (a shell script put first on the `PATH`, answering as `FAKE_*` variables say) and twenty tests of the scripts' own decisions that need no daemon. The test of a real stack also stops the backend before a backup, keeps a blob store at `cache/tmp`, and restores from a copy whose archive is no archive. | The scripts' failures could not be met by a test that needs everything to work. |
+| F4 | `backend/scripts/latency.py`: `NAMES` (the six repositories), `clean_up` removes those, `claim(client, replace=)` refuses to begin where one is there, `--replace`. | The review: it removed `latency-dashboards`. |
+| F5 | `tests/failures.py`: `mark_of_the_stack(item, report)`, called from a `pytest_runtest_makereport` wrapper in `conftest.py`; `keep_stack_logs` looks at what it left on the report. | The review: the keyword `docker` is also a folder's name. |
+| F6 | `docker-compose.yml`: `pull_policy: build` for both images. `db/wait.py`: the words for a refused password. `test_docker_client.py`: the two proxies of the test of public registries have `auto_block` off, as the others. `remote.py`: the comment says what is asked again across a redirect. | The review. |
+| F7 | `tests/databases.py`: `connected(engine, tries=3)`, used by the `db_connection` fixture. | The suite's own run caught H8: Windows dropping a connection to the test database. |
+| F8 | The README says what a backup needs and leaves behind, what a restore does when it stops, and whose the typefaces are; `.env.example` says how a single quote is written. | The review. |
+
 ## Global Constraints
 
 - **Nothing an installation holds is changed:** no migration. A database made with the old Compose file has the password `megooarti`, and keeps it: put that in `.env`.
