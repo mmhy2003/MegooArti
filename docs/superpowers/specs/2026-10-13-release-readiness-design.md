@@ -174,6 +174,17 @@ The API's version does not change: nothing that worked for a client that did wha
 
 Every command in a guide is one a test runs or was run while the guide was written; every address, variable and default is checked against the code by a test where one can be written (the variables of `Settings`, the routes the gateway sends on).
 
+### Settled while building plan 11c
+
+| # | What | Why |
+| --- | --- | --- |
+| G1 | There are two guides more than the table lists: `docs/repositories.md`, for what is true of every repository whatever its format, and `docs/web-ui.md`. | Two sections of the README had no place among the guides that were listed. |
+| G2 | The guides are the README's own text, moved a section at a time by a script, with only the words between the sections written anew. Every line of the README as it was is in a guide, but for 23 that were changed on purpose: headings that changed their level, links that now lead to another file, two sentences that were no longer true ("it is what the web UI will use"; an upgrade "to the version that added search"), and three that began with words for where they stood. | That text was reviewed plan by plan. Written again, it would have been read by nobody. |
+| G3 | `backend/tests/test_documents.py` holds the guides against the code: every setting with its default, what Compose reads, every address of the API that a guide names, where the gateway sends each kind of address, every member of the format interface, a guide for every format and every client it is tested with, every link, and every file of the repository that is named. Each was seen to fail with what it guards broken by hand. | "Checked against the code by a test where one can be written." A guide is the first thing to be wrong after a change, and the last to be read by whoever made it. |
+| G4 | What the reviews of plans 11a and 11b left for the documents is in `docs/installation.md` ("Before it faces a network"), `docs/backup.md` ("Good to know") and the changelog's known issues. | An operator must know it, and nothing else would have said it. |
+| G5 | The changelog's 0.1.0 has no date. | Nothing is released: a date is written when one is. |
+| G6 | The API's own description of an upload, and the comment at the head of the gateway's configuration, point at the guides where they pointed at the README. | What they pointed at has moved. |
+
 ## 7. A group and a member that could not answer
 
 A proxy whose remote fails answers `502`; a group takes that as "not here" and, if no other member has the file, answers `404` (storage design, plan 3b). A client told `404` does not try again, where one told `502` might.
