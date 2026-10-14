@@ -63,6 +63,7 @@ raises.
 | `signs` | The kind of key a hosted repository signs its indexes with (`openpgp`). It is made the first time it is needed, and kept sealed | none |
 | `validate_name` | Refuse a repository name the format cannot be used under | any name |
 | `validate_config` | Check and return the format's own settings (`format_config`), and refuse a change that cannot be made | no settings |
+| `validate_member` | Refuse a repository a group of the format cannot have as a member (an APT proxy without its remote's keys) | any |
 | `default_deployment_policy` | The policy of a hosted repository that was given none | `allow_redeploy` |
 | `describe_component` | Which component (namespace, name, version) a stored file belongs to, from its path and what was recorded about it at upload, or none | the file, in its folder |
 | `search_text` | The words a component is found by | namespace, name and version |

@@ -214,6 +214,7 @@ async def _set_members(db: AsyncSession, group: Repository, names: list[str]) ->
             raise _invalid("group.members", f"Unknown repository: {name}.")
         if member.format != group.format:
             raise _invalid("group.members", f"{name} is not a {group.format} repository.")
+        get_format(group.format).validate_member(member)
         chosen.append(member)
     if group.id in await _reachable(db, [member.id for member in chosen]):
         raise ApiError(

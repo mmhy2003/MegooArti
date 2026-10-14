@@ -1,6 +1,7 @@
 import pytest
 
 from megooarti.errors import ApiError
+from megooarti.repositories import service
 from megooarti.repositories.formats import ComponentKey, Format, format_names, get_format, register
 from megooarti.repositories.raw import RawFormat
 
@@ -69,3 +70,56 @@ def test_the_generic_content_type_is_whatever_the_client_declared():
 
 def test_settings_validation_is_given_the_stored_settings():
     assert get_format("raw").validate_config("hosted", {}, {}) == {}
+
+
+class Choosy(RawFormat):
+    """Raw, as a format whose groups take no proxy."""
+
+    def validate_member(self, member):
+        if member.type == "proxy":
+            raise ApiError(
+                422,
+                "validation_error",
+                "The request is not valid.",
+                [{"field": "group.members", "message": f"{member.name} is a proxy."}],
+            )
+
+
+async def test_a_format_may_refuse_a_repository_as_a_member_of_its_groups(db, monkeypatch):
+    for name, type, settings in (
+        ("files", "hosted", {}),
+        ("mirror", "proxy", {"proxy": {"remote_url": "http://remote.test/files"}}),
+    ):
+        await service.create_repository(
+            db, name=name, format="raw", type=type, online=True, blob_store=None, **settings
+        )
+    monkeypatch.setattr(service, "get_format", lambda name: Choosy())
+
+    taken = await service.create_repository(
+        db,
+        name="ours",
+        format="raw",
+        type="group",
+        online=True,
+        blob_store=None,
+        group={"members": ["files"]},
+    )
+    with pytest.raises(ApiError) as refused:
+        await service.create_repository(
+            db,
+            name="everything",
+            format="raw",
+            type="group",
+            online=True,
+            blob_store=None,
+            group={"members": ["files", "mirror"]},
+        )
+
+    assert taken.name == "ours"
+    assert refused.value.details == [{"field": "group.members", "message": "mirror is a proxy."}]
+
+
+def test_the_generic_format_takes_any_member():
+    from megooarti.repositories.models import Repository
+
+    assert get_format("raw").validate_member(Repository(name="mirror", type="proxy")) is None

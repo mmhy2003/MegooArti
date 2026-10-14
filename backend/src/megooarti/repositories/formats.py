@@ -21,6 +21,7 @@ from megooarti.repositories.paths import normalise_path
 if TYPE_CHECKING:
     from megooarti.repositories.content import RepositoryContext
     from megooarti.repositories.forms import UploadForm
+    from megooarti.repositories.models import Repository
 
 # The dispatcher, as an engine sees it: answer this request from that repository.
 Serve = Callable[["RepositoryContext", Request, str], Awaitable[Response]]
@@ -143,6 +144,13 @@ class Format:
             ]
             raise ApiError(422, "validation_error", "The request is not valid.", details)
         return {}
+
+    def validate_member(self, member: "Repository") -> None:
+        """Refuse a repository that a group of this format cannot have as a member.
+
+        It is of this format, and is about to be one of a group's members. Raises a 422.
+        The generic format takes any.
+        """
 
     def default_deployment_policy(self, config: dict[str, Any]) -> str:
         """The deployment policy of a hosted repository that was given none.

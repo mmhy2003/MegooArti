@@ -236,3 +236,24 @@ async def test_a_failure_to_write_is_given_to_every_request_that_waited_and_kept
     assert derived.get(repository, 1) is None
     assert derived._writing == {}
     derived.forget()
+
+
+def test_what_a_digest_names_is_replaced_by_what_any_other_digest_names():
+    derived.forget()
+    suite = (uuid.uuid4(), "trixie")
+
+    derived.put(suite, derived.Written("b" * 64, utcnow(), {"Release": b"one"}))
+    derived.put(suite, derived.Written("a" * 64, utcnow(), {"Release": b"two"}))
+
+    assert derived.get(suite, "b" * 64) is None
+    assert derived.get(suite, "a" * 64).files == {"Release": b"two"}
+    derived.forget()
+
+
+def test_a_groups_written_files_say_which_member_answers_for_the_others():
+    member = uuid.uuid4()
+
+    written = derived.Written("a" * 64, utcnow(), {}, {"*": member})
+
+    assert written.routes == {"*": member}
+    assert derived.Written(1, utcnow(), {}).routes == {}
