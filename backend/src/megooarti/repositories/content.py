@@ -130,10 +130,6 @@ class Snapshot:
     files: list[Held]
 
 
-# How often a snapshot is read again when the repository changed while it was read.
-_SNAPSHOT_TRIES = 5
-
-
 @dataclass(frozen=True)
 class PackageFile:
     """One file of a package, with what its version's component says."""
@@ -491,24 +487,44 @@ class RepositoryContext:
     async def snapshot(self) -> Snapshot:
         """Every file this repository holds, as one revision of it has them.
 
-        The revision is read before and after the files: if a change was committed in
-        between, everything is read again, so that an index written from a snapshot
-        names exactly the files its revision had.
+        The revision and the files are read in one statement, which sees the database as
+        it was at one moment: an index written from a snapshot names exactly the files
+        its revision had, however busy the repository is.
         """
-        for _ in range(_SNAPSHOT_TRIES):
-            revision, changed = await self.revision()
-            rows = await self.db.execute(
-                select(Asset.path, Blob.size, Blob.md5, Blob.sha1, Blob.sha256, Asset.attributes)
-                .join(Blob, Blob.id == Asset.blob_id)
-                .where(Asset.repository_id == self.repository.id, Asset.kind == "asset")
-                .order_by(Asset.path)
+        held = (
+            select(
+                Asset.repository_id,
+                Asset.path,
+                Asset.attributes,
+                Blob.size,
+                Blob.md5,
+                Blob.sha1,
+                Blob.sha256,
             )
-            files = [Held(*row) for row in rows]
-            if (await self.revision())[0] == revision:
-                return Snapshot(revision, changed, files)
-        raise ApiError(
-            503, "repository_busy", "The repository changed while it was being read. Try again."
+            .join(Blob, Blob.id == Asset.blob_id)
+            .where(Asset.repository_id == self.repository.id, Asset.kind == "asset")
+            .subquery()
         )
+        rows = (
+            await self.db.execute(
+                select(
+                    Repository.revision,
+                    func.coalesce(Repository.changed_at, Repository.created_at),
+                    held.c.path,
+                    held.c.size,
+                    held.c.md5,
+                    held.c.sha1,
+                    held.c.sha256,
+                    held.c.attributes,
+                )
+                .outerjoin(held, held.c.repository_id == Repository.id)
+                .where(Repository.id == self.repository.id)
+                .order_by(held.c.path)
+            )
+        ).all()
+        revision, changed = rows[0][0], rows[0][1]
+        files = [Held(*row[2:]) for row in rows if row[2] is not None]
+        return Snapshot(revision, changed, files)
 
     async def public_url(self, request: Request) -> str:
         """The address clients use to reach this repository, without a trailing slash.
@@ -568,13 +584,15 @@ class RepositoryContext:
         content_type: str,
         last_modified: datetime,
         etag: str | None = None,
+        dated: bool = True,
     ) -> Response:
         """Answer a GET or HEAD with bytes made for this request.
 
         The same planning as for a stored file, so the headers, conditions and ranges
         are the same too. With `etag`, the caller already knows a value that changes
         whenever the bytes do: they are then not hashed here, and no checksum headers
-        are sent.
+        are sent. With `dated` false, a date a client has (`If-Modified-Since`) does not
+        say it has these bytes: only their `ETag` does.
         """
 
         def digest(algorithm: str) -> str | None:
@@ -590,6 +608,7 @@ class RepositoryContext:
             last_modified=last_modified,
             filename=filename,
             etag=etag,
+            dated=dated,
         )
         plan = serving.plan(request.method, request.headers, item)
         if plan.byte_range is None:

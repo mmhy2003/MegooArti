@@ -82,9 +82,12 @@ def test_a_package_for_all_architectures_is_in_every_architectures_index():
     files = indexes.packages_files([listed("a", "1.0", "all"), listed("b", "1.0", "arm64")])
 
     assert sorted(path for path in files if path.endswith("/Packages")) == [
-        "main/binary-arm64/Packages"
+        "main/binary-amd64/Packages",
+        "main/binary-arm64/Packages",
     ]
     assert b"Package: a\n" in files["main/binary-arm64/Packages"]
+    assert b"Package: a\n" in files["main/binary-amd64/Packages"]
+    assert b"Package: b\n" not in files["main/binary-amd64/Packages"]
 
 
 def test_a_repository_with_no_package_of_one_architecture_lists_the_two_most_common():
@@ -137,5 +140,10 @@ def test_a_date_is_written_in_english_and_in_utc_whatever_the_zone_it_is_given_i
     assert indexes.date(later) == "Wed, 14 Oct 2026 09:30:05 UTC"
 
 
-def test_the_architectures_listed_are_those_of_the_packages_but_all():
+def test_the_architectures_listed_are_the_two_most_common_and_those_of_the_packages():
     assert indexes.architectures(scanned_listing()) == ["amd64", "arm64"]
+    assert indexes.architectures([listed("a", "1.0", "riscv64")]) == [
+        "amd64",
+        "arm64",
+        "riscv64",
+    ]

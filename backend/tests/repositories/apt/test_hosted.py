@@ -148,7 +148,46 @@ async def test_a_package_for_all_architectures_is_listed_for_each(client, hosted
         "megooarti-hello",
         "megooarti-tool",
     ]
-    assert amd.status_code == 404  # the repository has no amd64 package now
+    # An amd64 machine keeps its packages for all architectures, whatever is uploaded.
+    assert [control.get(p, "Package") for p in paragraphs(amd.content)] == ["megooarti-hello"]
+
+
+async def test_a_package_uploaded_as_curl_sends_a_file_to_an_address_ending_in_a_slash(
+    client, hosted, root
+):
+    """`curl --upload-file x.deb .../` puts the file's own name after the slash."""
+    put = await client.put(f"{URL}/hello_1.0_all.deb", content=make_deb(), headers=root)
+    posted = await client.post(
+        f"{URL}/tool.deb",
+        content=make_deb(control_text(package="megooarti-tool")),
+        headers=root,
+    )
+
+    assert put.status_code == 201, put.text
+    assert put.headers["location"] == f"https://test{URL}/{HELLO}"
+    assert posted.status_code == 201, posted.text
+    # The name is not where it is kept: that address, as the root, takes uploads only.
+    assert (await client.get(f"{URL}/hello_1.0_all.deb", headers=root)).status_code == 405
+
+
+async def test_an_index_is_sent_again_whatever_date_a_client_has_unless_it_has_these_bytes(
+    client, hosted, root
+):
+    """Two changes in one second share a date: only the content says whether it changed."""
+    await upload(client, root, make_deb())
+    before = await client.get(f"{DISTS}/InRelease", headers=root)
+    await upload(client, root, make_deb(control_text(version="2.0")))
+    later = {"If-Modified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"}
+
+    after = await client.get(f"{DISTS}/InRelease", headers={**root, **later})
+    packages = await client.get(f"{DISTS}/main/binary-amd64/Packages", headers={**root, **later})
+    same = await client.get(
+        f"{DISTS}/InRelease", headers={**root, "If-None-Match": after.headers["etag"]}
+    )
+
+    assert after.status_code == 200 and after.content != before.content
+    assert packages.status_code == 200
+    assert same.status_code == 304
 
 
 async def test_release_names_every_index_and_is_signed_with_the_repositorys_key(

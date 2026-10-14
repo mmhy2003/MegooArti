@@ -26,6 +26,9 @@ class Servable:
     # For content made for the request, whose maker already knows a value that changes
     # whenever it does. The digests are then left out instead of being computed.
     etag: str | None = None
+    # Whether a client that has it from a date on is told it has not changed since. Not
+    # for content that can change twice within the second a date is written to.
+    dated: bool = True
 
 
 @dataclass(frozen=True)
@@ -131,7 +134,7 @@ def _unchanged(request_headers: Mapping[str, str], item: Servable) -> bool:
     if if_none_match is not None:
         return _etag_matches(if_none_match, _etag(item))
     since = request_headers.get("if-modified-since")
-    return bool(since) and _not_modified_since(since, item.last_modified)
+    return item.dated and bool(since) and _not_modified_since(since, item.last_modified)
 
 
 def plan_stream(method: str, request_headers: Mapping[str, str], item: Servable) -> StreamPlan:

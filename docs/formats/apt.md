@@ -65,9 +65,12 @@ For Ubuntu, the remote is `http://archive.ubuntu.com/ubuntu` and the keyring
   deployment policy. With `disable_redeploy` it answers `409`.
 - **The indexes are written from the packages**: `Packages` (also `.gz` and `.xz`) for
   each architecture, and `Release`, signed as `InRelease` and `Release.gpg`. They are
-  written once after each change and kept in memory until the next. A package for
-  `all` architectures is listed under each; a repository with no package of any one
-  architecture lists `amd64` and `arm64`.
+  written once after each change and kept in memory until the next. `amd64` and
+  `arm64` are always listed, beside the architectures of the packages, and a package
+  for `all` architectures is listed under each: a machine of either keeps finding
+  those whatever is uploaded for another. A client is sent an index again unless it
+  has the same bytes (`If-None-Match`): two changes within one second have the same
+  date.
 - **The signing key** is made the first time it is needed: an Ed25519 OpenPGP key that
   never expires. `GET /api/v1/repositories/<name>/signing-key` shows it, and
   `POST /api/v1/repositories/<name>/signing-key/generate` (with

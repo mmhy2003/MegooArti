@@ -118,6 +118,15 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | P7 | What is read of a staged upload is closed as soon as it has been read. | On Windows a file still open can be neither moved into the store nor removed. |
 | P8 | The changelog gains APT when the version that has it is released. | Its first heading must be the version the code says it is. |
 
+### Settled by the review of plan 12a
+
+| # | What | Why |
+| --- | --- | --- |
+| P9 | A `PUT` or `POST` of a `.deb` to a name at the root of a hosted repository is an upload to the root: the name is not kept. | `curl --upload-file x.deb .../`, the guide's own command, puts the file's name after the slash, and was answered `405`. |
+| P10 | An index of a hosted repository is sent again unless the client has the same bytes (`If-None-Match`); a date (`If-Modified-Since`) is not taken to say so. | Two revisions made within one second have the same date: apt was told `304`, and kept the older index until the next change. Seen with apt on Debian 13. |
+| P11 | `amd64` and `arm64` are always listed, beside the architectures of the packages. | One upload for `arm64` took `binary-amd64` away, and with it every package for `all` architectures from every amd64 machine. |
+| P12 | A snapshot is one statement, which sees the database at one moment: no retry, and no `503 repository_busy`. The index files of a revision are written once, however many requests want them at once (the others wait for that one), and in a task of their own, which a request that goes away does not stop. What is kept is the newest revision of each repository, at most 256 MiB of all of them, the least recently used going first. | On 30,000 packages, ten requests after a change each wrote the index again (19 to 29 seconds each, 1.5 GiB), every revision stayed in memory, and a busy repository could answer `503` to every try. |
+
 ## 5. APT
 
 ### 5.1 Layout

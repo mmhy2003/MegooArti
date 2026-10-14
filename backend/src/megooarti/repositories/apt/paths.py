@@ -35,7 +35,8 @@ class AptPath:
 
 
 def classify(path: str) -> AptPath:
-    if path == "":
+    if path == "" or ("/" not in path and path.endswith(".deb")):
+        # `curl --upload-file x.deb .../` sends the file's own name after the slash.
         return AptPath("upload")
     if path == PUBLIC_KEY:
         return AptPath("key")

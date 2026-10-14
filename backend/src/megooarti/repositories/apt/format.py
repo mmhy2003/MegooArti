@@ -18,7 +18,6 @@ import asyncio
 import hashlib
 from collections.abc import Sequence
 from contextlib import aclosing
-from datetime import datetime
 from typing import Any
 
 from starlette.requests import Request
@@ -172,7 +171,7 @@ def _listed(snapshot: Snapshot) -> list[indexes.Listed]:
     return listed
 
 
-def _written(snapshot: Snapshot, suite: str, label: str, signer: signing.Signer) -> derived.Files:
+def _written(snapshot: Snapshot, suite: str, label: str, signer: signing.Signer) -> derived.Written:
     """Every index file of a suite, by its path under `dists/<suite>/`."""
     listed = _listed(snapshot)
     files = indexes.packages_files(listed)
@@ -183,32 +182,28 @@ def _written(snapshot: Snapshot, suite: str, label: str, signer: signing.Signer)
         architectures=indexes.architectures(listed),
         files=files,
     )
-    return {
-        **files,
+    signed = {
         "Release": release,
         "InRelease": signer.clear(release),
         "Release.gpg": signer.detached(release),
     }
+    return derived.Written(snapshot.revision, snapshot.changed, {**files, **signed})
 
 
-async def _indexes(context: RepositoryContext) -> tuple[derived.Files, datetime]:
-    """The index files of this repository's revision, and when it was made.
+async def _indexes(context: RepositoryContext) -> derived.Written:
+    """The index files of this repository's revision: kept, or written now, once."""
+    revision, _ = await context.revision()
 
-    They are written now if they are not kept.
-    """
-    revision, changed = await context.revision()
-    kept = derived.get(context.repository.id, revision)
-    if kept is not None:
-        return kept, changed
-    snapshot = await context.snapshot()
-    key = await signing.key_of(context.db, context.settings, context.repository)
-    signer = signing.signer(context.settings, key)
-    await context.release()  # writing them needs no connection
-    files = await asyncio.to_thread(
-        _written, snapshot, _suite(context), context.repository.name, signer
-    )
-    derived.put(context.repository.id, snapshot.revision, files)
-    return files, snapshot.changed
+    async def write() -> derived.Written:
+        snapshot = await context.snapshot()
+        key = await signing.key_of(context.db, context.settings, context.repository)
+        signer = signing.signer(context.settings, key)
+        await context.release()  # writing them needs no connection
+        return await asyncio.to_thread(
+            _written, snapshot, _suite(context), context.repository.name, signer
+        )
+
+    return await derived.written(context.repository.id, revision, write)
 
 
 def _content_type(filename: str) -> str:
@@ -226,8 +221,8 @@ async def _index(context: RepositoryContext, request: Request, parsed: paths.Apt
         name = parsed.filename
     else:
         name = f"{parsed.component}/binary-{parsed.architecture}/{parsed.filename}"
-    files, changed = await _indexes(context)
-    data = files.get(name)
+    written = await _indexes(context)
+    data = written.files.get(name)
     if data is None:
         raise _not_found("This repository has no packages of that architecture.")
     return context.respond_with(
@@ -235,8 +230,11 @@ async def _index(context: RepositoryContext, request: Request, parsed: paths.Apt
         request,
         filename=parsed.filename,
         content_type=_content_type(parsed.filename),
-        last_modified=changed,
+        last_modified=written.changed,
         etag=hashlib.sha256(data).hexdigest(),
+        # Two revisions can be made within one second: only the bytes say which one a
+        # client has.
+        dated=False,
     )
 
 

@@ -18,8 +18,8 @@ from megooarti.repositories.apt.paths import COMPONENT
 
 # Where a package's file and checksums go: before the first of these, as dpkg puts them.
 _AFTER_FILE = frozenset({"section", "priority", "multi-arch", "homepage", "description", "tag"})
-# Listed when a repository has no package of any one architecture, so that a client
-# of either of the two most common ones finds the packages for all of them.
+# Always listed, so that a machine of either of the two most common architectures finds
+# the packages for all of them.
 DEFAULT_ARCHITECTURES = ("amd64", "arm64")
 _DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -67,9 +67,13 @@ def packages(listed: Iterable[Listed]) -> bytes:
 
 
 def architectures(listed: Iterable[Listed]) -> list[str]:
-    """The architectures a repository lists: those of its packages but `all`."""
-    found = sorted({one.architecture for one in listed} - {"all"})
-    return found or list(DEFAULT_ARCHITECTURES)
+    """The architectures a repository lists: the two most common, and its packages' own.
+
+    The two are always there, so that a machine of either keeps the packages for all
+    architectures, whatever is uploaded for another one.
+    """
+    found = {one.architecture for one in listed} - {"all"}
+    return sorted(found | set(DEFAULT_ARCHITECTURES))
 
 
 def packages_files(listed: Sequence[Listed]) -> dict[str, bytes]:

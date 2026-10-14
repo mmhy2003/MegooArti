@@ -1,10 +1,11 @@
 """A repository whose format writes its indexes counts its changes, and is read whole."""
 
+import asyncio
 import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
@@ -119,55 +120,119 @@ async def test_a_snapshot_has_every_file_with_its_checksums_and_attributes(db, f
     ]
 
 
-async def test_a_snapshot_is_read_again_when_a_change_came_while_it_was_read(
-    db, files, indexed, monkeypatch
+async def test_a_snapshot_is_read_in_one_statement_so_that_no_change_can_come_between(
+    db, files, indexed
 ):
     context = await indexed()
     await context.put("a.txt", body(b"one"))
     await db.commit()
-    asked = []
-    revision = type(context).revision
+    statements = []
 
-    async def changing(self):
-        asked.append(1)
-        if len(asked) == 2:  # between the first reading of the files and the check
-            await self.put("b.txt", body(b"two"))
-            await self.db.commit()
-        return await revision(self)
+    def seen(connection, cursor, statement, *rest):
+        if not statement.startswith(("SAVEPOINT", "RELEASE SAVEPOINT")):  # the test's own
+            statements.append(statement)
 
-    monkeypatch.setattr(type(context), "revision", changing)
+    engine = db.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", seen)
+    try:
+        snapshot = await context.snapshot()
+    finally:
+        event.remove(engine, "before_cursor_execute", seen)
+
+    assert len(statements) == 1
+    assert (snapshot.revision, [held.path for held in snapshot.files]) == (1, ["a.txt"])
+
+
+async def test_a_snapshot_of_a_repository_that_holds_nothing_has_its_revision(db, files, indexed):
+    context = await indexed()
 
     snapshot = await context.snapshot()
 
-    assert [held.path for held in snapshot.files] == ["a.txt", "b.txt"]
-    assert snapshot.revision == 2
-    assert len(asked) == 4
+    assert (snapshot.revision, snapshot.changed, snapshot.files) == (0, files.created_at, [])
 
 
-async def test_a_repository_that_never_stops_changing_is_answered_busy(db, indexed, monkeypatch):
-    context = await indexed()
-    count = iter(range(100))
-
-    async def always_new(self):
-        return next(count), utcnow()
-
-    monkeypatch.setattr(type(context), "revision", always_new)
-
-    with pytest.raises(ApiError) as refused:
-        await context.snapshot()
-
-    assert (refused.value.status_code, refused.value.code) == (503, "repository_busy")
+def written(revision: int, size: int = 10) -> derived.Written:
+    return derived.Written(revision, utcnow(), {"Release": bytes(size)})
 
 
-def test_written_indexes_are_kept_by_repository_and_revision_until_more_are_written():
+def test_written_indexes_are_kept_by_repository_and_revision():
     derived.forget()
     first, second = uuid.uuid4(), uuid.uuid4()
 
-    derived.put(first, 1, {"Release": b"one"})
-    for revision in range(derived.MOST):
-        derived.put(second, revision, {"Release": b"other"})
+    derived.put(first, written(1))
+    derived.put(second, written(4))
 
-    assert derived.get(first, 1) is None  # the least recently used went first
-    assert derived.get(second, derived.MOST - 1) == {"Release": b"other"}
-    assert derived.get(second, derived.MOST) is None
+    assert derived.get(first, 1).revision == 1
+    assert derived.get(second, 4).revision == 4
+    assert derived.get(first, 2) is None
+    derived.forget()
+
+
+def test_a_newer_revision_takes_the_place_of_the_older_ones_of_its_repository():
+    derived.forget()
+    repository = uuid.uuid4()
+
+    for revision in range(5):
+        derived.put(repository, written(revision))
+
+    assert [derived.get(repository, revision) is None for revision in range(5)] == [
+        True,
+        True,
+        True,
+        True,
+        False,
+    ]
+    derived.forget()
+
+
+def test_what_is_kept_is_bounded_by_its_size_and_the_least_recently_used_goes_first(
+    monkeypatch,
+):
+    derived.forget()
+    monkeypatch.setattr(derived, "MOST_BYTES", 25)
+    first, second, third = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    derived.put(first, written(1))
+    derived.put(second, written(1))
+    derived.get(first, 1)  # used again: the second is now the least recently used
+    derived.put(third, written(1))
+
+    assert derived.get(second, 1) is None
+    assert derived.get(first, 1) is not None and derived.get(third, 1) is not None
+    derived.forget()
+
+
+async def test_requests_for_one_revision_at_once_write_it_once():
+    derived.forget()
+    repository = uuid.uuid4()
+    made = []
+
+    async def make() -> derived.Written:
+        made.append(1)
+        await asyncio.sleep(0.05)
+        return written(3)
+
+    results = await asyncio.gather(*(derived.written(repository, 3, make) for _ in range(5)))
+
+    assert len(made) == 1
+    assert {result.revision for result in results} == {3}
+    assert derived.get(repository, 3) is not None
+    derived.forget()
+
+
+async def test_a_failure_to_write_is_given_to_every_request_that_waited_and_kept_by_none():
+    derived.forget()
+    repository = uuid.uuid4()
+
+    async def broken() -> derived.Written:
+        await asyncio.sleep(0.01)
+        raise ApiError(500, "signing_key_unreadable", "No.")
+
+    results = await asyncio.gather(
+        *(derived.written(repository, 1, broken) for _ in range(3)), return_exceptions=True
+    )
+
+    assert [type(result) for result in results] == [ApiError] * 3
+    assert derived.get(repository, 1) is None
+    assert derived._writing == {}
     derived.forget()
