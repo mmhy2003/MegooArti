@@ -377,6 +377,7 @@ CLIENTS = {
     "docker": ["Docker", "skopeo"],
     "raw": ["curl"],
     "apt": ["apt"],
+    "yum": ["dnf"],
 }
 
 

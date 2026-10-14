@@ -125,7 +125,7 @@ One address serves everything, and each request goes to the right service:
 | Path | To | What it is |
 | --- | --- | --- |
 | `/api/` | backend, port 8000 | The REST API and its documentation |
-| `/repository/` | backend, port 8000 | Maven, npm, PyPI, APT and Raw repositories |
+| `/repository/` | backend, port 8000 | Maven, npm, PyPI, APT, YUM and Raw repositories |
 | `/v2/` | backend, port 8000 | The Docker registry |
 | everything else | frontend, port 3000 | The web UI |
 

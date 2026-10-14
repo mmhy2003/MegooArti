@@ -3,7 +3,8 @@
 What is true of every repository, whatever its format. Each format has a guide of its
 own for what is its own, and for its clients:
 [Maven](formats/maven.md), [npm](formats/npm.md), [PyPI](formats/pypi.md),
-[Docker](formats/docker.md), [APT](formats/apt.md) and [Raw](formats/raw.md).
+[Docker](formats/docker.md), [APT](formats/apt.md), [YUM](formats/yum.md) and
+[Raw](formats/raw.md).
 
 Repositories and blob stores are set up in the web UI (Administration) or through the
 API, as here. What they hold can be browsed, searched, uploaded to and deleted from
@@ -12,7 +13,7 @@ without a package client: see [The API](api.md#browsing-and-deleting) and
 
 A **blob store** is where file content is kept; the `default` one is a directory under
 the data directory. A **repository** holds files in one format. The formats so far are
-`raw` (arbitrary files by path), `maven`, `npm`, `pypi`, `docker` and `apt`.
+`raw` (arbitrary files by path), `maven`, `npm`, `pypi`, `docker`, `apt` and `yum`.
 A repository has one of three types: `hosted` (files you publish), `proxy` (a cache of
 a remote repository) or `group` (several repositories behind one URL).
 

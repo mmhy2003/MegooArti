@@ -1,8 +1,8 @@
 # MegooArti
 
 An open-source repository and artifact proxy and manager. It keeps Maven, npm, PyPI,
-Docker, APT and Raw repositories, each of them hosted, a proxy of a remote one, or a group
-of several behind one address, with a web UI and a REST API. See the
+Docker, APT, YUM and Raw repositories, each of them hosted, a proxy of a remote one, or a
+group of several behind one address, with a web UI and a REST API. See the
 [business requirements](docs/BRD.md) for scope and roadmap, and the
 [changelog](CHANGELOG.md) for what this version has and what is known of it.
 
@@ -56,7 +56,7 @@ TLS, in front of it or in its place.
 | [Backup and restore](docs/backup.md) | The two scripts, what a backup holds, and what it does not |
 | [Administration](docs/administration.md) | Users, roles, permissions, API tokens, anonymous access, and what is running |
 | [Repositories](docs/repositories.md) | Hosted, proxy and group repositories, permissions and policies, whatever the format |
-| [Maven](docs/formats/maven.md), [npm](docs/formats/npm.md), [PyPI](docs/formats/pypi.md), [Docker](docs/formats/docker.md), [APT](docs/formats/apt.md), [Raw](docs/formats/raw.md) | Setting up each format, and each of its clients |
+| [Maven](docs/formats/maven.md), [npm](docs/formats/npm.md), [PyPI](docs/formats/pypi.md), [Docker](docs/formats/docker.md), [APT](docs/formats/apt.md), [YUM](docs/formats/yum.md), [Raw](docs/formats/raw.md) | Setting up each format, and each of its clients |
 | [The web UI](docs/web-ui.md) | What the screens do |
 | [The API](docs/api.md) | Who is calling, errors, lists, and browsing, uploading and searching without a package client |
 | [Development](docs/development.md) | Running from source, the tests, and the rules of the code |
