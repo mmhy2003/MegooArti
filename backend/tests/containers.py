@@ -21,6 +21,9 @@ ENVIRONMENT = {
     # With what an address would take for something else: it is given apart from it.
     "MEGOOARTI_DB_PASSWORD": "only for these tests: @/#?%&$",
     "MEGOOARTI_VERSION": VERSION,
+    # Not the .env beside the Compose file: what a developer's own installation is
+    # given, a secret key for one, must not decide what the tests' stack is.
+    "COMPOSE_ENV_FILES": str(BACKEND_DIR / "tests" / "compose.env"),
 }
 DATA_FILE = "/var/lib/megooarti/admin.password"
 

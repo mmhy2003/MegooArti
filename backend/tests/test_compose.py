@@ -158,3 +158,19 @@ def test_the_example_names_everything_the_compose_file_asks_of_the_environment()
     # The one thing that must be chosen is chosen for nobody.
     assert re.search(r"^MEGOOARTI_DB_PASSWORD=$", example, flags=re.MULTILINE)
     assert len(re.findall(r"^MEGOOARTI_", example, flags=re.MULTILINE)) == 1
+
+
+def test_the_tests_stack_is_not_configured_by_the_env_file_beside_the_compose_file():
+    """Compose reads `.env` beside the Compose file, which is an installation's own.
+
+    The tests' stack names a file of its own instead, which says nothing: a secret key
+    or anything else set for the developer's installation must not reach it.
+    """
+    from tests.containers import ENVIRONMENT
+
+    named = Path(ENVIRONMENT["COMPOSE_ENV_FILES"])
+
+    assert named.is_file()
+    assert named.parent == Path(__file__).parent
+    said = [line for line in named.read_text(encoding="utf-8").splitlines() if "=" in line]
+    assert said == []
