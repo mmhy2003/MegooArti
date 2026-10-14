@@ -352,8 +352,9 @@ async def test_a_suite_is_chosen_when_the_repository_is_made_and_kept(admin_clie
         ("hosted", {"suite": "a/b"}, "format_config.suite"),
         ("hosted", {"suite": ""}, "format_config.suite"),
         ("hosted", {"component": "main"}, "format_config.component"),
-        ("proxy", {"suite": "stable"}, "format_config"),
-        ("group", {}, "type"),
+        ("proxy", {"suite": "stable"}, "format_config.suite"),
+        ("proxy", {"remote_keys": "not a key"}, "format_config.remote_keys"),
+        ("group", {"suite": "stable"}, "format_config"),
     ],
 )
 async def test_settings_that_cannot_be_used_are_refused(admin_client, type, format_config, field):

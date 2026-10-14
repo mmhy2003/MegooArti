@@ -30,6 +30,7 @@ from megooarti.repositories.content import RepositoryContext, Snapshot
 from megooarti.repositories.formats import (
     ComponentKey,
     Format,
+    Serve,
     Usage,
     declared_hashes,
     declared_size,
@@ -38,6 +39,7 @@ from megooarti.repositories.formats import (
     register,
 )
 from megooarti.repositories.forms import UploadForm
+from megooarti.repositories.models import Repository
 from megooarti.storage.backends import StagedBlob
 
 # Where what a package said of itself is kept among its file's attributes, and what is
@@ -86,7 +88,7 @@ def _invalid_setting(field: str, message: str) -> ApiError:
     return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
-def _suite(context: RepositoryContext) -> str:
+def suite_of(context: RepositoryContext) -> str:
     return context.repository.config.get("format_config", {}).get("suite", DEFAULT_SUITE)
 
 
@@ -190,7 +192,7 @@ def _written(snapshot: Snapshot, suite: str, label: str, signer: signing.Signer)
     return derived.Written(snapshot.revision, snapshot.changed, {**files, **signed})
 
 
-async def _indexes(context: RepositoryContext) -> derived.Written:
+async def hosted_indexes(context: RepositoryContext) -> derived.Written:
     """The index files of this repository's revision: kept, or written now, once."""
     revision, _ = await context.revision()
 
@@ -200,20 +202,20 @@ async def _indexes(context: RepositoryContext) -> derived.Written:
         signer = signing.signer(context.settings, key)
         await context.release()  # writing them needs no connection
         return await asyncio.to_thread(
-            _written, snapshot, _suite(context), context.repository.name, signer
+            _written, snapshot, suite_of(context), context.repository.name, signer
         )
 
     return await derived.written(context.repository.id, revision, write)
 
 
-def _content_type(filename: str) -> str:
+def index_content_type(filename: str) -> str:
     if filename == "Release.gpg":
         return _SIGNATURE
     return _COMPRESSED.get(filename[filename.rfind(".") :], _TEXT) if "." in filename else _TEXT
 
 
 async def _index(context: RepositoryContext, request: Request, parsed: paths.AptPath) -> Response:
-    if parsed.suite != _suite(context) or (
+    if parsed.suite != suite_of(context) or (
         parsed.component and parsed.component != paths.COMPONENT
     ):
         raise _not_found("This repository has no such suite or component.")
@@ -221,7 +223,7 @@ async def _index(context: RepositoryContext, request: Request, parsed: paths.Apt
         name = parsed.filename
     else:
         name = f"{parsed.component}/binary-{parsed.architecture}/{parsed.filename}"
-    written = await _indexes(context)
+    written = await hosted_indexes(context)
     data = written.files.get(name)
     if data is None:
         raise _not_found("This repository has no packages of that architecture.")
@@ -229,7 +231,7 @@ async def _index(context: RepositoryContext, request: Request, parsed: paths.Apt
         data,
         request,
         filename=parsed.filename,
-        content_type=_content_type(parsed.filename),
+        content_type=index_content_type(parsed.filename),
         last_modified=written.changed,
         etag=hashlib.sha256(data).hexdigest(),
         # Two revisions can be made within one second: only the bytes say which one a
@@ -250,16 +252,35 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
     )
 
 
+def _remote_keys(config: dict[str, Any]) -> dict[str, Any]:
+    """A proxy's settings: its remote's public keys, which a group checks it with."""
+    unknown = sorted(set(config) - {"remote_keys"})
+    if unknown:
+        raise _invalid_setting(f"format_config.{unknown[0]}", "This is not a setting of APT.")
+    keys = config.get("remote_keys") or ""
+    if not isinstance(keys, str):
+        raise _invalid_setting("format_config.remote_keys", "The keys are armoured text.")
+    if not keys.strip():
+        return {}
+    try:
+        signing.read_public_keys(keys)
+    except signing.KeysUnusable as error:
+        raise _invalid_setting("format_config.remote_keys", str(error)) from None
+    return {"remote_keys": keys}
+
+
 class AptFormat(Format):
     name = "apt"
-    types = frozenset({"hosted", "proxy"})
+    types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.OPENPGP
 
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """A hosted repository's suite, which never changes. A proxy has no settings."""
+        """A hosted repository's suite, which never changes; a proxy's remote's keys."""
+        if repository_type == "proxy":
+            return _remote_keys(config)
         if repository_type != "hosted":
             return super().validate_config(repository_type, config, current)
         unknown = sorted(set(config) - {"suite"})
@@ -277,6 +298,15 @@ class AptFormat(Format):
                 "format_config.suite", "The suite cannot change once the repository is made."
             )
         return {"suite": suite}
+
+    def validate_member(self, member: Repository) -> None:
+        """A proxy whose signatures a group cannot check is not one of its members."""
+        if member.type == "proxy" and not member.config.get("format_config", {}).get("remote_keys"):
+            raise _invalid_setting(
+                "group.members",
+                f"{member.name} is a proxy without its remote's keys "
+                "(format_config.remote_keys): a group could not check what it signs.",
+            )
 
     def describe_component(
         self, path: str, attributes: dict[str, Any] | None = None
@@ -330,7 +360,7 @@ class AptFormat(Format):
         if parsed.kind == "pool":
             return _DEB
         if parsed.kind in ("release", "packages"):
-            return _content_type(parsed.filename)
+            return index_content_type(parsed.filename)
         return declared
 
     def is_metadata(self, path: str) -> bool:
@@ -360,6 +390,16 @@ class AptFormat(Format):
         if parsed.kind in ("release", "packages"):
             return await _index(context, request, parsed)
         raise _not_found()
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        if paths.classify(path).kind == "key" and _is_read(request):
+            return await _public_key(context, request)
+        # Imported here: it is written against this module.
+        from megooarti.repositories.apt import groups
+
+        return await groups.handle_group(context, request, path, serve)
 
 
 register(AptFormat())

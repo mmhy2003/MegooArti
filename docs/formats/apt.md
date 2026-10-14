@@ -46,6 +46,61 @@ echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://rep
 For Ubuntu, the remote is `http://archive.ubuntu.com/ubuntu` and the keyring
 `/usr/share/keyrings/ubuntu-archive-keyring.gpg`.
 
+## Groups
+
+A group puts your own repositories and the mirrors behind one address, and signs
+everything it serves with a key of its own: a machine needs that one key, and nothing
+else. The group checks for it what apt would have checked, so a proxy can be a member
+only if it has its remote's public keys, armoured. For Debian's, on a machine that has
+the keyring and GnuPG:
+
+```bash
+keys=$(gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+  --export --armor)
+jq -n --arg keys "$keys" '{
+  name: "apt-debian", format: "apt", type: "proxy",
+  proxy: {remote_url: "http://deb.debian.org/debian"},
+  format_config: {remote_keys: $keys}
+}' | curl -u admin -H 'Content-Type: application/json' -d @- \
+  http://localhost:8000/api/v1/repositories
+
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "apt-public", "format": "apt", "type": "group",
+  "group": {"members": ["apt-hosted", "apt-debian"]}
+}' http://localhost:8000/api/v1/repositories
+```
+
+On each machine, the group's key and a line for each suite:
+
+```bash
+curl -fsS -u ci -o /etc/apt/keyrings/apt-public.asc \
+  https://repo.example.com/repository/apt-public/public.key
+cat > /etc/apt/sources.list.d/megooarti.list <<'EOF'
+deb [signed-by=/etc/apt/keyrings/apt-public.asc] https://repo.example.com/repository/apt-public stable main
+deb [signed-by=/etc/apt/keyrings/apt-public.asc] https://repo.example.com/repository/apt-public trixie main
+EOF
+```
+
+- **A suite one member has is that member's.** The group signs its `Release` again,
+  unchanged, and passes every other file of the suite on from it; apt checks each
+  against that `Release`, as it would have checked it against the mirror's.
+- **A suite several members have** (a hosted repository whose suite is `trixie`,
+  beside a proxy of Debian; or `stable`, which Debian's mirrors have as well, as a
+  name for the current release) gets a `Release` of the group's own. A component and
+  architecture one member has is that member's files; one that several have is one
+  `Packages.gz` written from theirs, in the order of the members, a package
+  (the same name, version and architecture) that an earlier member has left out of a
+  later one's. That is written again whenever a member's indexes change, and takes
+  seconds for a component as large as Debian's `main`.
+- **A member is checked before it is used**: a proxy's `InRelease` must be signed by
+  one of its `remote_keys`, and each `Packages` file the group reads must be the one
+  that `Release` names. A member that fails is left out, the group answers with the
+  others, and the proxy's page says why as its last error. A proxy whose remote has no
+  `InRelease` is left out as well.
+- **Packages** are asked of the members in order, as in any group.
+- **The group's key** is made the first time it is needed, and is at
+  `/repository/<group>/public.key`, as a hosted repository's is.
+
 - **Credentials** go in a file of `/etc/apt/auth.conf.d/`, as above: a user name and a
   password, or a user name and an API token. apt sends them over HTTPS to the host a
   `machine` line names; over plain HTTP only if the line says so
@@ -84,11 +139,14 @@ For Ubuntu, the remote is `http://archive.ubuntu.com/ubuntu` and the keyring
 - **A proxy**'s remote is a mirror's root. What is under `dists/` is checked again with
   the remote after `metadata_max_age_minutes`; packages, and files under a `by-hash/`
   directory, never change and are kept.
-- Groups of APT repositories are not available yet.
+- **A proxy's `remote_keys`**, its remote's public keys, armoured, are what a group
+  it is a member of checks it with; a proxy that is not in a group does not use them,
+  and apt checks the mirror's signatures itself.
 
 ## Clients
 
 Tested with apt on Debian 13 and Ubuntu 26.04: a package built with `dpkg-deb`,
 uploaded and installed from a hosted repository; a repository signed with a key apt
-was not given, refused; and a package from each distribution's mirror, installed
-through a proxy.
+was not given, refused; a package from each distribution's mirror, installed through
+a proxy; and, on Debian, both through a group, with a suite of each member and with a
+suite they share, and a member signed by a key it was not given left out.
