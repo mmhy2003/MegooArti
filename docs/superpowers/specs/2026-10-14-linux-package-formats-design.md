@@ -127,6 +127,19 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | P11 | `amd64` and `arm64` are always listed, beside the architectures of the packages. | One upload for `arm64` took `binary-amd64` away, and with it every package for `all` architectures from every amd64 machine. |
 | P12 | A snapshot is one statement, which sees the database at one moment: no retry, and no `503 repository_busy`. The index files of a revision are written once, however many requests want them at once (the others wait for that one), and in a task of their own, which a request that goes away does not stop. What is kept is the newest revision of each repository, at most 256 MiB of all of them, the least recently used going first. | On 30,000 packages, ten requests after a change each wrote the index again (19 to 29 seconds each, 1.5 GiB), every revision stayed in memory, and a busy repository could answer `503` to every try. |
 
+### Settled while building plan 12b
+
+| # | What | Why |
+| --- | --- | --- |
+| Q1 | A suite that one member of a group has is that member's, as it is: the group signs that member's `Release` again, unchanged, and every other file of the suite, `by-hash/` paths included, is sent on from that member. Only a suite several members have gets a `Release` of the group's own (5.4), with `Acquire-By-Hash: no`. | apt checks every file against the `Release` it was given, and that one was checked against the remote's keys. Writing Debian's indexes again would cost seconds and memory for no gain, and the mirror's translations and `by-hash/` files would be lost. |
+| Q2 | Where several members have a component and architecture, the group keeps `Packages.gz` alone; its `Release` names that and the text (`Packages`), which is not kept, with a `SHA256` list only. | Debian's `main` for amd64 is 57 MB of text and 13 MB packed: merged and packed with gzip in 2.4 seconds on the reference laptop, where xz would take most of a minute and keeping the text 57 MB of memory. apt finds an index by its text's name, and checks what it unpacks against it: without that line it did not fetch the merged index at all, as Task 5's first run showed. |
+| Q3 | A merged suite does not list the architecture `all`. | Debian and Ubuntu list a package for all architectures in each architecture's `Packages` (`No-Support-for-Architecture-all: Packages`), as a hosted repository does. |
+| Q4 | What a group writes of a suite is kept in the cache of 12a by the group and the suite, and by a digest of the group's key and its members' state: a hosted member's revision, a proxy member's `InRelease` and `remote_keys`. | It is written again only when one of these changes. The cache takes a digest as a revision: a different one takes the place of the last. |
+| Q5 | `Format.validate_member` refuses, when a group's members are set, a proxy without `remote_keys`. A proxy whose keys are taken away later is left out when the group is asked. A member left out says why as its last error (`Left out of the group <name>: ...`), which a proxy's next success with its remote clears. | 4.5, and a group that keeps answering when a member stops being checkable. |
+| Q6 | A proxy member whose remote has no `InRelease` is left out. A member whose `Packages` file fails its check is left out of that component and architecture only. | Debian, Ubuntu and their mirrors all have `InRelease`; checking `Release` against `Release.gpg` as well can come when a remote needs it. |
+| Q7 | A group's members are its leaves: a group within a group gives the group its own members, not its signed indexes. | One check of each remote, by the group a client trusts. |
+| Q8 | `remote_keys` is armoured text, of one or more keys, at most 1 MiB, and holds no private key. The guide makes it with `gpg --export --armor` from the distribution's keyring. | Debian's keyring is binary; a JSON field is text. |
+
 ## 5. APT
 
 ### 5.1 Layout
@@ -253,7 +266,7 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 | apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Plan 12d's tests on the two newest releases. If packages in the newer format are what `abuild` writes, reading them becomes part of plan 12d. |
 | A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1): `pysequoia`. Plan 12c's tests show dnf verifying it too. |
 | `zstd` packages need `zstandard` (Python 3.13 has no `zstd` of its own). | A dependency, added in plan 12a. |
-| Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | The merged index is cached (4.5), and plan 12b measures a merge of Debian's `main` for `amd64`. |
+| Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | Measured in plan 12b (Q2): Debian's `main` for amd64, 69,908 packages, merged and packed in 2.4 seconds, 13 MB kept; a suite one member has is not merged at all (Q1). |
 | A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Plan 12c's tests with Rocky's AppStream; the guide says what a group of modular repositories does. |
 | Keys sealed with the secret key are lost with it. | The backup guide already says to keep the secret key; it will name signing keys too. |
 
