@@ -1750,6 +1750,70 @@
         "title": "SettingsOut",
         "type": "object"
       },
+      "SigningKeyGenerate": {
+        "properties": {
+          "algorithm": {
+            "default": "ed25519",
+            "enum": [
+              "ed25519",
+              "rsa4096"
+            ],
+            "title": "Algorithm",
+            "type": "string"
+          }
+        },
+        "title": "SigningKeyGenerate",
+        "type": "object"
+      },
+      "SigningKeyImport": {
+        "properties": {
+          "private_key": {
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Private Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "private_key"
+        ],
+        "title": "SigningKeyImport",
+        "type": "object"
+      },
+      "SigningKeyOut": {
+        "properties": {
+          "algorithm": {
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "public_key": {
+            "title": "Public Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "algorithm",
+          "fingerprint",
+          "public_key",
+          "created_at"
+        ],
+        "title": "SigningKeyOut",
+        "type": "object"
+      },
       "TokenCreate": {
         "properties": {
           "expires_at": {
@@ -3531,6 +3595,153 @@
           }
         },
         "summary": "Rebuild Index",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/signing-key": {
+      "get": {
+        "description": "The key a hosted repository signs its indexes with. It is made if it is not there yet.",
+        "operationId": "get_signing_key_api_v1_repositories__name__signing_key_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Get Signing Key",
+        "tags": [
+          "repositories"
+        ]
+      },
+      "put": {
+        "description": "Sign with an administrator's own key from now on. Every client must install it.",
+        "operationId": "import_signing_key_api_v1_repositories__name__signing_key_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningKeyImport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Import Signing Key",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/signing-key/generate": {
+      "post": {
+        "description": "Sign with a new key from now on. Every client must install it.",
+        "operationId": "generate_signing_key_api_v1_repositories__name__signing_key_generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SigningKeyGenerate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SigningKeyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Generate Signing Key",
         "tags": [
           "repositories"
         ]

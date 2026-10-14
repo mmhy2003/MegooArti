@@ -14,9 +14,9 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
-from megooarti.repositories import service
+from megooarti.repositories import service, signing
 from megooarti.repositories.content import build_context
-from megooarti.repositories.models import Repository
+from megooarti.repositories.models import Repository, SigningKey
 from megooarti.repositories.service import RepositoryView
 from megooarti.secrets_box import seal
 from megooarti.security.authentication import Principal, require
@@ -301,3 +301,92 @@ async def rebuild_index(
         **done.model_dump(),
     )
     return done
+
+
+class SigningKeyOut(BaseModel):
+    kind: str  # openpgp
+    algorithm: str
+    fingerprint: str
+    public_key: str  # what clients install; the private key is never shown
+    created_at: datetime
+
+
+class SigningKeyImport(BaseModel):
+    # An ASCII-armoured private key without a passphrase.
+    private_key: str = Field(min_length=1, max_length=65536)
+
+
+class SigningKeyGenerate(BaseModel):
+    algorithm: Literal["ed25519", "rsa4096"] = signing.DEFAULT_ALGORITHM
+
+
+def _shown(key: SigningKey) -> SigningKeyOut:
+    return SigningKeyOut(
+        kind=key.kind,
+        algorithm=key.algorithm,
+        fingerprint=key.fingerprint,
+        public_key=key.public_key,
+        created_at=key.created_at,
+    )
+
+
+@router.get("/{name}/signing-key", response_model=SigningKeyOut)
+async def get_signing_key(
+    name: str,
+    request: Request,
+    _: Principal = Depends(require("admin:repositories:read")),
+    db: AsyncSession = Depends(get_session),
+) -> SigningKeyOut:
+    """The key a hosted repository signs its indexes with. It is made if it is not there yet."""
+    key = await signing.key_of(db, request.app.state.settings, await _load(db, name))
+    shown = _shown(key)
+    await db.commit()
+    return shown
+
+
+@router.put("/{name}/signing-key", response_model=SigningKeyOut)
+async def import_signing_key(
+    name: str,
+    body: SigningKeyImport,
+    request: Request,
+    principal: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> SigningKeyOut:
+    """Sign with an administrator's own key from now on. Every client must install it."""
+    repository = await _load(db, name)
+    try:
+        key = await signing.import_key(db, request.app.state.settings, repository, body.private_key)
+    except signing.KeyUnusable as error:
+        details = [{"field": "body.private_key", "message": str(error)}]
+        raise ApiError(422, "validation_error", "The request is not valid.", details) from None
+    shown = _shown(key)
+    await db.commit()
+    log.info(
+        "signing_key_imported",
+        repository=name,
+        fingerprint=shown.fingerprint,
+        by=principal.user.username,
+    )
+    return shown
+
+
+@router.post("/{name}/signing-key/generate", response_model=SigningKeyOut)
+async def generate_signing_key(
+    name: str,
+    body: SigningKeyGenerate,
+    request: Request,
+    principal: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> SigningKeyOut:
+    """Sign with a new key from now on. Every client must install it."""
+    repository = await _load(db, name)
+    key = await signing.generate(db, request.app.state.settings, repository, body.algorithm)
+    shown = _shown(key)
+    await db.commit()
+    log.info(
+        "signing_key_generated",
+        repository=name,
+        fingerprint=shown.fingerprint,
+        by=principal.user.username,
+    )
+    return shown

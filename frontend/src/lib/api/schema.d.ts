@@ -374,6 +374,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repositories/{name}/signing-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Signing Key
+         * @description The key a hosted repository signs its indexes with. It is made if it is not there yet.
+         */
+        get: operations["get_signing_key_api_v1_repositories__name__signing_key_get"];
+        /**
+         * Import Signing Key
+         * @description Sign with an administrator's own key from now on. Every client must install it.
+         */
+        put: operations["import_signing_key_api_v1_repositories__name__signing_key_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{name}/signing-key/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Signing Key
+         * @description Sign with a new key from now on. Every client must install it.
+         */
+        post: operations["generate_signing_key_api_v1_repositories__name__signing_key_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/roles": {
         parameters: {
             query?: never;
@@ -1299,6 +1343,36 @@ export interface components {
             anonymous_access: components["schemas"]["AnonymousAccess"];
             /** Base Url */
             base_url: string | null;
+        };
+        /** SigningKeyGenerate */
+        SigningKeyGenerate: {
+            /**
+             * Algorithm
+             * @default ed25519
+             * @enum {string}
+             */
+            algorithm: "ed25519" | "rsa4096";
+        };
+        /** SigningKeyImport */
+        SigningKeyImport: {
+            /** Private Key */
+            private_key: string;
+        };
+        /** SigningKeyOut */
+        SigningKeyOut: {
+            /** Algorithm */
+            algorithm: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Kind */
+            kind: string;
+            /** Public Key */
+            public_key: string;
         };
         /** TokenCreate */
         TokenCreate: {
@@ -2338,6 +2412,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IndexRebuilt"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_signing_key_api_v1_repositories__name__signing_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningKeyOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    import_signing_key_api_v1_repositories__name__signing_key_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SigningKeyImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningKeyOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    generate_signing_key_api_v1_repositories__name__signing_key_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SigningKeyGenerate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SigningKeyOut"];
                 };
             };
             /** @description Any error. */
