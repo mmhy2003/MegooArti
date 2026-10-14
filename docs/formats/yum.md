@@ -77,7 +77,8 @@ would lead dnf past MegooArti.
   fields. The path ends in `.rpm`, is not in a `repodata/` directory, and is at least
   as many directories down as the repository's `repodata_depth`; otherwise it is
   refused with `400 invalid_path`. A file that is not an RPM, and a source RPM, are
-  refused with `400 invalid_package`. At most 64 MiB of a package's headers are read.
+  refused with `400 invalid_package`. At most 64 MiB of a package's headers are read,
+  and a package may list at most 500,000 files and dependencies.
 - **`repodata_depth`** is chosen when the repository is made, from 0 to 5, and fixed
   after. Every directory exactly that deep has a `repodata/`: one without packages has
   an empty one, so a machine can be set up before anything is uploaded for it.
@@ -90,7 +91,9 @@ would lead dnf past MegooArti.
   `other.xml` (the ten newest changelog entries), packed with gzip and named by their
   hash, as `createrepo_c` writes them, and `repomd.xml`, which names them and is signed
   as `repomd.xml.asc`. It is written once after each change and kept in memory until
-  the next. The files the `repomd.xml` before the last change named are kept as well,
+  the next. Writing it takes time in proportion to the whole repository, and the
+  first request after a change waits for it: about twenty seconds for 30,000
+  packages. The files the `repomd.xml` before the last change named are kept as well,
   for a machine that read it a moment before. A client is sent `repomd.xml` again
   unless it has the same bytes (`If-None-Match`): two changes within one second have
   the same date.

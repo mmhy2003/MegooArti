@@ -9,6 +9,7 @@ What is read is what `createrepo_c` writes into a repository's metadata, worked 
 it works it out: the same dependencies left out, the same `pre`, the same changelog.
 """
 
+import asyncio
 import struct
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
@@ -19,6 +20,9 @@ from megooarti.repositories.yum import versions
 # The most of the two headers that is read: a real one is kilobytes, a large one a few
 # megabytes.
 HEADER_MOST = 64 * 1024 * 1024
+# The most files and dependencies of every kind one package may list, together: the
+# largest of Fedora's have tens of thousands.
+ENTRIES_MOST = 500_000
 CHANGELOGS_KEPT = 10
 _LEAD = 96
 _LEAD_MAGIC = b"\xed\xab\xee\xdb"
@@ -168,6 +172,34 @@ class _Header:
             if offset >= len(store) and count:
                 raise InvalidPackage("its header points outside itself")
             self._index[tag] = (kind, offset, count)
+        # Each value has bytes of its own, as rpm writes them and requires: values said
+        # to share them would let a few bytes stand for millions of entries.
+        reached = 0
+        for kind, offset, count in sorted(self._index.values(), key=lambda value: value[1]):
+            if offset < reached:
+                raise InvalidPackage("its header's values overlap")
+            reached = self._end(kind, offset, count)
+
+    def _end(self, kind: int, offset: int, count: int) -> int:
+        """Where a value's bytes end."""
+        if kind in (_STRING, _STRING_ARRAY, _I18NSTRING):
+            strings = 1 if kind == _STRING else count
+            if strings > len(self._store) - offset:
+                raise InvalidPackage("its header points outside itself")
+            at = offset
+            for _ in range(strings):
+                end = self._store.find(b"\0", at)
+                if end < 0:
+                    raise InvalidPackage("a string of its header does not end")
+                at = end + 1
+            return at
+        width = {_INT16: 2, _INT32: 4, _INT64: 8}.get(kind, 1)
+        if offset + width * count > len(self._store):
+            raise InvalidPackage("its header points outside itself")
+        return offset + width * count
+
+    def count(self, tag: int) -> int:
+        return self._index.get(tag, (0, 0, 0))[2]
 
     def __contains__(self, tag: int) -> bool:
         return tag in self._index
@@ -220,8 +252,8 @@ def _text(raw: bytes) -> str:
         return raw.decode("latin-1")
 
 
-async def _header(reader: _Reader, budget: int) -> tuple[_Header, int]:
-    """The next header, and how many bytes it is."""
+async def _header(reader: _Reader, budget: int) -> tuple[bytes, bytes, int]:
+    """The next header's index and values, and how many bytes it is."""
     intro = await reader.exactly(16)
     if intro[:4] != _HEADER_MAGIC:
         raise InvalidPackage("it has no RPM header where one belongs")
@@ -231,7 +263,7 @@ async def _header(reader: _Reader, budget: int) -> tuple[_Header, int]:
         raise InvalidPackage(f"its headers are larger than {HEADER_MOST // (1024 * 1024)} MiB")
     index = await reader.exactly(16 * count)
     store = await reader.exactly(size)
-    return _Header(index, store), length
+    return index, store, length
 
 
 def _flags(number: int) -> str:
@@ -366,6 +398,11 @@ def describe(header: _Header, signature: _Header, start: int, end: int) -> Rpm:
         raise InvalidPackage("it says no name, version, release or architecture")
     if versions.NAME.fullmatch(name) is None:
         raise InvalidPackage(f"its name cannot be a package's: {name[:80]!r}")
+    listed = header.count(_BASENAMES) + sum(
+        header.count(names) for names, _, _ in DEPENDENCIES.values()
+    )
+    if listed > ENTRIES_MOST:
+        raise InvalidPackage(f"it lists more than {ENTRIES_MOST} files and dependencies")
     files = _files(header)
     epoch = header.numbers(_EPOCH)
     return Rpm(
@@ -406,11 +443,18 @@ async def read(chunks: AsyncIterator[bytes]) -> Rpm:
         raise InvalidPackage("it is not an RPM")
     if struct.unpack(">H", lead[6:8])[0] == _SOURCE:
         raise InvalidPackage("it is a source RPM, which dnf does not install")
-    signature, length = await _header(reader, HEADER_MOST)
-    padding = -length % 8
+    signed = await _header(reader, HEADER_MOST)
+    padding = -signed[2] % 8
     await reader.exactly(padding)
-    start = _LEAD + length + padding
-    header, size = await _header(reader, HEADER_MOST - length)
+    start = _LEAD + signed[2] + padding
+    main = await _header(reader, HEADER_MOST - signed[2])
+    # Seconds of work for a large package: not on the loop that serves everyone.
+    return await asyncio.to_thread(_described, signed, main, start)
+
+
+def _described(signed: tuple[bytes, bytes, int], main: tuple[bytes, bytes, int], start: int) -> Rpm:
+    signature = _Header(signed[0], signed[1])
+    header = _Header(main[0], main[1])
     if _SOURCEPACKAGE in header:
         raise InvalidPackage("it is a source RPM, which dnf does not install")
-    return describe(header, signature, start, start + size)
+    return describe(header, signature, start, start + main[2])

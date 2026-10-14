@@ -134,12 +134,13 @@ async def _read(context: RepositoryContext, staged: StagedBlob) -> rpms.Rpm:
 async def _keep(context: RepositoryContext, path: str, staged: StagedBlob, rpm: rpms.Rpm) -> bool:
     """Store a package at its path. Returns whether it is new there."""
     held = await context.component("", rpm.name, rpm.evr)
+    said = await asyncio.to_thread(rpm.as_json)  # a large package's is megabytes
     known = _declared(held.attributes if held else None).get("architectures", [])
     _, created = await context.store(
         path,
         staged,
         content_type=_RPM,
-        attributes={_DECLARED: {"rpm": rpm.as_json(), "stored": int(utcnow().timestamp())}},
+        attributes={_DECLARED: {"rpm": said, "stored": int(utcnow().timestamp())}},
         component_attributes={
             _DECLARED: {
                 "summary": rpm.summary,
@@ -259,7 +260,10 @@ async def _repodata(
         )
     written = await hosted_repodata(context)
     data = written.files.get(paths.in_repodata(parsed.directory, parsed.filename))
-    if data is None and paths.in_repodata(parsed.directory, paths.REPOMD) not in written.files:
+    own = paths.in_repodata(parsed.directory, paths.REPOMD) in written.files
+    if data is None and (not own or paths.hashed(parsed.filename)):
+        # A directory without packages has the empty one; a client that read its
+        # `repomd.xml` before the first package came still finds what it named.
         data = written.files.get(paths.in_repodata(_EMPTY, parsed.filename))
     if data is None:
         raise _not_found("This repository's metadata has no such file.")

@@ -317,3 +317,16 @@ async def test_a_group_of_yum_repositories_is_not_made_yet(admin_client):
     )
 
     assert refused.status_code == 422
+
+
+async def test_what_an_empty_directorys_repomd_named_is_served_after_its_first_package(
+    client, db, root
+):
+    """A machine set up before the first upload may be between repomd.xml and its files."""
+    await create(db, format_config={"repodata_depth": 1})
+    empty = (await client.get(f"{URL}/el9/repodata/repomd.xml", headers=root)).text
+    await upload(client, root, "el9/a.rpm", make_rpm())
+    await client.get(f"{URL}/el9/repodata/repomd.xml", headers=root)
+
+    for href in re.findall(r'href="(repodata/[^"]+)"', empty):
+        assert (await client.get(f"{URL}/el9/{href}", headers=root)).status_code == 200, href

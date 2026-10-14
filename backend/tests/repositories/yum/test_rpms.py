@@ -230,3 +230,42 @@ async def test_dependencies_may_have_no_versions_at_all():
     rpm = await read(data)
 
     assert rpm.dependencies["requires"] == [Entry("a"), Entry("b")]
+
+
+def pointed(data: bytes, tag: int, at: int) -> bytes:
+    """A header in which one tag's values are said to be where another's are."""
+    count = struct.unpack(">I", data[8:12])[0]
+    entries = {}
+    for number in range(count):
+        place = 16 + 16 * number
+        entries[struct.unpack(">I", data[place : place + 4])[0]] = place
+    offset = data[entries[at] + 8 : entries[at] + 12]
+    place = entries[tag] + 8
+    return data[:place] + offset + data[place + 4 :]
+
+
+async def test_a_header_whose_values_overlap_is_refused_before_they_are_read():
+    """Seven lists of names over the same bytes would be seven times as many entries."""
+    main = header(
+        {
+            1000: (STRING, "x"),
+            1001: (STRING, "1"),
+            1002: (STRING, "1"),
+            1022: (STRING, "noarch"),
+            1047: (STRING_ARRAY, ["a", "b", "c"]),
+            1054: (STRING_ARRAY, ["d", "e", "f"]),
+        }
+    )
+    signature = header({1007: (INT32, [1])})
+    signature += b"\0" * (-len(signature) % 8)
+
+    with pytest.raises(rpms.InvalidPackage, match="overlap"):
+        await read(lead("x") + signature + pointed(main, 1054, 1047))
+
+
+async def test_a_package_with_more_files_and_dependencies_than_the_bound_is_refused(monkeypatch):
+    monkeypatch.setattr(rpms, "ENTRIES_MOST", 3)
+
+    with pytest.raises(rpms.InvalidPackage, match="more than 3 files and dependencies"):
+        await read(make_rpm(files=["/a", "/b"], requires=[("c", 0, ""), ("d", 0, "")]))
+    await read(make_rpm(files=["/a"], requires=[("c", 0, "")]))  # one provide, three in all

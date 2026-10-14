@@ -165,6 +165,14 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | R8 | In plan 12c a YUM proxy has no settings, and there are no YUM groups (the format's types are hosted and proxy): `remote_keys` and groups come together in 12d. | What has no use yet is not offered. |
 | R9 | dnf 5 on Fedora 44 and dnf 4 on Rocky Linux 10 check a `repomd.xml.asc` that `pysequoia` signed with an Ed25519 key, and install `name-epoch:version-release`. | Section 11's risk, settled by plan 12c's real-client tests. |
 
+### Settled by the review of plan 12c
+
+| # | What | Why |
+| --- | --- | --- |
+| R10 | Each value of an RPM's header has bytes of its own: a header whose values overlap is refused, as rpm refuses it. A package lists at most 500,000 files and dependencies, and is read, and what is kept of it written out, in a worker thread. | A 1 MB package whose seven lists of names were said to share the same bytes became seven million entries: 35 seconds in which the server answered nobody, and then `500`. |
+| R11 | A directory that had no packages keeps the files its empty `repomd.xml` named once its first package comes. | R4's machine, set up before the first upload, was given `404` for them. |
+| R12 | A hosted repository's metadata is written whole after each change, and the first request after it waits: 30,000 small packages take about 16 seconds to write and 4 more to read, a repository of 5,200 packages with a million files about 7. The guide says so. Writing only what changed (each package's part kept, each directory on its own) is left until a repository needs it. | Measured by the review on the reference laptop. dnf waits 30 seconds for a server that sends nothing. |
+
 ## 5. APT
 
 ### 5.1 Layout
