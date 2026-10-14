@@ -105,6 +105,19 @@ What the server derives from the packages, it does not store (as Maven's metadat
 - **A member whose index fails a check is left out of the merge**, with a log line (`group_member_unverified`, with the member and the reason), and the reason as the member's last error on its repository page. The group answers with the others.
 - **A merged index is cached** by the revisions of its hosted members and the content hashes of its proxy members' indexes, so that it is merged again only when one of them changed.
 
+### Settled while building plan 12a
+
+| # | What | Why |
+| --- | --- | --- |
+| P1 | OpenPGP is done with `pysequoia` (Sequoia), not GnuPG: Ed25519 and RSA 4096 keys that never expire, clear and detached signatures, and keys GnuPG exported. apt on Debian 13 and Ubuntu 26.04 verifies what it signed. The wheel has Sequoia's library built in, which is LGPL-2.0-or-later; MegooArti's own code stays MIT and uses it as a library. | The risk of section 11, settled by its test. GnuPG would have been a program in the image and a process for every signature. |
+| P2 | A key is made the first time it is needed (an index, the public key, or `GET .../signing-key`), not in the request that makes the repository; of two requests that find none at once, the first one's is kept. | One path for every repository, however it was made and whenever. To whoever uses it, 4.2's "made with the repository" and this cannot be told apart. |
+| P3 | `InRelease` signs `Release` without its last line ending, as GnuPG does. | Sequoia would otherwise sign a blank line more than `Release` has. |
+| P4 | `Packages` is written byte for byte as `dpkg-scanpackages` writes it: the control fields in the package's own order, the file and its checksums before `Section`, and a blank line after each paragraph. `Release` lists `MD5Sum` and `SHA256`. | Section 10, held against what dpkg-scanpackages 1.22 wrote of four real packages. |
+| P5 | A component of a hosted repository is a package's name and its version with its epoch, read from what was kept of its `control`; a proxy's package is read from its file's name, which has no epoch. The change to `describe_component` (4.1) is in plan 12a. | `apt install name=version` needs the epoch, which the pool path does not have. |
+| P6 | The revision is raised after a path's lock and before a blob's or a component's, and also when a key is replaced. A snapshot reads the revision before and after the files, and again if they differ, five times at most (then `503 repository_busy`). | Changes to one repository wait for each other in one order, and an index never names a file its revision does not have. |
+| P7 | What is read of a staged upload is closed as soon as it has been read. | On Windows a file still open can be neither moved into the store nor removed. |
+| P8 | The changelog gains APT when the version that has it is released. | Its first heading must be the version the code says it is. |
+
 ## 5. APT
 
 ### 5.1 Layout
@@ -229,7 +242,7 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 | --- | --- |
 | apk refuses an unsigned package that a signed index vouches for. | The first real-client test of plan 12d. If so, a hosted apk repository accepts only packages signed with a key its clients trust, and its guide says so. |
 | apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Plan 12d's tests on the two newest releases. If packages in the newer format are what `abuild` writes, reading them becomes part of plan 12d. |
-| A Python library for OpenPGP that signs as apt and dnf verify. | Plan 12a decides between `pysequoia` and GnuPG in the image, by a test that apt and dnf (in their containers) verify what each signed. |
+| A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1): `pysequoia`. Plan 12c's tests show dnf verifying it too. |
 | `zstd` packages need `zstandard` (Python 3.13 has no `zstd` of its own). | A dependency, added in plan 12a. |
 | Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | The merged index is cached (4.5), and plan 12b measures a merge of Debian's `main` for `amd64`. |
 | A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Plan 12c's tests with Rocky's AppStream; the guide says what a group of modular repositories does. |
