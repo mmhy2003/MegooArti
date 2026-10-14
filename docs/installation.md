@@ -50,6 +50,13 @@ The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok
 The web UI is at <http://localhost:8000>, and the API's documentation at
 <http://localhost:8000/api/docs>.
 
+On Windows, run Compose from the repository's path with its drive letter as a capital
+(`cd C:\path\to\MegooArti`). From `c:\...`, which is where a VS Code terminal may
+open, Docker Compose 5 stops the build with `additional privileges requested: pass
+"--allow=fs.read=backend\\Dockerfile"`: it writes the drive letter of the build's
+directory one way and of its Dockerfile the other, and Bake takes the Dockerfile
+for a file outside the build.
+
 A new installation has one blob store, `default`, and no repository:
 [Repositories](repositories.md) makes the first.
 
