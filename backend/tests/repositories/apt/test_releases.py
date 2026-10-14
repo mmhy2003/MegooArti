@@ -33,11 +33,12 @@ def test_a_release_the_group_writes_is_read_back_as_it_was_written():
         ("main/binary-amd64/Packages", Entry(10, "a" * 64)),
         ("main/binary-amd64/Packages.gz", Entry(7, "b" * 64)),
     ]
+    until = datetime(2026, 10, 21, 9, 30, 5, tzinfo=UTC)
 
     text = releases.compose(
-        label="apt-public",
-        suite="trixie",
+        header=releases.parse(debians()).header,
         moment=MOMENT,
+        valid_until=until,
         components=["main", "contrib"],
         architectures=["amd64", "arm64"],
         entries=entries,
@@ -45,12 +46,35 @@ def test_a_release_the_group_writes_is_read_back_as_it_was_written():
     release = releases.parse(text)
 
     assert text.startswith(
-        b"Origin: MegooArti\nLabel: apt-public\nSuite: trixie\nCodename: trixie\n"
-        b"Date: Wed, 14 Oct 2026 09:30:05 UTC\nArchitectures: amd64 arm64\n"
-        b"Components: main contrib\nAcquire-By-Hash: no\nSHA256:\n"
+        b"Origin: Debian\nLabel: Debian\nSuite: stable\nVersion: 13.7\nCodename: trixie\n"
+        b"Changelogs: https://metadata.ftp-master.debian.org/changelogs/@CHANGEPATH@_changelog\n"
+        b"Description: Debian 13.7 Released 12 September 2026\n"
+        b"Date: Wed, 14 Oct 2026 09:30:05 UTC\nValid-Until: Wed, 21 Oct 2026 09:30:05 UTC\n"
+        b"Architectures: amd64 arm64\nComponents: main contrib\nAcquire-By-Hash: no\nSHA256:\n"
     )
     assert release.entries == dict(entries)
-    assert (release.components, release.moment) == (["main", "contrib"], MOMENT)
+    assert (release.components, release.moment, release.valid_until) == (
+        ["main", "contrib"],
+        MOMENT,
+        until,
+    )
+    assert release.by_hash is False
+
+
+def test_debians_release_says_its_files_are_found_by_their_hash_and_whose_it_is():
+    release = releases.parse(debians())
+
+    assert release.by_hash is True
+    assert release.valid_until is None
+    assert release.header == [
+        ("Origin", "Debian"),
+        ("Label", "Debian"),
+        ("Suite", "stable"),
+        ("Version", "13.7"),
+        ("Codename", "trixie"),
+        ("Changelogs", "https://metadata.ftp-master.debian.org/changelogs/@CHANGEPATH@_changelog"),
+        ("Description", "Debian 13.7 Released 12 September 2026"),
+    ]
 
 
 @pytest.mark.parametrize(

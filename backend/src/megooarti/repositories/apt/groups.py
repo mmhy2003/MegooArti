@@ -2,21 +2,27 @@
 
 A group serves each suite its members have. A client trusts the group's key and
 nothing else, so the group checks what it signs: a proxy member's `InRelease` must be
-signed by one of the keys its remote was given (`remote_keys`), and each `Packages`
-file of it that the group reads must have the SHA-256 that `Release` names. A member
-that fails a check is left out, its reason logged and kept as its last error, and the
-group answers with the others. A hosted member's indexes are the server's own.
+signed by one of the keys its remote was given (`remote_keys`), and must not have
+expired (`Valid-Until`); each `Packages` file of it that the group reads must have the
+SHA-256 that `Release` names, and is read by that hash where the remote has it so. A
+member that fails a check is left out, its reason logged and kept as its last error.
+A hosted member's indexes are the server's own.
 
-A suite that one member has is that member's, as it is: the group signs its `Release`
-again, unchanged, and sends every other file of the suite on from that member, which
-the client checks against that `Release`. Where several members have a suite, the
-group writes a `Release` of its own: a component and architecture that one member has
-is that member's files, and one that several have is one `Packages` written from
-theirs, in their order, a package an earlier member has left out of a later one's.
+The group writes a `Release` of its own for every suite. It says whose suite it is as
+its first proxy member that has the suite says it, or else its first member: apt
+refuses a suite whose Origin, Label or Codename changes. A suite one member has names
+that member's files as they are, and every file is sent on from that member. A suite
+several members have names, for a component and architecture one member has, that
+member's files, and for one that several have, one `Packages.gz` written from theirs,
+in their order, a package an earlier member has left out of a later one's. Its `Date`
+never goes back, and it is valid no longer than its members are.
 
 What a group writes of a suite is kept, by a digest of what its members' indexes are
-now: a hosted member's revision, and a proxy's `InRelease` and keys. Anything else is
-answered as any group answers it: by the first member that has it.
+now: a hosted member's revision, and a proxy's `InRelease` and keys. A request does
+not wait for the next one while one is kept, and holds no database connection while
+it waits for the first: the writing has a session of its own. While a member that the
+last one had cannot be checked, the last one is kept a while longer and tried again.
+Anything else is answered as any group answers it: by the first member that has it.
 """
 
 import asyncio
@@ -24,9 +30,11 @@ import gzip
 import hashlib
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -35,17 +43,22 @@ from megooarti.errors import ApiError
 from megooarti.repositories import derived, group, proxy, proxy_state, signing
 from megooarti.repositories.apt import format as apt
 from megooarti.repositories.apt import merge, releases
-from megooarti.repositories.content import RepositoryContext, TooLarge
+from megooarti.repositories.content import RepositoryContext, TooLarge, build_context
 from megooarti.repositories.formats import Serve
+from megooarti.repositories.models import Repository, SigningKey
 
 log = structlog.get_logger(__name__)
 
 # The most of a member's `InRelease`, and of a packed `Packages` file, that is read.
 RELEASE_MOST = 16 * 1024 * 1024
 PACKED_MOST = 256 * 1024 * 1024
+# How long what was written while a member was left out is served before another try.
+RETRY = timedelta(minutes=1)
 # Which of a member's `Packages` files is read, the first that its `Release` names.
 _VARIANTS = ("Packages.xz", "Packages.gz", "Packages")
 _SIGNED = ("Release", "InRelease", "Release.gpg")
+# The mark of a revision written while a member was left out: no digest ends so.
+_INCOMPLETE = "~"
 
 
 class LeftOut(Exception):
@@ -104,7 +117,7 @@ async def _leave_out(context: RepositoryContext, member: RepositoryContext, reas
         )
 
 
-async def _offer(member: RepositoryContext, suite: str) -> Offer:
+async def _offer(member: RepositoryContext, suite: str, now: datetime) -> Offer:
     """What a member has of a suite, checked. Raises LeftOut."""
     if member.repository.type == "hosted":
         written = await apt.hosted_indexes(member)
@@ -119,14 +132,16 @@ async def _offer(member: RepositoryContext, suite: str) -> Offer:
     if signed is None:
         raise LeftOut("its InRelease is gone")
     try:
-        text = signing.verify_clear(signed, signing.read_public_keys(keys))
-        return Offer(member, releases.parse(text), None)
+        release = releases.parse(signing.verify_clear(signed, signing.read_public_keys(keys)))
     except signing.KeysUnusable as error:
         raise LeftOut(f"its remote's keys cannot be read: {error}") from None
     except signing.Unverified as error:
         raise LeftOut(f"its InRelease is not signed by its remote's keys: {error}") from None
     except releases.InvalidRelease as error:
         raise LeftOut(f"its InRelease cannot be read: {error}") from None
+    if release.valid_until is not None and release.valid_until < now:
+        raise LeftOut(f"its Release was valid until {release.valid_until:%Y-%m-%d %H:%M} UTC")
+    return Offer(member, release, None)
 
 
 def _variant(offer: Offer, directory: str) -> tuple[str, releases.Entry] | None:
@@ -143,7 +158,13 @@ async def _packages(offer: Offer, suite: str, directory: str) -> bytes:
     if offer.files is not None:
         packed = offer.files.get(name)
     else:
-        path = f"dists/{suite}/{name}"
+        # By its hash where the remote has it so: that file never changes, while the
+        # one by its name may already be the next one's.
+        path = (
+            f"dists/{suite}/{directory}/by-hash/SHA256/{entry.sha256}"
+            if offer.release.by_hash
+            else f"dists/{suite}/{name}"
+        )
         try:
             await proxy.ensure_cached(offer.member, path)
             packed = await offer.member.read(path, limit=PACKED_MOST)
@@ -184,9 +205,13 @@ def _union(lists: Sequence[Sequence[str]]) -> list[str]:
 
 
 async def _merged(
-    context: RepositoryContext, offers: list[Offer], suite: str, signer: signing.Signer
-) -> derived.Written:
-    """A `Release` of the group's own, for a suite several members have."""
+    context: RepositoryContext, offers: list[Offer], suite: str
+) -> tuple[list[str], list[str], dict, derived.Files, dict, bool]:
+    """What a suite several members have names, and whether a member's file was left out.
+
+    Returns its components, architectures, entries, the files the group writes, and
+    which member answers for the others.
+    """
     components = _union([offer.release.components for offer in offers])
     architectures = [
         name for name in _union([offer.release.architectures for offer in offers]) if name != "all"
@@ -194,6 +219,7 @@ async def _merged(
     entries: dict[str, releases.Entry] = {}
     files: derived.Files = {}
     routes: dict[str, uuid.UUID | None] = {"*": offers[0].member.repository.id}
+    incomplete = False
 
     def copy(offer: Offer, prefix: str) -> None:
         for path, entry in offer.release.entries.items():
@@ -216,6 +242,7 @@ async def _merged(
                     try:
                         texts.append(await _packages(offer, suite, directory))
                     except LeftOut as error:
+                        incomplete = True
                         await _leave_out(context, offer.member, str(error))
                 packed, named = await asyncio.to_thread(_packed, texts)
                 files[f"{directory}/Packages.gz"] = packed
@@ -230,22 +257,93 @@ async def _merged(
     for path in offers[0].release.entries:
         if "/" not in path:
             copy(offers[0], path)
+    return components, architectures, entries, files, routes, incomplete
 
+
+async def _written(
+    context: RepositoryContext,
+    offers: list[Offer],
+    suite: str,
+    signer: signing.Signer,
+    previous: derived.Written | None,
+) -> tuple[derived.Written, bool]:
+    """The group's index files of a suite, and whether a member's file was left out."""
+    if len(offers) == 1:
+        only = offers[0]
+        components, architectures = only.release.components, only.release.architectures
+        entries, files = dict(only.release.entries), {}
+        routes: dict = {"*": only.member.repository.id}
+        by_hash, incomplete = only.release.by_hash, False
+    else:
+        components, architectures, entries, files, routes, incomplete = await _merged(
+            context, offers, suite
+        )
+        by_hash = False
+    lead = next((offer for offer in offers if offer.files is None), offers[0])
     moments = [offer.release.moment for offer in offers if offer.release.moment is not None]
     moment = max(moments) if moments else utcnow()
+    if previous is not None:
+        moment = max(moment, previous.changed)  # a client keeps a list newer than this
+    ends = [offer.release.valid_until for offer in offers if offer.release.valid_until]
     text = releases.compose(
-        label=context.repository.name,
-        suite=suite,
+        header=lead.release.header,
         moment=moment,
+        valid_until=min(ends) if ends else None,
         components=components,
         architectures=architectures,
         entries=entries.items(),
+        by_hash=by_hash,
     )
-    return derived.Written("", moment, {**files, **_signed(text, signer)}, routes)
+    return derived.Written("", moment, {**files, **_signed(text, signer)}, routes), incomplete
+
+
+async def _write(
+    db: AsyncSession,
+    context: RepositoryContext,
+    candidates: list[uuid.UUID],
+    suite: str,
+    key: SigningKey,
+    revision: str,
+) -> derived.Written:
+    """What the group has of a suite, written with a session of its own."""
+    of = (context.repository.id, suite)
+    now = utcnow()
+    members = [
+        await build_context(
+            db,
+            context.settings,
+            await db.get(Repository, member_id),
+            context.principal,
+            outbound=context.outbound,
+        )
+        for member_id in candidates
+    ]
+    offers, left_out = [], False
+    for member in members:
+        try:
+            offers.append(await _offer(member, suite, now))
+        except LeftOut as error:
+            left_out = True
+            await _leave_out(context, member, str(error))
+    previous = derived.peek(of)
+    whole = previous is not None and not str(previous.revision).endswith(_INCOMPLETE)
+    if left_out and whole:
+        # Keep the last whole one while a member cannot be checked, and try again later.
+        await db.commit()
+        return replace(previous, held_until=now + RETRY)
+    if not offers:
+        await db.commit()
+        raise _not_found("No repository of this group that has this suite could be checked.")
+    signer = signing.signer(context.settings, key)
+    written, incomplete = await _written(context, offers, suite, signer, previous)
+    await db.commit()
+    if left_out or incomplete:
+        return replace(written, revision=revision + _INCOMPLETE, held_until=now + RETRY)
+    return replace(written, revision=revision)
 
 
 async def _suite_index(
-    context: RepositoryContext, suite: str
+    context: RepositoryContext, request: Request, suite: str
 ) -> tuple[derived.Written, dict[uuid.UUID, RepositoryContext]]:
     """What the group has of a suite, and its members that answer for it."""
     members = [leaf.context for leaf in await group.leaves(context) if leaf.online]
@@ -253,33 +351,21 @@ async def _suite_index(
     for member in members:
         token = await _token(member, suite)
         if token is not None:
-            candidates.append(member)
+            candidates.append(member.repository.id)
             tokens.append(token)
     if not candidates:
         raise _not_found("No repository of this group has this suite.")
     key = await signing.key_of(context.db, context.settings, context.repository)
     revision = hashlib.sha256("\n".join([key.fingerprint, suite, *tokens]).encode()).hexdigest()
+    # A request that waits for the writing holds no connection: the writing has its own.
+    await context.release()
+    sessions = request.app.state.sessionmaker
 
     async def write() -> derived.Written:
-        offers = []
-        for member in candidates:
-            try:
-                offers.append(await _offer(member, suite))
-            except LeftOut as error:
-                await _leave_out(context, member, str(error))
-        if not offers:
-            raise _not_found("No repository of this group that has this suite could be checked.")
-        signer = signing.signer(context.settings, key)
-        if len(offers) > 1:
-            written = await _merged(context, offers, suite, signer)
-        else:
-            # One member's suite is that member's: its own Release, signed again.
-            signed = _signed(offers[0].release.text, signer)
-            moment = offers[0].release.moment or utcnow()
-            written = derived.Written("", moment, signed, {"*": offers[0].member.repository.id})
-        return derived.Written(revision, written.changed, written.files, written.routes)
+        async with sessions() as db:
+            return await _write(db, context, candidates, suite, key, revision)
 
-    written = await derived.written((context.repository.id, suite), revision, write)
+    written = await derived.written((context.repository.id, suite), revision, write, stale=True)
     return written, {member.repository.id: member for member in members}
 
 
@@ -299,7 +385,7 @@ async def handle_group(
     if request.method not in ("GET", "HEAD") or not path.startswith("dists/"):
         return await group.handle_group(context, request, path, serve)
     suite, _, under = path.removeprefix("dists/").partition("/")
-    written, members = await _suite_index(context, suite)
+    written, members = await _suite_index(context, request, suite)
     data = written.files.get(under)
     if data is not None:
         filename = under.rpartition("/")[2]

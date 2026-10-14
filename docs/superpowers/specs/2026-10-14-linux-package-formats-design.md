@@ -140,6 +140,17 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | Q7 | A group's members are its leaves: a group within a group gives the group its own members, not its signed indexes. | One check of each remote, by the group a client trusts. |
 | Q8 | `remote_keys` is armoured text, of one or more keys, at most 1 MiB, and holds no private key. The guide makes it with `gpg --export --armor` from the distribution's keyring. | Debian's keyring is binary; a JSON field is text. |
 
+### Settled by the review of plan 12b
+
+| # | What | Why |
+| --- | --- | --- |
+| Q9 | A request for a group's suite gives its database connection back before it waits for the index, and the index is written with a session of its own. | Twenty clients waiting for a large suite took every connection of the pool: the writing then failed, every one of them was answered `500`, and so was the rest of the server. |
+| Q10 | A group writes a `Release` of its own for every suite, a suite one member has too (in place of Q1's: that member's `Release`, unchanged). It says whose suite it is (`Origin`, `Label`, `Suite`, `Version`, `Codename`, `Changelogs`, `Description`) as its first proxy member that has the suite says it, or else as its first member does. Its `Date` does not go back while the process keeps the last one. It is valid no longer than the earliest of its members' `Valid-Until`, and a proxy member whose `Valid-Until` has passed is left out. | apt refused `update` when a second member joined a suite (its `Label` changed from the member's to the group's), kept its old lists when a member went and the `Date` went back, and a merged suite dropped Debian security's `Valid-Until`. |
+| Q11 | A proxy member's `Packages` is read by its hash where its `Release` says `Acquire-By-Hash: yes`. | Read by its name, it could be the next one's while a mirror changed, and the member was then left out of the merged suite until its `InRelease` changed again. |
+| Q12 | What was written while a member was left out is served for a minute (`RETRY`), and then written again; while a member the last whole index had cannot be checked, that index is kept for a minute more. | A failure that passes is no reason to lose a distribution's packages for weeks, nor to change a suite's `Release` under its clients. |
+| Q13 | A request for a group's suite is given the last index kept while the next is written behind it; only the first one waits. Hosted repositories and groups each have a budget of 256 MiB in the cache. | A whole suite over two mirrors took minutes the first time (the gateway answers `504` after ten), and its 90 MB of indexes could push every hosted repository's out. |
+| Q14 | A package's path in the pool must be the same file in every member of a group that has it; the guide says so. | Packages are asked of the members in order (5.4): a second hosted repository's package of the same name, version and architecture, built for another suite, would be given the first one's file. |
+
 ## 5. APT
 
 ### 5.1 Layout

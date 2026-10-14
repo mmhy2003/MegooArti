@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import event, select
@@ -257,3 +258,52 @@ def test_a_groups_written_files_say_which_member_answers_for_the_others():
 
     assert written.routes == {"*": member}
     assert derived.Written(1, utcnow(), {}).routes == {}
+
+
+def test_what_is_held_is_served_for_any_revision_until_its_time_is_up():
+    derived.forget()
+    suite = (uuid.uuid4(), "trixie")
+    later = utcnow() + timedelta(minutes=1)
+
+    derived.put(suite, derived.Written("a" * 64, utcnow(), {"Release": b"one"}, held_until=later))
+
+    assert derived.get(suite, "b" * 64).files == {"Release": b"one"}
+    assert derived.get(suite, "b" * 64, now=later + timedelta(seconds=1)) is None
+    assert derived.peek(suite).revision == "a" * 64
+    derived.forget()
+
+
+async def test_with_something_kept_a_request_need_not_wait_for_the_next_revision():
+    derived.forget()
+    suite = (uuid.uuid4(), "trixie")
+    derived.put(suite, written(1))
+    go = asyncio.Event()
+    made = []
+
+    async def make() -> derived.Written:
+        await go.wait()
+        made.append(1)
+        return written(2)
+
+    first = await asyncio.wait_for(derived.written(suite, 2, make, stale=True), timeout=1)
+    go.set()
+    await asyncio.sleep(0.05)
+
+    assert first.revision == 1  # what was kept, at once
+    assert made == [1] and derived.get(suite, 2).revision == 2  # and the next, behind it
+    derived.forget()
+
+
+def test_hosted_repositories_and_groups_have_a_budget_each(monkeypatch):
+    derived.forget()
+    monkeypatch.setattr(derived, "MOST_BYTES", 25)
+    hosted = uuid.uuid4()
+    suites = [(uuid.uuid4(), "trixie") for _ in range(3)]
+
+    derived.put(hosted, written(1))
+    for suite in suites:
+        derived.put(suite, written(1))
+
+    assert derived.get(hosted, 1) is not None  # the groups' suites did not push it out
+    assert derived.get(suites[0], 1) is None and derived.get(suites[2], 1) is not None
+    derived.forget()

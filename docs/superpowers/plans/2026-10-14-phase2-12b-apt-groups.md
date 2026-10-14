@@ -23,6 +23,18 @@
 | Q7 | A group's members are its leaves (12a's `group.leaves`): a group within a group gives its members, not its signed indexes. | One check of each remote, by the group the client trusts. |
 | Q8 | `remote_keys` is armoured text, one or more keys, at most 1 MiB, and no private key. | Debian's keyring is binary; a JSON field is text. The guide makes it with `gpg --export --armor`. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first, and the spec's section 4 records what they settle as Q9 to Q14.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `groups._suite_index` gives its connection back (`context.release()`) before it waits, and `groups._write` writes with a session of its own from `app.state.sessionmaker`, its members' contexts made in it. | C1: waiting requests held every connection of the pool. |
+| F2 | `releases.Release` has `header`, `valid_until` and `by_hash`; `releases.compose(header=, moment=, valid_until=, components=, architectures=, entries=, by_hash=)` writes a member's header. `groups._written` writes a `Release` for every suite: the lead member's header (the first proxy, or the first member), a `Date` that does not go back from the last one kept, the earliest `Valid-Until`. `_offer` leaves out a member whose `Valid-Until` has passed. | I2, I3, I5. |
+| F3 | `groups._packages` reads a proxy's `Packages` by its hash when its `Release` says `Acquire-By-Hash: yes`. | I1. |
+| F4 | `derived.Written.held_until`, `derived.peek`, and `derived.get(..., now=)`: what is held is given for any revision until then. `groups._write` keeps the last whole index for `RETRY` while a member cannot be checked, and marks a revision written without one (`~`) to be written again after `RETRY`. | I1, I2. |
+| F5 | `derived.written(..., stale=True)`: a request is given what is kept while the next is written behind it; a failure behind is logged (`index_not_written`). Hosted repositories and groups each have `MOST_BYTES`. | I6. |
+| F6 | `docs/formats/apt.md`: whose suite the group's `Release` says it is, and `--allow-releaseinfo-change`; the checks; the minute's retry; the time a first write takes; one pool path, one file. | I4, I6, and the guide's own words. |
+| F7 | In the tests, `written_behind()` waits for what a group writes behind a request: every session of the tests shares one connection. | The tests of F5. |
+
 ## Global Constraints
 
 - **A client trusts the group's key and nothing else**: nothing a proxy member fetched is signed by the group unless the remote's own signature was verified first, and every file the group writes from a member's is checked against that member's `Release`.

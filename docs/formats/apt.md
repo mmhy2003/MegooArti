@@ -81,23 +81,40 @@ deb [signed-by=/etc/apt/keyrings/apt-public.asc] https://repo.example.com/reposi
 EOF
 ```
 
-- **A suite one member has is that member's.** The group signs its `Release` again,
-  unchanged, and passes every other file of the suite on from it; apt checks each
-  against that `Release`, as it would have checked it against the mirror's.
+- **The group writes a `Release` of its own for each suite**, and says in it whose
+  suite it is as its first proxy member that has the suite says it (for Debian,
+  `Origin: Debian`, `Codename: trixie`), or else as its first member does: apt refuses
+  a suite whose Origin, Label or Codename changes, and unattended upgrades and pins go
+  by them. Adding or removing a member before that one changes them, and every
+  machine must then run `apt-get update --allow-releaseinfo-change` once. Its `Date`
+  does not go back, and it is valid no longer than a member's `Valid-Until` says.
+- **A suite one member has** names that member's files as its own `Release` does, and
+  every file of the suite is sent on from that member; apt checks each against the
+  group's `Release`, as it would have checked it against the mirror's.
 - **A suite several members have** (a hosted repository whose suite is `trixie`,
   beside a proxy of Debian; or `stable`, which Debian's mirrors have as well, as a
-  name for the current release) gets a `Release` of the group's own. A component and
-  architecture one member has is that member's files; one that several have is one
-  `Packages.gz` written from theirs, in the order of the members, a package
-  (the same name, version and architecture) that an earlier member has left out of a
-  later one's. That is written again whenever a member's indexes change, and takes
-  seconds for a component as large as Debian's `main`.
+  name for the current release) names, for a component and architecture one member
+  has, that member's files, and for one that several have, one `Packages.gz` written
+  from theirs, in the order of the members, a package (the same name, version and
+  architecture) that an earlier member has left out of a later one's.
 - **A member is checked before it is used**: a proxy's `InRelease` must be signed by
-  one of its `remote_keys`, and each `Packages` file the group reads must be the one
-  that `Release` names. A member that fails is left out, the group answers with the
-  others, and the proxy's page says why as its last error. A proxy whose remote has no
-  `InRelease` is left out as well.
-- **Packages** are asked of the members in order, as in any group.
+  one of its `remote_keys` and must not have expired, and each `Packages` file the
+  group reads must be the one that `Release` names, read by its hash where the remote
+  says `Acquire-By-Hash: yes`. A member that fails is left out, it is logged, and the
+  proxy's page says why as its last error until the proxy next reaches its remote. A
+  proxy whose remote has no `InRelease` is left out without a word.
+- **While a member the last index had cannot be checked**, that index is kept a
+  minute longer, and the group then tries again; what was written without a member
+  is tried again after a minute as well.
+- **The index is written again when a member's changes**, behind the requests: a
+  machine is given the last one meanwhile, and waits only the first time. Merging
+  Debian's `main` for one architecture takes about two seconds; the first time, for a
+  suite of several components and architectures over two mirrors, fetching their
+  indexes takes minutes.
+- **Packages** are asked of the members in order, as in any group. A package's path
+  in the pool must therefore be the same file in every member that has it: two hosted
+  repositories that each hold `app_1.0-1_amd64.deb`, built for another suite, cannot be
+  in one group, as the first one's file would be given for both.
 - **The group's key** is made the first time it is needed, and is at
   `/repository/<group>/public.key`, as a hosted repository's is.
 
