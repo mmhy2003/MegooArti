@@ -246,3 +246,52 @@ async def test_the_api_says_a_repository_that_signs_nothing_has_no_key(admin_cli
     answer = await admin_client.get(KEYS)
 
     assert (answer.status_code, error_code(answer)) == (404, "not_found")
+
+
+def test_a_remotes_public_keys_are_read_from_armoured_text():
+    keys = signing.read_public_keys(
+        (DATA / "debian-archive-keyring.asc").read_text(encoding="utf-8")
+    )
+
+    assert len(keys) == 9
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        ("not a key", "not one or more OpenPGP public keys"),
+        ((DATA / "plain-rsa.asc").read_text(encoding="utf-8"), "holds a private key"),
+        ("x" * (signing.PUBLIC_KEYS_MOST + 1), "longer than this server keeps"),
+    ],
+    ids=["text", "private", "long"],
+)
+def test_text_that_is_not_public_keys_is_refused(text, said):
+    with pytest.raises(signing.KeysUnusable, match=said):
+        signing.read_public_keys(text)
+
+
+def test_a_clear_signed_message_is_read_if_one_of_the_keys_signed_it():
+    keys = signing.read_public_keys(
+        (DATA / "debian-archive-keyring.asc").read_text(encoding="utf-8")
+    )
+    signed = (DATA / "debian-trixie-InRelease").read_bytes()
+
+    text = signing.verify_clear(signed, keys)
+
+    assert text.startswith(b"Origin: Debian\nLabel: Debian\n")
+
+
+def test_a_clear_signed_message_none_of_the_keys_signed_is_refused():
+    other = signing.read_public_keys(signing.generate_openpgp("Someone else").public_key)
+    signed = (DATA / "debian-trixie-InRelease").read_bytes()
+    altered = signed.replace(b"Origin: Debian", b"Origin: Debiam")
+    debian = signing.read_public_keys(
+        (DATA / "debian-archive-keyring.asc").read_text(encoding="utf-8")
+    )
+
+    with pytest.raises(signing.Unverified):
+        signing.verify_clear(signed, other)
+    with pytest.raises(signing.Unverified):
+        signing.verify_clear(altered, debian)
+    with pytest.raises(signing.Unverified):
+        signing.verify_clear(b"Origin: Debian\n", debian)

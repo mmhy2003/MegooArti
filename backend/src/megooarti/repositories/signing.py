@@ -39,6 +39,18 @@ class KeyUnusable(ValueError):
     """Text that is not a private key this server can sign with."""
 
 
+class KeysUnusable(ValueError):
+    """Text that is not one or more OpenPGP public keys."""
+
+
+class Unverified(ValueError):
+    """A signature that none of the keys it was checked with made, or that is not one."""
+
+
+# The most a remote's public keys may be: Debian's whole keyring is 56 KiB.
+PUBLIC_KEYS_MOST = 1024 * 1024
+
+
 @dataclass(frozen=True)
 class Material:
     """A key as it is stored, before its private part is sealed."""
@@ -108,10 +120,45 @@ class Signer:
         return pysequoia.sign(self._signer, data, mode=pysequoia.SignatureMode.DETACHED)
 
 
+def read_public_keys(text: str) -> list[object]:
+    """The OpenPGP public keys in armoured text: a remote's, which a group checks it with.
+
+    Raises KeysUnusable for text that has none, is too long, or holds a private key.
+    """
+    if len(text.encode()) > PUBLIC_KEYS_MOST:
+        raise KeysUnusable("The keys are longer than this server keeps.")
+    try:
+        certificates = pysequoia.Cert.split_bytes(text.encode())
+    except RuntimeError:
+        certificates = []
+    if not certificates:
+        raise KeysUnusable("This is not one or more OpenPGP public keys, armoured.")
+    if "PRIVATE KEY BLOCK" in text:
+        raise KeysUnusable("This holds a private key. Give the public keys only.")
+    return certificates
+
+
+def verify_clear(signed: bytes, certificates: list[object]) -> bytes:
+    """The text a clear-signed message (an `InRelease`) says, if one of the keys signed it.
+
+    Raises Unverified otherwise.
+    """
+    try:
+        return pysequoia.verify(bytes=signed, store=lambda _: certificates).bytes
+    except RuntimeError as error:
+        raise Unverified(str(error).splitlines()[0]) from None
+
+
 def signs(repository: Repository) -> str | None:
-    """The kind of key this repository signs with, or None if it signs nothing."""
+    """The kind of key this repository signs with, or None if it signs nothing.
+
+    A hosted repository signs the indexes it writes, and a group those it puts together
+    from its members'. A proxy passes its remote's signatures on, and has none.
+    """
     format = get_format(repository.format)
-    if format is None or repository.type != "hosted":
+    if format is None or repository.type not in ("hosted", "group"):
+        return None
+    if repository.type == "group" and "group" not in format.types:
         return None
     return format.signs
 
