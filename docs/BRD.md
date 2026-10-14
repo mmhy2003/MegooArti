@@ -104,7 +104,7 @@ These are not planned in any phase of this BRD. Each may be reconsidered in a la
 | Phase | Platform features | Formats |
 | --- | --- | --- |
 | **1 — MVP** | Hosted, proxy and group repositories; filesystem blob store; browse, search, upload, delete; local users and role-based access control; personal API tokens; anonymous access; REST API; web UI; Docker distribution with automatic migrations | Maven, npm, PyPI, Docker, Raw |
-| **2 — Operations** | S3 blob store; LDAP; OIDC single sign-on; cleanup policies; scheduled tasks; routing rules; content selectors; webhooks; audit log; metrics endpoint | NuGet, Helm, Go, APT, YUM |
+| **2 — Operations** | S3 blob store; LDAP; OIDC single sign-on; cleanup policies; scheduled tasks; routing rules; content selectors; webhooks; audit log; metrics endpoint | NuGet, Helm, Go, APT, YUM, Alpine |
 | **3 — Full parity** | Email server settings; outbound HTTP proxy settings; trusted certificates; support bundle; log viewer; remaining admin parity | RubyGems, Cargo, Conan, Conda, R, Git LFS, p2, CocoaPods, Bower |
 
 A phase is complete when every **Must** requirement assigned to it is met and SM-1 passes for its formats.
@@ -163,6 +163,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 | FMT-21 | **CocoaPods**: proxy. | P3 | Could |
 | FMT-22 | **Bower**: hosted, proxy and group. | P3 | Could |
 | FMT-23 | Each format is implemented behind a common format interface, so that adding a format does not require changes to repository, storage, security or search code. | P1 | Must |
+| FMT-24 | **Alpine (apk)**: hosted, proxy and group, with the index signed by a key the administrator supplies or MegooArti generates. | P2 | Must |
 
 ### 5.3 Blob storage
 
@@ -401,7 +402,7 @@ This table maps Nexus Repository OSS features to MegooArti requirements. It is t
 | --- | --- | --- |
 | Hosted, proxy and group repositories | REP-1 to REP-12 | P1 |
 | Maven, npm, PyPI, Docker, Raw formats | FMT-1 to FMT-8 | P1 |
-| NuGet, Helm, Go, APT, YUM formats | FMT-9 to FMT-13 | P2 |
+| NuGet, Helm, Go, APT, YUM formats; Alpine, which Nexus OSS does not have | FMT-9 to FMT-13, FMT-24 | P2 |
 | RubyGems, Cargo, Conan, Conda, R, Git LFS, p2, CocoaPods, Bower formats | FMT-14 to FMT-22 | P3 |
 | File blob store | BLB-1, BLB-2, BLB-4, BLB-6 | P1 |
 | S3 blob store, soft quota | BLB-3, BLB-5 | P2 |
