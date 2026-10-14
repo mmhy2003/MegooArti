@@ -46,12 +46,15 @@ dpkg-deb --root-owner-group --build p "/out/$1_$2_all.deb"
 """
 
 # Sets apt up to reach nothing but one repository of the stack, as `ci`.
-# `with_apt <keyring> <repository> <suite>`
+# `with_apt <keyring> <repository> <suite> [<suite> ...]`
 SETUP = f"""
 with_apt() {{
   rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*
-  echo "deb [signed-by=$1] http://gateway/repository/$2 $3 main" \\
-    > /etc/apt/sources.list.d/megooarti.list
+  keyring=$1 repository=$2
+  shift 2
+  for suite in "$@"; do
+    echo "deb [signed-by=$keyring] http://gateway/repository/$repository $suite main"
+  done > /etc/apt/sources.list.d/megooarti.list
   auth=/etc/apt/auth.conf.d/megooarti.conf
   printf 'machine http://gateway\\nlogin {USERNAME}\\npassword {PASSWORD}\\n' > $auth
   chmod 600 $auth
@@ -139,10 +142,8 @@ def repositories(administrator) -> None:
         assert status == 201, answer
 
 
-@pytest.fixture(scope="module")
-def published(repositories, tmp_path_factory) -> Path:
-    """Our package, built with dpkg-deb and uploaded. Returns where its public key is."""
-    work = tmp_path_factory.mktemp("apt")
+def build(work: Path, package: str, version: str) -> bytes:
+    """A package of our own, built with dpkg-deb in Debian's image."""
     (work / "build.sh").write_text(BUILD, encoding="utf-8", newline="\n")
     built = subprocess.run(
         [
@@ -156,17 +157,29 @@ def published(repositories, tmp_path_factory) -> Path:
             IMAGES["debian"],
             "sh",
             "/out/build.sh",
-            PACKAGE,
-            "1.0",
+            package,
+            version,
         ],
         capture_output=True,
         text=True,
         check=False,
     )
     assert built.returncode == 0, said(built)
-    package = (work / f"{PACKAGE}_1.0_all.deb").read_bytes()
+    return (work / f"{package}_{version}_all.deb").read_bytes()
 
-    status, answer = send("PUT", f"{HOSTED}/", package)
+
+def key_of(repository: str, work: Path) -> None:
+    """Save a repository's public key where a client finds it, as `<repository>.asc`."""
+    status, key = send("GET", f"{repository}/public.key")
+    assert status == 200
+    (work / f"{repository}.asc").write_bytes(key)
+
+
+@pytest.fixture(scope="module")
+def published(repositories, tmp_path_factory) -> Path:
+    """Our package, built with dpkg-deb and uploaded. Returns where its public key is."""
+    work = tmp_path_factory.mktemp("apt")
+    status, answer = send("PUT", f"{HOSTED}/", build(work, PACKAGE, "1.0"))
     assert status == 201, answer
     status, key = send("GET", f"{HOSTED}/public.key")
     assert status == 200
@@ -210,3 +223,126 @@ def test_apt_installs_a_public_package_through_a_proxy_of_its_mirror(published, 
 
     assert installed.returncode == 0, said(installed)
     assert installed.stdout.splitlines()[-1] == "Hello, world!"
+
+
+# --- Groups ---------------------------------------------------------------------------
+
+ADMIN = "admin:'a brand new password'"  # what the `administrator` fixture made it
+SHARED = "megooarti-shared"
+# The guide's commands, as an administrator types them, against the stack: a proxy of
+# Debian with Debian's keys, armoured by GnuPG.
+GUIDE = f"""
+set -e
+apt-get update -qq && apt-get install -y -qq gpg jq curl > /dev/null
+keys=$(gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg \\
+  --export --armor)
+jq -n --arg keys "$keys" '{{
+  name: "apt-debian-keyed", format: "apt", type: "proxy",
+  proxy: {{remote_url: "http://deb.debian.org/debian", auto_block: false}},
+  format_config: {{remote_keys: $keys}}
+}}' | curl -fsS -u {ADMIN} -H 'Content-Type: application/json' -d @- \\
+  http://gateway/api/v1/repositories > /dev/null
+echo made
+"""
+
+
+def made(administrator, body: dict) -> None:
+    status, _, answer = call("POST", "/repositories", body, administrator)
+    assert status == 201, answer
+
+
+@pytest.fixture(scope="module")
+def keyed(published, administrator) -> None:
+    """A proxy of Debian made with the guide's commands, with Debian's keys."""
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--network", NETWORK, IMAGES["debian"], "sh", "-c", GUIDE],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
+        check=False,
+    )
+    assert result.stdout.strip().endswith("made"), said(result)
+
+
+@pytest.fixture(scope="module")
+def groups(keyed, published, administrator) -> Path:
+    """Three groups, with their keys saved beside the hosted repository's.
+
+    `apt-public`: the hosted repository (suite stable) and the proxy: `trixie` is Debian's
+    alone, and `stable`, which Debian's mirror has as well, is both members'.
+    `apt-merged`: a hosted repository whose suite is trixie too, and the proxy.
+    `apt-wrong`: that one, and a proxy of Debian given a key Debian does not sign with.
+    """
+    made(
+        administrator,
+        {
+            "name": "apt-trixie",
+            "format": "apt",
+            "type": "hosted",
+            "format_config": {"suite": "trixie"},
+        },
+    )
+    status, answer = send("PUT", "apt-trixie/", build(published, SHARED, "1.0"))
+    assert status == 201, answer
+    _, _, hosted_key = call("GET", "/repositories/apt-hosted/signing-key", headers=administrator)
+    made(
+        administrator,
+        {
+            "name": "apt-debian-wrong",
+            "format": "apt",
+            "type": "proxy",
+            "proxy": {"remote_url": MIRRORS["debian"], "auto_block": False},
+            # A key Debian does not sign with: the hosted repository's own.
+            "format_config": {"remote_keys": hosted_key["public_key"]},
+        },
+    )
+    for name, members in (
+        ("apt-public", [HOSTED, "apt-debian-keyed"]),
+        ("apt-merged", ["apt-trixie", "apt-debian-keyed"]),
+        ("apt-wrong", ["apt-trixie", "apt-debian-wrong"]),
+    ):
+        made(
+            administrator,
+            {"name": name, "format": "apt", "type": "group", "group": {"members": members}},
+        )
+        key_of(name, published)
+    return published
+
+
+def test_apt_installs_from_a_suite_one_member_has_and_one_both_have_through_a_group(groups):
+    installed = apt(
+        "debian",
+        groups,
+        "with_apt /src/apt-public.asc apt-public stable trixie"
+        f" && apt-get update && apt-get install -y {PACKAGE} hello && {PACKAGE} && hello",
+    )
+
+    assert installed.returncode == 0, said(installed)
+    assert installed.stdout.splitlines()[-2:] == [f"hello from {PACKAGE} 1.0", "Hello, world!"]
+
+
+def test_apt_installs_from_a_suite_the_members_share_through_a_group(groups):
+    installed = apt(
+        "debian",
+        groups,
+        "with_apt /src/apt-merged.asc apt-merged trixie"
+        f" && apt-get update && apt-get install -y {SHARED} hello && {SHARED} && hello",
+    )
+
+    assert installed.returncode == 0, said(installed)
+    assert installed.stdout.splitlines()[-2:] == [f"hello from {SHARED} 1.0", "Hello, world!"]
+
+
+def test_a_member_signed_by_a_key_it_was_not_given_is_left_out_of_a_group(groups, administrator):
+    installed = apt(
+        "debian",
+        groups,
+        "with_apt /src/apt-wrong.asc apt-wrong trixie && apt-get update"
+        f" && apt-get install -y {SHARED} && {SHARED} && ! apt-get install -y hello",
+    )
+    _, _, shown = call("GET", "/repositories/apt-debian-wrong", headers=administrator)
+
+    assert installed.returncode == 0, said(installed)
+    assert shown["status"]["last_error"].startswith("Left out of the group apt-wrong")
