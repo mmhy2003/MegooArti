@@ -1,7 +1,7 @@
 # Linux package formats: design
 
 **Date:** 2026-10-14
-**Plans:** 12a (signing keys, APT hosted and proxy), 12b (APT groups), 12c (YUM), 12d (Alpine), 12e (the web UI)
+**Plans:** 12a (signing keys, APT hosted and proxy), 12b (APT groups), 12c (YUM hosted and proxy), 12d (YUM groups), 12e (Alpine), 12f (the web UI)
 **BRD:** FMT-12 (APT), FMT-13 (YUM), SEC-9; and Alpine, which the BRD does not have yet (section 3, D7)
 
 ## 1. Goal
@@ -151,6 +151,20 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | Q13 | A request for a group's suite is given the last index kept while the next is written behind it; only the first one waits. Hosted repositories and groups each have a budget of 256 MiB in the cache. | A whole suite over two mirrors took minutes the first time (the gateway answers `504` after ten), and its 90 MB of indexes could push every hosted repository's out. |
 | Q14 | A package's path in the pool must be the same file in every member of a group that has it; the guide says so. | Packages are asked of the members in order (5.4): a second hosted repository's package of the same name, version and architecture, built for another suite, would be given the first one's file. |
 
+### Settled while building plan 12c
+
+| # | What | Why |
+| --- | --- | --- |
+| R1 | YUM is two plans, as APT was: 12c its hosted and proxy repositories, 12d its groups (6.4). Alpine and the web UI follow, as 12e and 12f. | A group of YUM repositories has merging and checks of its own; each plan ends with a working format. |
+| R2 | The metadata is what `createrepo_c` 1.x of Fedora 44 writes, byte for byte, of the same packages. Of what a package requires it leaves out rpm's own features (`rpmlib(...)`), the package's own files that `primary.xml` lists, what the package provides itself in the same words, and repeats; of `libc.so.6` it keeps the highest version alone, last. `pre="1"` marks what is needed before the package is installed (`Requires(pre)`, `(post)`, `(pretrans)`, `(posttrans)` and the old `PreReq`). The ten newest changelog entries are kept, oldest first, and of a run of entries at one moment each is moved a second on from the one before. An attribute's characters beyond ASCII are written as character references, as libxml2 writes them. | Section 10: held against what createrepo_c wrote of two packages built for the tests and of two of Fedora 44's own. |
+| R3 | The metadata files are packed with gzip, with no date or name in them, and named by their SHA-256. `<time file>` is when the package was stored, kept with it at upload; the revision and the timestamps of `repomd.xml` are the revision's time. | The same packages make the same bytes in any process: either of two processes can serve what the other's `repomd.xml` named. |
+| R4 | Every directory exactly `repodata_depth` down has a `repodata/`, an empty one where it holds no package; any other `repodata/` is not found. | A machine can be set up before the first package for it is uploaded. |
+| R5 | The files the last revision's `repomd.xml` named are served beside the newest revision's while the process keeps the last revision's; a process that has just started has the newest only. | 4.3 asks for both; the older revision is never written again. |
+| R6 | A component's version has its epoch only when the epoch is not 0. A proxy's package is read from its file's name (`name-version-release.arch.rpm`), which has no epoch; a file of a proxy that is not a package belongs to no component. | dnf takes `name-epoch:version-release` and `name-version-release` both, and rpm shows a version so. |
+| R7 | A package is uploaded with `PUT` to a path that ends in `.rpm`, is outside any `repodata/`, and is at least `repodata_depth` directories down, or it is refused with `400 invalid_path`; the upload form takes a `directory`. A source RPM is known by its lead or by its header's `SOURCEPACKAGE`. | 6.2. `curl --upload-file` to an address that ends in `/` adds the file's name. |
+| R8 | In plan 12c a YUM proxy has no settings, and there are no YUM groups (the format's types are hosted and proxy): `remote_keys` and groups come together in 12d. | What has no use yet is not offered. |
+| R9 | dnf 5 on Fedora 44 and dnf 4 on Rocky Linux 10 check a `repomd.xml.asc` that `pysequoia` signed with an Ed25519 key, and install `name-epoch:version-release`. | Section 11's risk, settled by plan 12c's real-client tests. |
+
 ## 5. APT
 
 ### 5.1 Layout
@@ -273,12 +287,12 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 
 | Risk | What settles it |
 | --- | --- |
-| apk refuses an unsigned package that a signed index vouches for. | The first real-client test of plan 12d. If so, a hosted apk repository accepts only packages signed with a key its clients trust, and its guide says so. |
-| apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Plan 12d's tests on the two newest releases. If packages in the newer format are what `abuild` writes, reading them becomes part of plan 12d. |
-| A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1): `pysequoia`. Plan 12c's tests show dnf verifying it too. |
+| apk refuses an unsigned package that a signed index vouches for. | The first real-client test of plan 12e. If so, a hosted apk repository accepts only packages signed with a key its clients trust, and its guide says so. |
+| apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Plan 12e's tests on the two newest releases. If packages in the newer format are what `abuild` writes, reading them becomes part of plan 12d. |
+| A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1) and dnf (R9): `pysequoia`. |
 | `zstd` packages need `zstandard` (Python 3.13 has no `zstd` of its own). | A dependency, added in plan 12a. |
 | Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | Measured in plan 12b (Q2): Debian's `main` for amd64, 69,908 packages, merged and packed in 2.4 seconds, 13 MB kept; a suite one member has is not merged at all (Q1). |
-| A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Plan 12c's tests with Rocky's AppStream; the guide says what a group of modular repositories does. |
+| A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Plan 12d's tests with Rocky's AppStream; the guide says what a group of modular repositories does. |
 | Keys sealed with the secret key are lost with it. | The backup guide already says to keep the secret key; it will name signing keys too. |
 
 ## 12. Plans
@@ -287,11 +301,12 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 | --- | --- |
 | 12a | Signing keys (table, generation, import, the API, sealing), the revision and the index cache, the change to `describe_component`, the `apt` format's hosted and proxy repositories, its real-client tests and `docs/formats/apt.md`. |
 | 12b | Groups of `apt` repositories, `remote_keys` and the checks of 4.5. |
-| 12c | The `yum` format: hosted (with `repodata_depth`), proxy and group, its tests and guide. |
-| 12d | The `apk` format: hosted, proxy and group, its tests and guide. |
-| 12e | The web UI: the three formats in every list, the repository form's fields, the signing-key panel, the setup snippets, and the left-out members of a group. |
+| 12c | The `yum` format: hosted (with `repodata_depth`) and proxy, its tests and guide. |
+| 12d | Groups of `yum` repositories (6.4), and `remote_keys` for a YUM proxy. |
+| 12e | The `apk` format: hosted, proxy and group, its tests and guide. |
+| 12f | The web UI: the three formats in every list, the repository form's fields, the signing-key panel, the setup snippets, and the left-out members of a group. |
 
-Each plan ends with a working format and its tests; the API serves the three formats from the plan that adds each, and the web UI lists them from 12e.
+Each plan ends with a working format and its tests; the API serves the three formats from the plan that adds each, and the web UI lists them from 12f.
 
 ## 13. Requirements
 
