@@ -376,6 +376,7 @@ CLIENTS = {
     "pypi": ["pip", "uv", "Poetry", "twine"],
     "docker": ["Docker", "skopeo"],
     "raw": ["curl"],
+    "apt": ["apt"],
 }
 
 
