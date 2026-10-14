@@ -25,3 +25,5 @@ Dockerfile text eol=lf
 backend/src/megooarti/static/** -text
 # Packages and indexes the tests of the APT format compare byte for byte.
 backend/tests/repositories/apt/data/** -text
+# Packages and metadata the tests of the YUM format compare byte for byte.
+backend/tests/repositories/yum/data/** -text
