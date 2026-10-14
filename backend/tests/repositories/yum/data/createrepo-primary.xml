@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="2">
+<package type="rpm">
+  <name>megooarti-hello</name>
+  <arch>noarch</arch>
+  <version epoch="0" ver="1.0" rel="1"/>
+  <checksum type="sha256" pkgid="YES">acaaf3cd20c0c233e6fe2873190f6e84b0ca6a8ea76ef795d4743e748432c397</checksum>
+  <summary>Says hello</summary>
+  <description>A package made for the tests of MegooArti.
+It prints one line: “hello”.</description>
+  <packager></packager>
+  <url>https://example.com/megooarti-hello</url>
+  <time file="1792005637" build="1792005637"/>
+  <size package="7595" installed="67" archive="596"/>
+  <location href="megooarti-hello-1.0-1.noarch.rpm"/>
+  <format>
+    <rpm:license>MIT</rpm:license>
+    <rpm:vendor></rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>7da4f627a2aa</rpm:buildhost>
+    <rpm:sourcerpm>megooarti-hello-1.0-1.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="7421"/>
+    <rpm:provides>
+      <rpm:entry name="config(megooarti-hello)" flags="EQ" epoch="0" ver="1.0" rel="1"/>
+      <rpm:entry name="hello-tool" flags="EQ" epoch="0" ver="1.0"/>
+      <rpm:entry name="megooarti-hello" flags="EQ" epoch="0" ver="1.0" rel="1"/>
+    </rpm:provides>
+    <rpm:requires>
+      <rpm:entry name="/usr/bin/sh"/>
+      <rpm:entry name="bash"/>
+      <rpm:entry name="coreutils" pre="1"/>
+      <rpm:entry name="findutils" pre="1"/>
+      <rpm:entry name="gawk"/>
+      <rpm:entry name="grep" pre="1"/>
+      <rpm:entry name="sed"/>
+    </rpm:requires>
+    <file type="dir">/etc/megooarti</file>
+    <file>/etc/megooarti/hello.conf</file>
+    <file>/usr/bin/megooarti-hello</file>
+  </format>
+</package>
+<package type="rpm">
+  <name>megooarti-tool</name>
+  <arch>x86_64</arch>
+  <version epoch="2" ver="0.3" rel="2"/>
+  <checksum type="sha256" pkgid="YES">ab5856b7da5d28d578ff7a0153f74d9b0c519e340a9d0f04fe6a707f9594f810</checksum>
+  <summary>A tool with every kind of dependency</summary>
+  <description>A tool.</description>
+  <packager></packager>
+  <url></url>
+  <time file="1792005637" build="1792005637"/>
+  <size package="8037" installed="5" archive="276"/>
+  <location href="megooarti-tool-0.3-2.x86_64.rpm"/>
+  <format>
+    <rpm:license>MIT</rpm:license>
+    <rpm:vendor></rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>7da4f627a2aa</rpm:buildhost>
+    <rpm:sourcerpm>megooarti-tool-0.3-2.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="7925"/>
+    <rpm:provides>
+      <rpm:entry name="megooarti-tool" flags="EQ" epoch="2" ver="0.3" rel="2"/>
+      <rpm:entry name="megooarti-tool(x86-64)" flags="EQ" epoch="2" ver="0.3" rel="2"/>
+    </rpm:provides>
+    <rpm:requires>
+      <rpm:entry name="megooarti-hello" flags="GE" epoch="0" ver="1.0"/>
+    </rpm:requires>
+    <rpm:conflicts>
+      <rpm:entry name="megooarti-old" flags="LT" epoch="0" ver="1"/>
+    </rpm:conflicts>
+    <rpm:obsoletes>
+      <rpm:entry name="megooarti-older" flags="LE" epoch="0" ver="0.9"/>
+    </rpm:obsoletes>
+    <rpm:suggests>
+      <rpm:entry name="vim-minimal"/>
+    </rpm:suggests>
+    <rpm:enhances>
+      <rpm:entry name="bash"/>
+    </rpm:enhances>
+    <rpm:recommends>
+      <rpm:entry name="less"/>
+    </rpm:recommends>
+    <rpm:supplements>
+      <rpm:entry name="megooarti-hello"/>
+    </rpm:supplements>
+  </format>
+</package>
+</metadata>

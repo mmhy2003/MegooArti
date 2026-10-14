@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="2">
+<package type="rpm">
+  <name>bash</name>
+  <arch>x86_64</arch>
+  <version epoch="0" ver="5.3.9" rel="3.fc44"/>
+  <checksum type="sha256" pkgid="YES">2ccb046d638f5ad23f5613222a78ee71067dc43f0bdf03b60ce311536bc4bed5</checksum>
+  <summary>The GNU Bourne Again shell</summary>
+  <description>The GNU Bourne Again shell (Bash) is a shell or command language
+interpreter that is compatible with the Bourne shell (sh). Bash
+incorporates useful features from the Korn shell (ksh) and the C shell
+(csh). Most sh scripts can be run by bash without modification.</description>
+  <packager>Fedora Project</packager>
+  <url>https://www.gnu.org/software/bash</url>
+  <time file="1792005894" build="1768554671"/>
+  <size package="1985877" installed="8873537" archive="8893164"/>
+  <location href="bash-5.3.9-3.fc44.x86_64.rpm"/>
+  <format>
+    <rpm:license>GPL-3.0-or-later</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildvm-x86-11.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>bash-5.3.9-3.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="25400" end="51101"/>
+    <rpm:provides>
+      <rpm:entry name="/bin/bash"/>
+      <rpm:entry name="/bin/sh"/>
+      <rpm:entry name="bash" flags="EQ" epoch="0" ver="5.3.9" rel="3.fc44"/>
+      <rpm:entry name="bash(x86-64)" flags="EQ" epoch="0" ver="5.3.9" rel="3.fc44"/>
+      <rpm:entry name="config(bash)" flags="EQ" epoch="0" ver="5.3.9" rel="3.fc44"/>
+    </rpm:provides>
+    <rpm:requires>
+      <rpm:entry name="filesystem" flags="GE" epoch="0" ver="3"/>
+      <rpm:entry name="libtinfo.so.6()(64bit)"/>
+      <rpm:entry name="rtld(GNU_HASH)"/>
+      <rpm:entry name="libc.so.6(GLIBC_2.38)(64bit)"/>
+    </rpm:requires>
+    <file>/etc/skel/.bash_logout</file>
+    <file>/etc/skel/.bash_profile</file>
+    <file>/etc/skel/.bashrc</file>
+    <file>/usr/bin/alias</file>
+    <file>/usr/bin/bash</file>
+    <file>/usr/bin/bashbug</file>
+    <file>/usr/bin/bashbug-64</file>
+    <file>/usr/bin/bg</file>
+    <file>/usr/bin/cd</file>
+    <file>/usr/bin/command</file>
+    <file>/usr/bin/fc</file>
+    <file>/usr/bin/fg</file>
+    <file>/usr/bin/getopts</file>
+    <file>/usr/bin/hash</file>
+    <file>/usr/bin/jobs</file>
+    <file>/usr/bin/read</file>
+    <file>/usr/bin/sh</file>
+    <file>/usr/bin/type</file>
+    <file>/usr/bin/ulimit</file>
+    <file>/usr/bin/umask</file>
+    <file>/usr/bin/unalias</file>
+    <file>/usr/bin/wait</file>
+  </format>
+</package>
+<package type="rpm">
+  <name>setup</name>
+  <arch>noarch</arch>
+  <version epoch="0" ver="2.15.0" rel="28.fc44"/>
+  <checksum type="sha256" pkgid="YES">55d58325996df10b4be2f1a9b963dbec3cea3099e43f9f4295eea6e8adfaf7b8</checksum>
+  <summary>A set of system configuration and setup files</summary>
+  <description>The setup package contains a set of important system configuration and
+setup files, such as passwd, group, and profile.</description>
+  <packager>Fedora Project</packager>
+  <url>https://src.fedoraproject.org/rpms/setup</url>
+  <time file="1792005894" build="1768769556"/>
+  <size package="160947" installed="742318" archive="748100"/>
+  <location href="setup-2.15.0-28.fc44.noarch.rpm"/>
+  <format>
+    <rpm:license>LicenseRef-Fedora-Public-Domain</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildvm-ppc64le-25.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>setup-2.15.0-28.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="10760" end="25881"/>
+    <rpm:provides>
+      <rpm:entry name="config(setup)" flags="EQ" epoch="0" ver="2.15.0" rel="28.fc44"/>
+      <rpm:entry name="group(adm)"/>
+      <rpm:entry name="group(adm)" flags="EQ" epoch="0" ver="ZyBhZG0gNAAA"/>
+      <rpm:entry name="group(audio)"/>
+      <rpm:entry name="group(audio)" flags="EQ" epoch="0" ver="ZyBhdWRpbyA2MwAA"/>
+      <rpm:entry name="group(bin)"/>
+      <rpm:entry name="group(cdrom)"/>
+      <rpm:entry name="group(cdrom)" flags="EQ" epoch="0" ver="ZyBjZHJvbSAxMQAA"/>
+      <rpm:entry name="group(clock)"/>
+      <rpm:entry name="group(clock)" flags="EQ" epoch="0" ver="ZyBjbG9jayAxMDMA"/>
+      <rpm:entry name="group(daemon)"/>
+      <rpm:entry name="group(dialout)"/>
+      <rpm:entry name="group(dialout)" flags="EQ" epoch="0" ver="ZyBkaWFsb3V0IDE4"/>
+      <rpm:entry name="group(disk)"/>
+      <rpm:entry name="group(disk)" flags="EQ" epoch="0" ver="ZyBkaXNrIDYA"/>
+      <rpm:entry name="group(floppy)"/>
+      <rpm:entry name="group(floppy)" flags="EQ" epoch="0" ver="ZyBmbG9wcHkgMTkA"/>
+      <rpm:entry name="group(ftp)"/>
+      <rpm:entry name="group(ftp)" flags="EQ" epoch="0" ver="ZyBmdHAgNTAA"/>
+      <rpm:entry name="group(games)"/>
+      <rpm:entry name="group(games)" flags="EQ" epoch="0" ver="ZyBnYW1lcyAyMAAA"/>
+      <rpm:entry name="group(halt)"/>
+      <rpm:entry name="group(input)"/>
+      <rpm:entry name="group(input)" flags="EQ" epoch="0" ver="ZyBpbnB1dCAxMDQA"/>
+      <rpm:entry name="group(kmem)"/>
+      <rpm:entry name="group(kmem)" flags="EQ" epoch="0" ver="ZyBrbWVtIDkA"/>
+      <rpm:entry name="group(kvm)"/>
+      <rpm:entry name="group(kvm)" flags="EQ" epoch="0" ver="ZyBrdm0gMzYA"/>
+      <rpm:entry name="group(lock)"/>
+      <rpm:entry name="group(lock)" flags="EQ" epoch="0" ver="ZyBsb2NrIDU0"/>
+      <rpm:entry name="group(lp)"/>
+      <rpm:entry name="group(lp)" flags="EQ" epoch="0" ver="ZyBscCA3"/>
+      <rpm:entry name="group(mail)"/>
+      <rpm:entry name="group(mail)" flags="EQ" epoch="0" ver="ZyBtYWlsIDEy"/>
+      <rpm:entry name="group(man)"/>
+      <rpm:entry name="group(man)" flags="EQ" epoch="0" ver="ZyBtYW4gMTUA"/>
+      <rpm:entry name="group(mem)"/>
+      <rpm:entry name="group(mem)" flags="EQ" epoch="0" ver="ZyBtZW0gOAAA"/>
+      <rpm:entry name="group(nobody)"/>
+      <rpm:entry name="group(nobody)" flags="EQ" epoch="0" ver="ZyBub2JvZHkgNjU1MzQA"/>
+      <rpm:entry name="group(operator)"/>
+      <rpm:entry name="group(render)"/>
+      <rpm:entry name="group(render)" flags="EQ" epoch="0" ver="ZyByZW5kZXIgMTA1"/>
+      <rpm:entry name="group(root)"/>
+      <rpm:entry name="group(root)" flags="EQ" epoch="0" ver="ZyByb290IDAA"/>
+      <rpm:entry name="group(sgx)"/>
+      <rpm:entry name="group(sgx)" flags="EQ" epoch="0" ver="ZyBzZ3ggMTA2"/>
+      <rpm:entry name="group(shutdown)"/>
+      <rpm:entry name="group(sync)"/>
+      <rpm:entry name="group(sys)"/>
+      <rpm:entry name="group(sys)" flags="EQ" epoch="0" ver="ZyBzeXMgMwAA"/>
+      <rpm:entry name="group(tape)"/>
+      <rpm:entry name="group(tape)" flags="EQ" epoch="0" ver="ZyB0YXBlIDMz"/>
+      <rpm:entry name="group(tty)"/>
+      <rpm:entry name="group(tty)" flags="EQ" epoch="0" ver="ZyB0dHkgNQAA"/>
+      <rpm:entry name="group(users)"/>
+      <rpm:entry name="group(users)" flags="EQ" epoch="0" ver="ZyB1c2VycyAxMDAA"/>
+      <rpm:entry name="group(utmp)"/>
+      <rpm:entry name="group(utmp)" flags="EQ" epoch="0" ver="ZyB1dG1wIDIy"/>
+      <rpm:entry name="group(video)"/>
+      <rpm:entry name="group(video)" flags="EQ" epoch="0" ver="ZyB2aWRlbyAzOQAA"/>
+      <rpm:entry name="group(wheel)"/>
+      <rpm:entry name="group(wheel)" flags="EQ" epoch="0" ver="ZyB3aGVlbCAxMAAA"/>
+      <rpm:entry name="setup" flags="EQ" epoch="0" ver="2.15.0" rel="28.fc44"/>
+      <rpm:entry name="user(adm)"/>
+      <rpm:entry name="user(adm)" flags="EQ" epoch="0" ver="dSBhZG0gMzo0ICJhZG0iIC92YXIvYWRtIC0A"/>
+      <rpm:entry name="user(bin)"/>
+      <rpm:entry name="user(bin)" flags="EQ" epoch="0" ver="dSBiaW4gMSAiYmluIiAvYmluIC0A"/>
+      <rpm:entry name="user(daemon)"/>
+      <rpm:entry name="user(daemon)" flags="EQ" epoch="0" ver="dSBkYWVtb24gMiAiZGFlbW9uIiAvc2JpbiAt"/>
+      <rpm:entry name="user(ftp)"/>
+      <rpm:entry name="user(ftp)" flags="EQ" epoch="0" ver="dSBmdHAgMTQ6NTAgIkZUUCBVc2VyIiAvdmFyL2Z0cCAt"/>
+      <rpm:entry name="user(games)"/>
+      <rpm:entry name="user(games)" flags="EQ" epoch="0" ver="dSBnYW1lcyAxMjoxMDAgImdhbWVzIiAvdXNyL2dhbWVzIC0A"/>
+      <rpm:entry name="user(halt)"/>
+      <rpm:entry name="user(halt)" flags="EQ" epoch="0" ver="dSBoYWx0IDc6MCAiaGFsdCIgL3NiaW4gL3NiaW4vaGFsdAAA"/>
+      <rpm:entry name="user(lp)"/>
+      <rpm:entry name="user(lp)" flags="EQ" epoch="0" ver="dSBscCA0OjcgImxwIiAvdmFyL3Nwb29sL2xwZCAt"/>
+      <rpm:entry name="user(mail)"/>
+      <rpm:entry name="user(mail)" flags="EQ" epoch="0" ver="dSBtYWlsIDg6MTIgIm1haWwiIC92YXIvc3Bvb2wvbWFpbCAt"/>
+      <rpm:entry name="user(nobody)"/>
+      <rpm:entry name="user(nobody)" flags="EQ" epoch="0" ver="dSBub2JvZHkgNjU1MzQ6NjU1MzQgIktlcm5lbCBPdmVyZmxvdyBVc2VyIiAtIC0A"/>
+      <rpm:entry name="user(operator)"/>
+      <rpm:entry name="user(operator)" flags="EQ" epoch="0" ver="dSBvcGVyYXRvciAxMTowICJvcGVyYXRvciIgL3Jvb3QgLQAA"/>
+      <rpm:entry name="user(root)"/>
+      <rpm:entry name="user(root)" flags="EQ" epoch="0" ver="dSByb290IDA6MCAiU3VwZXIgVXNlciIgL3Jvb3QgL2Jpbi9iYXNo"/>
+      <rpm:entry name="user(shutdown)"/>
+      <rpm:entry name="user(shutdown)" flags="EQ" epoch="0" ver="dSBzaHV0ZG93biA2OjAgInNodXRkb3duIiAvc2JpbiAvc2Jpbi9zaHV0ZG93bgAA"/>
+      <rpm:entry name="user(sync)"/>
+      <rpm:entry name="user(sync)" flags="EQ" epoch="0" ver="dSBzeW5jIDU6MCAic3luYyIgL3NiaW4gL2Jpbi9zeW5j"/>
+    </rpm:provides>
+    <rpm:requires>
+      <rpm:entry name="system-release"/>
+    </rpm:requires>
+    <file>/etc/aliases</file>
+    <file>/etc/bashrc</file>
+    <file>/etc/csh.cshrc</file>
+    <file>/etc/csh.login</file>
+    <file>/etc/dnf/protected.d/setup.conf</file>
+    <file>/etc/environment</file>
+    <file>/etc/ethertypes</file>
+    <file>/etc/exports</file>
+    <file>/etc/filesystems</file>
+    <file type="ghost">/etc/fstab</file>
+    <file>/etc/group</file>
+    <file>/etc/gshadow</file>
+    <file>/etc/host.conf</file>
+    <file>/etc/hosts</file>
+    <file>/etc/inputrc</file>
+    <file>/etc/motd</file>
+    <file type="dir">/etc/motd.d</file>
+    <file>/etc/networks</file>
+    <file>/etc/passwd</file>
+    <file>/etc/printcap</file>
+    <file>/etc/profile</file>
+    <file type="dir">/etc/profile.d</file>
+    <file>/etc/profile.d/csh.local</file>
+    <file>/etc/profile.d/lang.csh</file>
+    <file>/etc/profile.d/lang.sh</file>
+    <file>/etc/profile.d/sh.local</file>
+    <file>/etc/protocols</file>
+    <file>/etc/services</file>
+    <file>/etc/shadow</file>
+    <file>/etc/shells</file>
+    <file>/etc/subgid</file>
+    <file>/etc/subuid</file>
+  </format>
+</package>
+</metadata>

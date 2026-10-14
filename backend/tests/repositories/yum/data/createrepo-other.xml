@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<otherdata xmlns="http://linux.duke.edu/metadata/other" packages="2">
+<package pkgid="acaaf3cd20c0c233e6fe2873190f6e84b0ca6a8ea76ef795d4743e748432c397" name="megooarti-hello" arch="noarch">
+  <version epoch="0" ver="1.0" rel="1"/>
+  <changelog author="MegooArti Tests &lt;tests@example.com&gt; - 1.0-1" date="1791806400">- The first version.</changelog>
+</package>
+<package pkgid="ab5856b7da5d28d578ff7a0153f74d9b0c519e340a9d0f04fe6a707f9594f810" name="megooarti-tool" arch="x86_64">
+  <version epoch="2" ver="0.3" rel="2"/>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-3" date="1790942400">- Change 3 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-4" date="1791028800">- Change 4 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-5" date="1791115200">- Change 5 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-6" date="1791201600">- Change 6 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-7" date="1791288000">- Change 7 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-8" date="1791374400">- Change 8 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-9" date="1791460800">- Change 9 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-10" date="1791547200">- Change 10 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-11" date="1791806400">- Change 11 &amp; more &lt;here&gt;.</changelog>
+  <changelog author="Tool Maker &lt;maker@example.com&gt; - 2:0.3-12" date="1791806401">- Change 12 &amp; more &lt;here&gt;.</changelog>
+</package>
+</otherdata>

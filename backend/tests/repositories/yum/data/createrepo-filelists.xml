@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<filelists xmlns="http://linux.duke.edu/metadata/filelists" packages="2">
+<package pkgid="acaaf3cd20c0c233e6fe2873190f6e84b0ca6a8ea76ef795d4743e748432c397" name="megooarti-hello" arch="noarch">
+  <version epoch="0" ver="1.0" rel="1"/>
+  <file type="dir">/etc/megooarti</file>
+  <file>/etc/megooarti/hello.conf</file>
+  <file>/usr/bin/megooarti-hello</file>
+  <file type="ghost">/var/log/megooarti-hello.log</file>
+</package>
+<package pkgid="ab5856b7da5d28d578ff7a0153f74d9b0c519e340a9d0f04fe6a707f9594f810" name="megooarti-tool" arch="x86_64">
+  <version epoch="2" ver="0.3" rel="2"/>
+  <file>/usr/share/megooarti/tool.txt</file>
+</package>
+</filelists>

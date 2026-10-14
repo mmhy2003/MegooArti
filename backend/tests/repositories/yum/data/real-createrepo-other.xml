@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<otherdata xmlns="http://linux.duke.edu/metadata/other" packages="2">
+<package pkgid="2ccb046d638f5ad23f5613222a78ee71067dc43f0bdf03b60ce311536bc4bed5" name="bash" arch="x86_64">
+  <version epoch="0" ver="5.3.9" rel="3.fc44"/>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.2.32-1" date="1723464000">- Update to bash-5.2 patchlevel 32
+  Resolves: #2302528</changelog>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.2.32-2" date="1724932800">- Fix issues identified by OpenScanHub
+  Resolves: RHEL-44649</changelog>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.2.37-1" date="1731067200">- Update to bash-5.2 patchlevel 37
+  Resolves: #2314348</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 5.2.37-2" date="1737028800">- Rebuilt for https://fedoraproject.org/wiki/Fedora_42_Mass_Rebuild</changelog>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.2.37-3" date="1739448000">- Fix FTBFS in Fedora rawhide/f42
+  Resolves: #2339923</changelog>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.3.0-1" date="1752580800">- Update to bash-5.3
+  Resolves: #2376213</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 5.3.0-2" date="1753272000">- Rebuilt for https://fedoraproject.org/wiki/Fedora_43_Mass_Rebuild</changelog>
+  <changelog author="Siteshwar Vashisht &lt;svashisht@redhat.com&gt; - 5.3.9-1" date="1767614400">- Update to bash-5.3 patchlevel 9</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 5.3.9-2" date="1768564800">- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 5.3.9-3" date="1768564801">- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild</changelog>
+</package>
+<package pkgid="55d58325996df10b4be2f1a9b963dbec3cea3099e43f9f4295eea6e8adfaf7b8" name="setup" arch="noarch">
+  <version epoch="0" ver="2.15.0" rel="28.fc44"/>
+  <changelog author="Zbigniew J&#x119;drzejewski-Szmek &lt;zbyszek@in.waw.pl&gt; - 2.15.0-16" date="1741953600">- Create passwd,group files from sysusers</changelog>
+  <changelog author="Zbigniew J&#x119;drzejewski-Szmek &lt;zbyszek@in.waw.pl&gt; - 2.15.0-17" date="1742040000">- uidgid: adjust comments</changelog>
+  <changelog author="Zbigniew J&#x119;drzejewski-Szmek &lt;zbyszek@in.waw.pl&gt; - 2.15.0-18" date="1742040001">- uidgid: drop various unused users and groups</changelog>
+  <changelog author="Daan De Meyer &lt;daan.j.demeyer@gmail.com&gt; - 2.15.0-22" date="1742472000">- Add root and nobody groups</changelog>
+  <changelog author="Daan De Meyer &lt;daan.j.demeyer@gmail.com&gt; - 2.15.0-23" date="1742472001">- Insist that the root and nobody groups have the expected GIDs</changelog>
+  <changelog author="Mattias Ellert &lt;mattias.ellert@physics.uu.se&gt; - 2.15.0-24" date="1747051200">- Reserve 194:194 for xrootd (xrootd-server)</changelog>
+  <changelog author="Martin Osvald &lt;mosvald@redhat.com&gt; - 2.15.0-25" date="1747224000">- protocols: update to latest IANA</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 2.15.0-26" date="1753444800">- Rebuilt for https://fedoraproject.org/wiki/Fedora_43_Mass_Rebuild</changelog>
+  <changelog author="Lukas Javorsky &lt;ljavorsk@redhat.com&gt; - 2.15.0-27" date="1761825600">- Revert "Removed uidgid pair 27:27 for MySQL/MariaDB"</changelog>
+  <changelog author="Fedora Release Engineering &lt;releng@fedoraproject.org&gt; - 2.15.0-28" date="1768651200">- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild</changelog>
+</package>
+</otherdata>
