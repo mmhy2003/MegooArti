@@ -20,5 +20,8 @@ Dockerfile text eol=lf
 .dockerignore text eol=lf
 *.woff2 binary
 *.png binary
+*.deb binary
 # Another project's files, kept byte for byte.
 backend/src/megooarti/static/** -text
+# Packages and indexes the tests of the APT format compare byte for byte.
+backend/tests/repositories/apt/data/** -text

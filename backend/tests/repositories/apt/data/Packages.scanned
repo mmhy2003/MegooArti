@@ -1,0 +1,76 @@
+Package: megooarti-hello
+Version: 1.0-1
+Architecture: all
+Maintainer: MegooArti Tests <tests@example.com>
+Installed-Size: 1
+Depends: libc6 (>= 2.17)
+Filename: ./megooarti-hello_1.0-1_all.deb
+Size: 738
+MD5sum: e427a97e9cad3e65b630ebc0df0a597c
+SHA1: 80f9a61608541a02aa5dbbb655c111dff73b4b0d
+SHA256: dae7dc6f3d44201575616dcafd82bf17cb02fbb2cb9222db6d3f68900ed88d8b
+Section: utils
+Priority: optional
+Homepage: https://example.com/megooarti-hello
+Description: Says hello (gzip)
+ A package made for the tests of MegooArti.
+ .
+ It prints one line.
+
+Package: megooarti-hello
+Version: 1:2.0~rc1-1
+Architecture: amd64
+Maintainer: MegooArti Tests <tests@example.com>
+Installed-Size: 1
+Depends: libc6 (>= 2.17)
+Filename: ./megooarti-hello_1:2.0~rc1-1_amd64.deb
+Size: 900
+MD5sum: 914a9aebf155ef4e3ed25a58dc68e747
+SHA1: b1416d0de5af2bd3bc28c965103a0ba7b1492e27
+SHA256: 25110302cc94edf03aef08b14d7e5ac193cbfe90530602f9a2515f76cff5ff21
+Section: utils
+Priority: optional
+Homepage: https://example.com/megooarti-hello
+Description: Says hello (xz)
+ A package made for the tests of MegooArti.
+ .
+ It prints one line.
+
+Package: megooarti-plain
+Version: 1.0
+Architecture: amd64
+Maintainer: MegooArti Tests <tests@example.com>
+Installed-Size: 1
+Depends: libc6 (>= 2.17)
+Filename: ./megooarti-plain_1.0_amd64.deb
+Size: 20672
+MD5sum: ca1ea449277ecf643250369a596e3be6
+SHA1: 65c4d230df7e799735624faa9246f9fa0f012f20
+SHA256: 072a550c74ba9e291bf7bada42e49348dd92aa517f4381386e8d23bea9e9ca57
+Section: utils
+Priority: optional
+Homepage: https://example.com/megooarti-plain
+Description: Says hello (none)
+ A package made for the tests of MegooArti.
+ .
+ It prints one line.
+
+Package: megooarti-tool
+Version: 0.3
+Architecture: arm64
+Maintainer: MegooArti Tests <tests@example.com>
+Installed-Size: 1
+Depends: libc6 (>= 2.17)
+Filename: ./megooarti-tool_0.3_arm64.deb
+Size: 704
+MD5sum: 159405c11f6b95b7793ea93cd6fa394d
+SHA1: b9fcfdc2f267ec5f1cbe2dde01a92425a0049fe2
+SHA256: 09ce634dd9b5a80de33455ac750a170428599d2306735366cb5b900a9741d293
+Section: utils
+Priority: optional
+Homepage: https://example.com/megooarti-tool
+Description: Says hello (zstd)
+ A package made for the tests of MegooArti.
+ .
+ It prints one line.
+
