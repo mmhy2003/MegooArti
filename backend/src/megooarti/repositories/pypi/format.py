@@ -466,7 +466,9 @@ class PypiFormat(Format):
         command = f"pip install --index-url {address}simple/ {key.name}=={key.version}"
         return [Usage("pip", "shell", command)]
 
-    def describe_component(self, path: str) -> ComponentKey | None:
+    def describe_component(
+        self, path: str, attributes: dict[str, Any] | None = None
+    ) -> ComponentKey | None:
         """A file belongs to its project and version. Nothing else is part of one."""
         parsed = names.classify(path)
         if parsed.kind != "file":

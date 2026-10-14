@@ -139,7 +139,7 @@ class PackagePerDirectory(Format):
 
     name = "test-package"
 
-    def describe_component(self, path: str) -> ComponentKey:
+    def describe_component(self, path: str, attributes: dict | None = None) -> ComponentKey:
         return ComponentKey(namespace="", name=path.rpartition("/")[0])
 
 

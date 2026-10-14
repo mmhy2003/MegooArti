@@ -63,13 +63,15 @@ def plain(*parts: str) -> bool:
     return all(_PLAIN.fullmatch(part) is not None for part in parts)
 
 
-def _declared_size(request: Request) -> int | None:
+def declared_size(request: Request) -> int | None:
+    """The size an upload says it has, which what arrives must match."""
     value = request.headers.get("Content-Length", "")
     plain = value.isascii() and value.isdigit() and len(value) <= 18
     return int(value) if plain else None
 
 
-def _declared_hashes(request: Request) -> dict[str, str]:
+def declared_hashes(request: Request) -> dict[str, str]:
+    """The checksums an upload says it has, which what arrives must match."""
     return {
         algorithm: request.headers[header]
         for algorithm, header in _CHECKSUM_HEADERS.items()
@@ -114,6 +116,13 @@ class Format:
     # Why a hosted repository of this format takes no upload through the API, if it
     # takes none: what its users are told to do instead.
     no_upload: str | None = None
+    # Whether this format writes its indexes from the packages a hosted repository holds.
+    # Such a repository then counts its changes (its revision), and an index is written
+    # once for each.
+    derives_indexes: bool = False
+    # The kind of key a hosted repository of this format signs its indexes with:
+    # `openpgp`, or None for a format that signs nothing.
+    signs: str | None = None
 
     def validate_name(self, name: str) -> None:
         """Refuse a repository name this format cannot be used under. The generic format: none.
@@ -143,10 +152,14 @@ class Format:
         """
         return "allow_redeploy"
 
-    def describe_component(self, path: str) -> ComponentKey | None:
+    def describe_component(
+        self, path: str, attributes: dict[str, Any] | None = None
+    ) -> ComponentKey | None:
         """Which component a stored path belongs to: the file, in its directory.
 
-        A format returns None for a file that belongs to no package.
+        `attributes` are what was recorded about the file itself, for a format whose
+        packages cannot be told by their paths alone. A format returns None for a file
+        that belongs to no package.
         """
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
@@ -263,8 +276,8 @@ class Format:
                 path,
                 request.stream(),
                 content_type=self.content_type(path, request.headers.get("Content-Type")),
-                expected_size=_declared_size(request),
-                expected_hashes=_declared_hashes(request),
+                expected_size=declared_size(request),
+                expected_hashes=declared_hashes(request),
             )
             return Response(status_code=201 if created else 204)
         if request.method == "DELETE":

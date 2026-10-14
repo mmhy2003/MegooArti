@@ -804,7 +804,9 @@ class DockerFormat(Format):
         words = super().search_text(key, attributes)
         return words if key.namespace else f"{words} {key.name}:{key.version}"
 
-    def describe_component(self, path: str) -> ComponentKey | None:
+    def describe_component(
+        self, path: str, attributes: dict[str, Any] | None = None
+    ) -> ComponentKey | None:
         """A tag is a component: the image, and the tag as its version.
 
         A manifest is one as well, in a namespace of its own, with its digest as the

@@ -59,10 +59,12 @@ raises.
 | `remote_signs_in` | Whether its remotes hand out tokens, as container registries do, so that a proxy signs in | no |
 | `unlisted_namespaces` | Namespaces that are the format's own bookkeeping: not listed as components, not found by search | none |
 | `no_upload` | Why a hosted repository takes no upload through the API, if it takes none: what its users are told to do instead | it takes uploads |
+| `derives_indexes` | Whether a hosted repository's indexes are written from the packages it holds. It then counts its changes, and `snapshot()` and the `derived` cache serve an index once for each | no |
+| `signs` | The kind of key a hosted repository signs its indexes with (`openpgp`). It is made the first time it is needed, and kept sealed | none |
 | `validate_name` | Refuse a repository name the format cannot be used under | any name |
 | `validate_config` | Check and return the format's own settings (`format_config`), and refuse a change that cannot be made | no settings |
 | `default_deployment_policy` | The policy of a hosted repository that was given none | `allow_redeploy` |
-| `describe_component` | Which component (namespace, name, version) a stored path belongs to, or none | the file, in its folder |
+| `describe_component` | Which component (namespace, name, version) a stored file belongs to, from its path and what was recorded about it at upload, or none | the file, in its folder |
 | `search_text` | The words a component is found by | namespace, name and version |
 | `delete_asset` | Delete a file as the format's own client would, with what goes with it; refuse one the format keeps itself | removes the file |
 | `upload` | Store what an upload form carries, as the format's own client's upload would | a `directory`, and each `file` in it |

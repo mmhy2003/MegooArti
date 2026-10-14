@@ -4,7 +4,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +39,11 @@ class Repository(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+    # Raised by every change to what a hosted repository holds, for a format that writes
+    # its indexes from its packages, and by a new signing key: an index is written once
+    # for each revision, and dated when the revision was made.
+    revision: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Component(Base):
@@ -164,3 +178,19 @@ class NegativeCacheEntry(Base):
     )
     path: Mapped[str] = mapped_column(String(1024), primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SigningKey(Base):
+    """The key a repository signs its indexes with. The private key is sealed."""
+
+    __tablename__ = "signing_keys"
+
+    repository_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), primary_key=True
+    )
+    kind: Mapped[str] = mapped_column(String(16))  # openpgp, or rsa
+    algorithm: Mapped[str] = mapped_column(String(32))
+    fingerprint: Mapped[str] = mapped_column(String(128))
+    public_key: Mapped[str] = mapped_column(Text)
+    private_key: Mapped[str] = mapped_column(Text)  # sealed with secrets_box
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

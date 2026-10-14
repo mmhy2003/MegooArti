@@ -791,7 +791,9 @@ class NpmFormat(Format):
         command = f"npm install {package}@{key.version} --registry={address}"
         return [Usage("npm", "shell", command)]
 
-    def describe_component(self, path: str) -> ComponentKey | None:
+    def describe_component(
+        self, path: str, attributes: dict[str, Any] | None = None
+    ) -> ComponentKey | None:
         """A tarball belongs to its package and version. Nothing else is part of one."""
         parsed = paths.classify(path)
         if parsed.kind != "tarball":

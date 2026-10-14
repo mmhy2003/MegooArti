@@ -110,6 +110,31 @@ class ComponentInfo:
 
 
 @dataclass(frozen=True)
+class Held:
+    """A stored file, as an index that lists it needs it."""
+
+    path: str
+    size: int
+    md5: str
+    sha1: str
+    sha256: str
+    attributes: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """What a repository held at one revision: every file, and when the revision was made."""
+
+    revision: int
+    changed: datetime
+    files: list[Held]
+
+
+# How often a snapshot is read again when the repository changed while it was read.
+_SNAPSHOT_TRIES = 5
+
+
+@dataclass(frozen=True)
 class PackageFile:
     """One file of a package, with what its version's component says."""
 
@@ -449,6 +474,42 @@ class RepositoryContext:
         )
         return [(namespace, name) for namespace, name in rows], total or 0
 
+    async def revision(self) -> tuple[int, datetime]:
+        """This repository's revision, and when it was made, read from the database now.
+
+        A repository that never changed was made at its creation.
+        """
+        row = (
+            await self.db.execute(
+                select(Repository.revision, Repository.changed_at, Repository.created_at).where(
+                    Repository.id == self.repository.id
+                )
+            )
+        ).one()
+        return row.revision, row.changed_at or row.created_at
+
+    async def snapshot(self) -> Snapshot:
+        """Every file this repository holds, as one revision of it has them.
+
+        The revision is read before and after the files: if a change was committed in
+        between, everything is read again, so that an index written from a snapshot
+        names exactly the files its revision had.
+        """
+        for _ in range(_SNAPSHOT_TRIES):
+            revision, changed = await self.revision()
+            rows = await self.db.execute(
+                select(Asset.path, Blob.size, Blob.md5, Blob.sha1, Blob.sha256, Asset.attributes)
+                .join(Blob, Blob.id == Asset.blob_id)
+                .where(Asset.repository_id == self.repository.id, Asset.kind == "asset")
+                .order_by(Asset.path)
+            )
+            files = [Held(*row) for row in rows]
+            if (await self.revision())[0] == revision:
+                return Snapshot(revision, changed, files)
+        raise ApiError(
+            503, "repository_busy", "The repository changed while it was being read. Try again."
+        )
+
     async def public_url(self, request: Request) -> str:
         """The address clients use to reach this repository, without a trailing slash.
 
@@ -567,6 +628,26 @@ class RepositoryContext:
             authorize(self.principal, self.permission("edit"), scheme="Basic")
         self._check_policy(replacing=False)
 
+    async def _new_revision(self) -> None:
+        """Count a change to a hosted repository whose format writes its indexes.
+
+        In the transaction of the change, so that the two are seen together. The row
+        is locked until the transaction ends: after a path's lock, and before a blob's
+        or a component's, so that two changes to one repository wait in one order.
+        """
+        if not self.format.derives_indexes or self.repository.type != "hosted":
+            return
+        await self.db.execute(
+            update(Repository)
+            .where(Repository.id == self.repository.id)
+            .values(
+                revision=Repository.revision + 1,
+                changed_at=utcnow(),
+                updated_at=Repository.updated_at,  # what changed is the content, not it
+            )
+            .execution_options(synchronize_session=False)
+        )
+
     async def _lock_component(self, key: ComponentKey) -> None:
         await self._lock("component", f"{key.namespace}\x00{key.name}\x00{key.version}")
 
@@ -649,6 +730,10 @@ class RepositoryContext:
         """Stage content that is already in memory, such as a file decoded from a body."""
         return await self.stage(_pieces(data))
 
+    def open_staged(self, staged: StagedBlob) -> AsyncIterator[bytes]:
+        """Staged content, in pieces, for a format that reads the start of a large upload."""
+        return self.backend.open_staged(staged)
+
     async def read_staged(self, staged: StagedBlob, *, limit: int) -> bytes | None:
         """Staged content, read into memory. None if it is longer than `limit`.
 
@@ -699,6 +784,7 @@ class RepositoryContext:
             existing = await self.get(path, fresh=True)
             if checked:
                 self._check_may_store(existing)
+            await self._new_revision()
             blob = await blobs.record(self.db, self.backend, self.repository.blob_store_id, staged)
         except BaseException:
             await self.backend.discard(staged)
@@ -707,7 +793,7 @@ class RepositoryContext:
         now = utcnow()
         media_type = _media_type(content_type, path)
         if existing is None:
-            key = self.format.describe_component(path) if packaged else None
+            key = self.format.describe_component(path, attributes or {}) if packaged else None
             component = None if key is None else await self._component(key)
             if component is not None and component_attributes is not None:
                 self._describe(component, component_attributes)
@@ -928,6 +1014,7 @@ class RepositoryContext:
         asset = await self.get(path, fresh=True)
         if asset is None:
             return False
+        await self._new_revision()
         blob_id, component_id = asset.blob_id, asset.component_id
         await self.db.delete(asset)
         await self.db.flush()
@@ -966,7 +1053,7 @@ class RepositoryContext:
         for asset in rows:
             # What a format keeps for itself was stored as belonging to nothing.
             kept = asset.kind == _MAINTAINED
-            key = None if kept else self.format.describe_component(asset.path)
+            key = None if kept else self.format.describe_component(asset.path, asset.attributes)
             component = None if key is None else await self._component(key)
             wanted = None if component is None else component.id
             if asset.component_id != wanted:

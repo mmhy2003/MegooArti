@@ -19,7 +19,7 @@ class Packaged(Format):
 
     name = "raw"
 
-    def describe_component(self, path):
+    def describe_component(self, path, attributes=None):
         parts = path.split("/")
         return ComponentKey(*parts[:3]) if len(parts) == 4 else None
 

@@ -20,7 +20,7 @@ class Packaged(Format):
 
     name = "raw"
 
-    def describe_component(self, path):
+    def describe_component(self, path, attributes=None):
         parts = path.split("/")
         return ComponentKey(*parts[:3]) if len(parts) == 4 else None
 
@@ -271,3 +271,43 @@ async def test_what_is_recorded_about_a_file_stays_until_it_is_given_again(conte
     replaced = (await context.package_files("acme", "app"))[0].attributes
 
     assert (kept, replaced) == ({"kind": "source"}, {"kind": "rebuilt"})
+
+
+class Recorded(Format):
+    """A file belongs to the package its recorded attributes name, whatever its path."""
+
+    name = "raw"
+
+    def describe_component(self, path, attributes=None):
+        said = (attributes or {}).get("package")
+        return None if said is None else ComponentKey("", said["name"], said["version"])
+
+
+async def test_a_format_is_told_what_was_recorded_of_a_file_to_say_its_component(
+    files, context_for, db
+):
+    context = await context_for(files, EVERYTHING)
+    context.format = Recorded()
+
+    asset, _ = await store(
+        context, "pool/x.deb", attributes={"package": {"name": "hello", "version": "1:2.0"}}
+    )
+
+    component = await db.get(Component, asset.component_id)
+    assert (component.name, component.version) == ("hello", "1:2.0")
+
+
+async def test_rebuilding_an_index_tells_the_format_what_was_recorded_of_each_file(
+    files, context_for, db
+):
+    context = await context_for(files, EVERYTHING)
+    await store(context, "pool/x.deb", attributes={"package": {"name": "hello", "version": "1"}})
+    await db.commit()
+    context.format = Recorded()
+
+    seen, moved, _ = await context.reindex()
+
+    assert (seen, moved) == (1, 1)
+    asset = await db.scalar(select(Asset).execution_options(populate_existing=True))
+    component = await db.get(Component, asset.component_id)
+    assert (component.name, component.version) == ("hello", "1")

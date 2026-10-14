@@ -425,7 +425,9 @@ class MavenFormat(Format):
             return "disable_redeploy"
         return "allow_redeploy"
 
-    def describe_component(self, path: str) -> ComponentKey | None:
+    def describe_component(
+        self, path: str, attributes: dict[str, Any] | None = None
+    ) -> ComponentKey | None:
         """An artifact file belongs to its group, artifact and version. Nothing else does."""
         parsed = paths.classify(path)
         if parsed.kind != "artifact":

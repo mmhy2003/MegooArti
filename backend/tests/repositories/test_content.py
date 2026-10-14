@@ -441,7 +441,7 @@ class Loose(Format):
 
     name = "raw"
 
-    def describe_component(self, path):
+    def describe_component(self, path, attributes=None):
         return None
 
 
