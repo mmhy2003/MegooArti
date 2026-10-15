@@ -10,7 +10,7 @@ import { Alert } from "@/components/ui/alert";
 import { Breadcrumbs, type Crumb } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Fact, Facts, Time } from "@/components/ui/details";
+import { Fact, Facts, Snippet, Time } from "@/components/ui/details";
 import { AppLink } from "@/components/ui/link";
 import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
@@ -505,6 +505,28 @@ function FolderView({
  * A repository, one folder at a time: the way there as breadcrumbs, the folder's
  * entries, and beside them the details of a file that was chosen.
  */
+/**
+ * How a machine is set up to use the repository, ready to copy (5.2, 6.2, 7.2): its key,
+ * its address and the account it signs in with. Nothing for a format whose clients are
+ * given the address alone.
+ */
+function Setup({ repository }: { repository: RepositoryView }) {
+  const t = useTranslations("browse");
+  const setup = repository.setup ?? [];
+  if (setup.length === 0) return null;
+  return (
+    <Panel className="mt-6 p-4">
+      <h2 className="mb-2 text-lg font-semibold text-fg uppercase">{t("setupTitle")}</h2>
+      <p className="mb-4 text-fg-muted">{t("setupIntro")}</p>
+      <div className="flex flex-col gap-3">
+        {setup.map((snippet) => (
+          <Snippet key={snippet.label} label={snippet.label} text={snippet.text} />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
 export function BrowseScreen() {
   const t = useTranslations("browse");
   const typeName = useTypeName();
@@ -580,6 +602,7 @@ export function BrowseScreen() {
       ) : (
         <FolderView repository={found} folder={where.folder} file={file} here={here} />
       )}
+      <Setup repository={found} />
     </>
   );
 }

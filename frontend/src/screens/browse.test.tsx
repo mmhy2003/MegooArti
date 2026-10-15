@@ -231,6 +231,41 @@ describe("a folder of a repository", () => {
   });
 });
 
+describe("how a machine is set up to use a repository", () => {
+  const SETUP = [
+    {
+      label: "apt",
+      language: "shell",
+      text: 'echo "deb [signed-by=/etc/apt/keyrings/debs.asc] https://repo.example.com/repository/debs stable main"',
+    },
+  ];
+
+  test("is on its page, each part ready to copy, with what is to be filled in", async () => {
+    server({
+      "GET /content/debs": {
+        json: { ...RELEASES, name: "debs", format: "apt", setup: SETUP },
+      },
+      "GET /content/debs/tree": { json: { items: [], next: null } },
+    });
+    at("/browse/debs");
+
+    const heading = await screen.findByRole("heading", { name: "Set up a machine" });
+    const panel = heading.parentElement as HTMLElement;
+    expect(panel).toHaveTextContent("Set MEGOOARTI_USER and MEGOOARTI_TOKEN in its shell first");
+    expect(within(panel).getByRole("figure")).toHaveTextContent(SETUP[0]?.text ?? "");
+    expect(within(panel).getByRole("button", { name: "Copy apt" })).toBeVisible();
+    await expectAccessible();
+  });
+
+  test("is not spoken of where the address is all a client needs", async () => {
+    server({ "GET /content/releases": { json: { ...RELEASES, setup: [] } } });
+    at("/browse/releases");
+
+    await screen.findByRole("table");
+    expect(screen.queryByRole("heading", { name: "Set up a machine" })).toBeNull();
+  });
+});
+
 describe("an address that cannot be read", () => {
   test("is nothing's, said inside the shell and not as a page of its own", () => {
     mockApi({});

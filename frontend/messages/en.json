@@ -198,7 +198,9 @@
     "deletedSoFar": "{deleted, plural, one {# file deleted so far} other {# files deleted so far}}…",
     "folderDeleted": "Deleted {deleted, plural, one {# file} other {# files}} under {name}.{skipped, plural, =0 {} one { # file is kept by the format.} other { # files are kept by the format.}}",
     "folderStopped": "Stopped. {deleted, plural, one {# file} other {# files}} under {name} had been deleted.",
-    "settings": "Settings"
+    "settings": "Settings",
+    "setupTitle": "Set up a machine",
+    "setupIntro": "Commands that make a machine use this repository. Set MEGOOARTI_USER and MEGOOARTI_TOKEN in its shell first: your user name and an API token. What is between angle brackets is yours to fill in."
   },
   "component": {
     "path": "Path",
