@@ -11,21 +11,23 @@ protocol, as nuget.org does. Its address for a client is the repository's own, t
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "nuget-hosted", "format": "nuget", "type": "hosted"
 }' http://localhost:8000/api/v1/repositories
-
-dotnet pack -c Release
-dotnet nuget push bin/Release/MegooArti.Hello.1.0.0.nupkg \
-  --source https://repo.example.com/repository/nuget-hosted/index.json \
-  --api-key "$MEGOOARTI_TOKEN"
 ```
 
-On each machine that restores from it: the repository as a source, with the account
-`dotnet` signs in with. The repository's page in the web UI gives these, with its own
-address, under "Set up a machine".
+On each machine that pushes to it or restores from it: the repository as a source, with
+the account `dotnet` signs in with. The repository's page in the web UI gives these,
+with its own address, under "Set up a machine".
 
 ```bash
-dotnet nuget add source https://repo.example.com/repository/nuget-hosted/index.json \
-  --name megooarti --username ci --password "$MEGOOARTI_TOKEN" \
-  --store-password-in-clear-text
+dotnet nuget add source https://repo.example.com/repository/nuget-hosted/index.json   --name megooarti --username ci --password "$MEGOOARTI_TOKEN"   --store-password-in-clear-text
+```
+
+Then push to the source by its name, not by its address: `dotnet` reads the
+repository's `index.json` before it pushes, with the source's credentials, and sends
+the API key with the push alone.
+
+```bash
+dotnet pack -c Release
+dotnet nuget push bin/Release/MegooArti.Hello.1.0.0.nupkg   --source megooarti --api-key "$MEGOOARTI_TOKEN"
 
 dotnet add package MegooArti.Hello --version 1.0.0
 ```
@@ -50,8 +52,9 @@ puts the values of environment variables in place of `%NAME%`:
 
 - **Credentials.** A push's API key is an API token (`--api-key`, sent as
   `X-NuGet-ApiKey`); so is the password of a source's credentials. A user name and a
-  password work for a source too. NuGet's clients send credentials over plain HTTP only
-  to a source marked `allowInsecureConnections="true"` in `nuget.config`: use HTTPS.
+  password work for a source too. NuGet's clients refuse a plain-HTTP source unless
+  `nuget.config` marks it `allowInsecureConnections="true"` (the `dotnet nuget add
+  source` command cannot, and .NET 8 warns): use HTTPS.
 - **A push** is `dotnet nuget push`, or the web UI or [the API](../api.md#uploading)
   with one or more `file` fields. What is read of a package is its `.nuspec`, at most
   1 MiB, from a zip of at most 10,000 files: the zip is never unpacked. A file that is
@@ -73,7 +76,7 @@ puts the values of environment variables in place of `%NAME%`:
   `delete` permission, or the web UI) removes it and its every file: its package, its
   `.nuspec` and its symbol package. A package's `.nuspec` cannot be deleted on its own.
 - **The feed is written from the packages** on each request: an id's versions, its
-  registration (in pages of 64 versions) and search. Nothing is stored but the
+  registration (inlined up to 128 versions, then in pages of 64) and search. Nothing is stored but the
   packages, so the feed is right after every push and delete.
 - **Search** (`dotnet package search`, and Visual Studio's Browse tab) finds an id by
   the words of its id, title, description, tags and authors; `packageid:<id>` finds one
