@@ -33,21 +33,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import derived, group, proxy, proxy_state, signing
+from megooarti.repositories import derived, group, proxy, signing
 from megooarti.repositories.apt import format as apt
 from megooarti.repositories.apt import merge, releases
-from megooarti.repositories.content import RepositoryContext, TooLarge, build_context
+from megooarti.repositories.checks import LeftOut, leave_out, members_in, remote_keys
+from megooarti.repositories.content import RepositoryContext, TooLarge
 from megooarti.repositories.formats import Serve
-from megooarti.repositories.models import Repository, SigningKey
-
-log = structlog.get_logger(__name__)
+from megooarti.repositories.models import SigningKey
 
 # The most of a member's `InRelease`, and of a packed `Packages` file, that is read.
 RELEASE_MOST = 16 * 1024 * 1024
@@ -61,10 +59,6 @@ _SIGNED = ("Release", "InRelease", "Release.gpg")
 _INCOMPLETE = "~"
 
 
-class LeftOut(Exception):
-    """A member that a check found wanting, and why."""
-
-
 @dataclass(frozen=True)
 class Offer:
     """What one member has of a suite."""
@@ -76,10 +70,6 @@ class Offer:
 
 def _not_found(message: str) -> ApiError:
     return ApiError(404, "not_found", message)
-
-
-def remote_keys(member: RepositoryContext) -> str:
-    return member.repository.config.get("format_config", {}).get("remote_keys") or ""
 
 
 async def _token(member: RepositoryContext, suite: str) -> str | None:
@@ -101,20 +91,6 @@ async def _token(member: RepositoryContext, suite: str) -> str | None:
         return None
     keys = hashlib.sha256(remote_keys(member).encode()).hexdigest()
     return f"{member.repository.id}:{stored.sha256}:{keys}"
-
-
-async def _leave_out(context: RepositoryContext, member: RepositoryContext, reason: str) -> None:
-    log.warning(
-        "group_member_unverified",
-        group=context.repository.name,
-        member=member.repository.name,
-        reason=reason,
-    )
-    if member.repository.type == "proxy":
-        said = f"Left out of the group {context.repository.name}: {reason}"
-        await proxy_state.record_failure(
-            member.db, member.repository, utcnow(), said, blockable=False
-        )
 
 
 async def _offer(member: RepositoryContext, suite: str, now: datetime) -> Offer:
@@ -243,7 +219,7 @@ async def _merged(
                         texts.append(await _packages(offer, suite, directory))
                     except LeftOut as error:
                         incomplete = True
-                        await _leave_out(context, offer.member, str(error))
+                        await leave_out(context, offer.member, str(error))
                 packed, named = await asyncio.to_thread(_packed, texts)
                 files[f"{directory}/Packages.gz"] = packed
                 entries[f"{directory}/Packages.gz"] = releases.Entry(
@@ -308,23 +284,14 @@ async def _write(
     """What the group has of a suite, written with a session of its own."""
     of = (context.repository.id, suite)
     now = utcnow()
-    members = [
-        await build_context(
-            db,
-            context.settings,
-            await db.get(Repository, member_id),
-            context.principal,
-            outbound=context.outbound,
-        )
-        for member_id in candidates
-    ]
+    members = await members_in(db, context, candidates)
     offers, left_out = [], False
     for member in members:
         try:
             offers.append(await _offer(member, suite, now))
         except LeftOut as error:
             left_out = True
-            await _leave_out(context, member, str(error))
+            await leave_out(context, member, str(error))
     previous = derived.peek(of)
     whole = previous is not None and not str(previous.revision).endswith(_INCOMPLETE)
     if left_out and whole:

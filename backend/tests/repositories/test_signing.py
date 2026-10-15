@@ -12,6 +12,7 @@ from megooarti.secrets_box import forget_keys
 from megooarti.security import roles
 from tests.accounts import PASSWORD, basic, error_code
 from tests.repositories.apt.packages import DATA
+from tests.repositories.yum.packages import DATA as YUM_DATA
 
 KEYS = "/api/v1/repositories/files/signing-key"
 
@@ -295,3 +296,28 @@ def test_a_clear_signed_message_none_of_the_keys_signed_is_refused():
         signing.verify_clear(altered, debian)
     with pytest.raises(signing.Unverified):
         signing.verify_clear(b"Origin: Debian\n", debian)
+
+
+def test_a_detached_signature_one_of_the_keys_made_is_taken():
+    keys = signing.read_public_keys((YUM_DATA / "RPM-GPG-KEY-Rocky-10").read_text(encoding="utf-8"))
+    repomd = (YUM_DATA / "rocky-10-baseos-repomd.xml").read_bytes()
+
+    signing.verify_detached(
+        repomd, (YUM_DATA / "rocky-10-baseos-repomd.xml.asc").read_bytes(), keys
+    )
+
+
+def test_a_detached_signature_none_of_the_keys_made_is_refused():
+    rocky = signing.read_public_keys(
+        (YUM_DATA / "RPM-GPG-KEY-Rocky-10").read_text(encoding="utf-8")
+    )
+    other = signing.read_public_keys(signing.generate_openpgp("Someone else").public_key)
+    repomd = (YUM_DATA / "rocky-10-baseos-repomd.xml").read_bytes()
+    signature = (YUM_DATA / "rocky-10-baseos-repomd.xml.asc").read_bytes()
+
+    with pytest.raises(signing.Unverified):
+        signing.verify_detached(repomd, signature, other)
+    with pytest.raises(signing.Unverified):
+        signing.verify_detached(repomd.replace(b"primary", b"primarx"), signature, rocky)
+    with pytest.raises(signing.Unverified):
+        signing.verify_detached(repomd, b"not a signature", rocky)

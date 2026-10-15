@@ -149,6 +149,23 @@ def verify_clear(signed: bytes, certificates: list[object]) -> bytes:
         raise Unverified(str(error).splitlines()[0]) from None
 
 
+def verify_detached(data: bytes, signature: bytes, certificates: list[object]) -> None:
+    """Raise Unverified unless one of the keys made this signature of `data`.
+
+    A detached signature, as a remote's `repomd.xml.asc` is.
+    """
+    try:
+        pysequoia.verify(
+            bytes=data,
+            store=lambda _: certificates,
+            signature=pysequoia.Sig.from_bytes(signature),
+        )
+    except (RuntimeError, ValueError) as error:
+        raise Unverified(
+            str(error).splitlines()[0] if str(error) else "it is not a signature"
+        ) from None
+
+
 def signs(repository: Repository) -> str | None:
     """The kind of key this repository signs with, or None if it signs nothing.
 

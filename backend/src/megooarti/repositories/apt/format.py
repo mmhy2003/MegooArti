@@ -24,7 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
-from megooarti.repositories import derived, signing
+from megooarti.repositories import checks, derived, signing
 from megooarti.repositories.apt import control, debs, indexes, paths, versions
 from megooarti.repositories.content import RepositoryContext, Snapshot
 from megooarti.repositories.formats import (
@@ -252,23 +252,6 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
     )
 
 
-def _remote_keys(config: dict[str, Any]) -> dict[str, Any]:
-    """A proxy's settings: its remote's public keys, which a group checks it with."""
-    unknown = sorted(set(config) - {"remote_keys"})
-    if unknown:
-        raise _invalid_setting(f"format_config.{unknown[0]}", "This is not a setting of APT.")
-    keys = config.get("remote_keys") or ""
-    if not isinstance(keys, str):
-        raise _invalid_setting("format_config.remote_keys", "The keys are armoured text.")
-    if not keys.strip():
-        return {}
-    try:
-        signing.read_public_keys(keys)
-    except signing.KeysUnusable as error:
-        raise _invalid_setting("format_config.remote_keys", str(error)) from None
-    return {"remote_keys": keys}
-
-
 class AptFormat(Format):
     name = "apt"
     types = frozenset({"hosted", "proxy", "group"})
@@ -280,7 +263,7 @@ class AptFormat(Format):
     ) -> dict[str, Any]:
         """A hosted repository's suite, which never changes; a proxy's remote's keys."""
         if repository_type == "proxy":
-            return _remote_keys(config)
+            return checks.remote_keys_setting(config, "APT")
         if repository_type != "hosted":
             return super().validate_config(repository_type, config, current)
         unknown = sorted(set(config) - {"suite"})
