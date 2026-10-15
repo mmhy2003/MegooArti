@@ -70,6 +70,11 @@ def _verify(
             )
 
 
+def _literal(text: str) -> str:
+    """Text for a LIKE pattern, in which each of its characters is itself."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _pieces(data: bytes) -> AsyncIterator[bytes]:
     for start in range(0, len(data), _PIECE):
         yield data[start : start + _PIECE]
@@ -436,6 +441,58 @@ class RepositoryContext:
         ).one_or_none()
         return None if row is None else ComponentInfo(version, *row)
 
+    async def spelling(self, namespace: str, name: str) -> str | None:
+        """How a package this repository holds spells a name, matched without regard to
+        case: for a format whose clients match names so. None if it holds none."""
+        return await self.db.scalar(
+            select(Component.name)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                func.lower(Component.name) == name.lower(),
+            )
+            .order_by(Component.created_at)
+            .limit(1)
+        )
+
+    async def matching(
+        self, namespace: str, words: Sequence[str]
+    ) -> list[tuple[str, ComponentInfo]]:
+        """Every version that has a file, of every package with a version whose search text
+        holds each of `words`: each with its package's name. No words, every version."""
+        conditions = [
+            Component.search.like(f"%{_literal(word.lower())}%", escape="\\") for word in words
+        ]
+        names = (
+            select(Component.name)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                *conditions,
+            )
+            .distinct()
+        )
+        rows = await self.db.execute(
+            select(
+                Component.name,
+                Component.version,
+                Component.attributes,
+                Component.created_at,
+                func.max(Asset.updated_at),
+            )
+            .join(Asset, Asset.component_id == Component.id)
+            .where(
+                Component.repository_id == self.repository.id,
+                Component.namespace == namespace,
+                Component.name.in_(names),
+            )
+            .group_by(Component.id)
+        )
+        return [
+            (name, ComponentInfo(version, attributes, created, changed))
+            for name, version, attributes, created, changed in rows
+        ]
+
     async def package_names(
         self,
         text: str,
@@ -450,8 +507,7 @@ class RepositoryContext:
         every package. `within` names the repositories to look in, for a group, which
         holds nothing itself: a package several of them hold is listed once.
         """
-        literal = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{literal}%"
+        pattern = f"%{_literal(text)}%"
         searched = [self] if within is None else within
         found = (
             select(Component.namespace, Component.name)

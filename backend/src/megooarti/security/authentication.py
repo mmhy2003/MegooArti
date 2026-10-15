@@ -27,6 +27,8 @@ log = structlog.get_logger(__name__)
 
 SESSION_COOKIE = "megooarti_session"
 CSRF_HEADER = "X-CSRF-Token"
+# Where NuGet's clients send an API key: taken as an API token, by the content route only.
+API_KEY_HEADER = "X-NuGet-ApiKey"
 INVALID_CREDENTIALS = "Invalid credentials."
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
@@ -320,17 +322,23 @@ async def issue_registry_token(
 
 
 async def resolve_principal(
-    request: Request, db: AsyncSession, *, registry: bool = False
+    request: Request, db: AsyncSession, *, registry: bool = False, api_key: bool = False
 ) -> Principal | None:
     """The principal for this request, or None when there are no credentials.
 
     Invalid credentials in an Authorization header are an error, never a fall-through
     to the cookie or to anonymous access. `registry` says that the request is to the
-    container registry API, where a registry token is a credential.
+    container registry API, where a registry token is a credential. `api_key` says
+    that an API token in `X-NuGet-ApiKey` is one, where there is no Authorization
+    header: a NuGet client sends it so, and nothing else with it.
     """
     header = request.headers.get("Authorization")
     if header:
         return await _from_header(db, request, header, registry=registry)
+    key = request.headers.get(API_KEY_HEADER, "").strip() if api_key else ""
+    if key:
+        user, token = await _authenticate_token(db, request, key)
+        return await build_principal(db, user, "token", token=token)
 
     settings = request.app.state.settings
     cookie = request.cookies.get(SESSION_COOKIE)
@@ -395,11 +403,16 @@ async def refuse_cross_site(request: Request, db: AsyncSession = Depends(get_ses
 
 
 async def _identify(
-    request: Request, db: AsyncSession, scheme: Scheme, *, registry: bool = False
+    request: Request,
+    db: AsyncSession,
+    scheme: Scheme,
+    *,
+    registry: bool = False,
+    api_key: bool = False,
 ) -> Principal | None:
     """Check what the request presents. Raises 401 with a challenge, 403 or 429."""
     try:
-        principal = await resolve_principal(request, db, registry=registry)
+        principal = await resolve_principal(request, db, registry=registry, api_key=api_key)
     except ApiError as error:
         if error.status_code != 401:
             raise
@@ -438,21 +451,33 @@ class Credentials:
     """
 
     def __init__(
-        self, request: Request, db: AsyncSession, scheme: Scheme, *, registry: bool = False
+        self,
+        request: Request,
+        db: AsyncSession,
+        scheme: Scheme,
+        *,
+        registry: bool = False,
+        api_key: bool = False,
     ) -> None:
-        self._request, self._db, self._scheme, self._registry = request, db, scheme, registry
+        self._request, self._db, self._scheme = request, db, scheme
+        self._registry, self._api_key = registry, api_key
 
     async def principal(self) -> Principal | None:
         """Who is calling, if anyone. Raises 401 with a challenge, 403 or 429."""
-        return await _identify(self._request, self._db, self._scheme, registry=self._registry)
+        return await _identify(
+            self._request, self._db, self._scheme, registry=self._registry, api_key=self._api_key
+        )
 
 
 async def client_credentials(
     request: Request, db: AsyncSession = Depends(get_session)
 ) -> Credentials:
-    """For the content route: refuse a cross-site write now, identify the caller later."""
+    """For the content route: refuse a cross-site write now, identify the caller later.
+
+    A NuGet client's API key counts there (`X-NuGet-ApiKey`).
+    """
     await _refuse_cross_site(request, db)
-    return Credentials(request, db, "Basic")
+    return Credentials(request, db, "Basic", api_key=True)
 
 
 async def registry_credentials(

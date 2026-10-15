@@ -25,6 +25,7 @@ from megooarti.repositories.content_api import router as content_api_router
 from megooarti.repositories.docker.routes import router as registry_router  # registers the format
 from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
+from megooarti.repositories.nuget import format as _nuget_format  # noqa: F401  (registers it)
 from megooarti.repositories.pypi import format as _pypi_format  # noqa: F401  (registers it)
 from megooarti.repositories.routes import router as content_router
 from megooarti.repositories.search_api import router as search_router
