@@ -1219,6 +1219,11 @@ export interface components {
             name: string;
             /** Online */
             online: boolean;
+            /**
+             * Setup
+             * @default []
+             */
+            setup: components["schemas"]["UsageView"][];
             /** Type */
             type: string;
             /** Url */

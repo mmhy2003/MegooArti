@@ -210,6 +210,7 @@ describe("what a caller is offered in a repository", () => {
     type,
     online: true,
     url: "",
+    setup: [],
   });
   const publisher: SessionInfo = { ...ADMIN, permissions: ["repository:raw:r:add"] };
 

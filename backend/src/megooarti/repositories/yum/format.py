@@ -42,6 +42,7 @@ from megooarti.repositories.formats import (
     register,
 )
 from megooarti.repositories.forms import UploadForm
+from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
 from megooarti.repositories.yum import paths, repodata, rpms, versions
 from megooarti.storage.backends import StagedBlob
@@ -310,6 +311,40 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
     )
 
 
+def setup_of(address: str, repository: Repository) -> list[Usage]:
+    """The repository's key, and its `.repo` file with the account dnf signs in with."""
+    name = repository.name
+    depth = repository.config.get("format_config", {}).get("repodata_depth", 0)
+    directory = "<directory>" if repository.type == "hosted" and depth else ""
+    lines = []
+    if repository.type == "proxy":
+        signed, checked, keys = "0", "1", "file:///etc/pki/rpm-gpg/<the distribution's key>"
+    else:
+        lines.append(
+            'sudo curl -fsS -u "$MEGOOARTI_USER:$MEGOOARTI_TOKEN" '
+            f"-o /etc/pki/rpm-gpg/{name}.asc {address}public.key"
+        )
+        signed, keys = "1", f"file:///etc/pki/rpm-gpg/{name}.asc"
+        # A group may have a member it cannot check: then every package is (S8).
+        checked = "1" if repository.type == "group" else "0"
+        if repository.type == "group":
+            keys += " file:///etc/pki/rpm-gpg/<the packages' keys>"
+    lines += [
+        f"sudo tee /etc/yum.repos.d/{name}.repo > /dev/null <<EOF",
+        f"[{name}]",
+        f"name={name}",
+        f"baseurl={address}{directory}",
+        "username=$MEGOOARTI_USER",
+        "password=$MEGOOARTI_TOKEN",
+        f"repo_gpgcheck={signed}",
+        f"gpgcheck={checked}",
+        f"gpgkey={keys}",
+        "EOF",
+        f"sudo chmod 600 /etc/yum.repos.d/{name}.repo",
+    ]
+    return [Usage("dnf", "shell", "\n".join(lines))]
+
+
 class YumFormat(Format):
     name = "yum"
     types = frozenset({"hosted", "proxy", "group"})
@@ -389,6 +424,9 @@ class YumFormat(Format):
         if versions.NAME.fullmatch(key.name) is None or versions.split(key.version) is None:
             return []
         return [Usage("dnf", "shell", f"sudo dnf install {key.name}-{key.version}")]
+
+    def setup(self, address: str, repository: Repository) -> list[Usage]:
+        return setup_of(address, repository)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         parsed = paths.classify(path)

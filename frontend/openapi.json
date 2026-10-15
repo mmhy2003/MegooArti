@@ -1438,6 +1438,14 @@
             "title": "Online",
             "type": "boolean"
           },
+          "setup": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/UsageView"
+            },
+            "title": "Setup",
+            "type": "array"
+          },
           "type": {
             "title": "Type",
             "type": "string"

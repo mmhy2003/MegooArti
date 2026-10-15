@@ -40,6 +40,12 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/content", tags=["content"])
 
 
+class UsageView(BaseModel):
+    label: str
+    language: str  # what `text` is written in: xml, kotlin, groovy or shell
+    text: str
+
+
 class RepositoryView(BaseModel):
     name: str
     format: str
@@ -47,6 +53,7 @@ class RepositoryView(BaseModel):
     online: bool
     url: str  # what a client is given: an address, or for a registry a host and a name
     members: list[str] | None = None  # a group's, in the order they are tried
+    setup: list[UsageView] = []  # how a machine is set up to use it, as text to copy
 
 
 class ComponentRef(BaseModel):
@@ -91,12 +98,6 @@ class AssetView(BaseModel):
 class ComponentView(ComponentRef):
     created: datetime
     modified: datetime
-
-
-class UsageView(BaseModel):
-    label: str
-    language: str  # what `text` is written in: xml, kotlin, groovy or shell
-    text: str
 
 
 class ComponentDetail(ComponentView):
@@ -146,13 +147,17 @@ async def _view(
             for member in await service.members(db, repository)
             if caller.allows(_permission(member, "browse"))
         ]
+    handler = get_format(repository.format)
+    url = _address(repository, handler, base)
+    setup = handler.setup(url, repository) if handler is not None else []
     return RepositoryView(
         name=repository.name,
         format=repository.format,
         type=repository.type,
         online=repository.online,
-        url=_address(repository, get_format(repository.format), base),
+        url=url,
         members=members,
+        setup=[UsageView(**vars(usage)) for usage in setup],
     )
 
 

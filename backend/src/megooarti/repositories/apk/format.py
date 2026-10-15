@@ -20,6 +20,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import aclosing
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -259,6 +260,25 @@ def _invalid_setting(field: str, message: str) -> ApiError:
     return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
+def setup_of(address: str, repository: Repository) -> list[Usage]:
+    """The repository's key, under the name apk finds it by, and its line in
+    `/etc/apk/repositories`, with the account apk signs in with in the address."""
+    parts = urlsplit(address)
+    signed_in = urlunsplit(
+        parts._replace(netloc=f"$MEGOOARTI_USER:$MEGOOARTI_TOKEN@{parts.netloc}")
+    )
+    lines = []
+    if repository.type != "proxy":
+        key = paths.key_name(repository.name)
+        lines.append(f'wget -q -O /etc/apk/keys/{key} "{signed_in}{key}"')
+    lines += [
+        f'echo "{signed_in}<directory>" >> /etc/apk/repositories',
+        "chmod 600 /etc/apk/repositories",
+        "apk update",
+    ]
+    return [Usage("apk", "shell", "\n".join(lines))]
+
+
 class ApkFormat(Format):
     name = "apk"
     types = frozenset({"hosted", "proxy", "group"})
@@ -332,6 +352,9 @@ class ApkFormat(Format):
         ):
             return []
         return [Usage("apk", "shell", f"apk add {key.name}={key.version}")]
+
+    def setup(self, address: str, repository: Repository) -> list[Usage]:
+        return setup_of(address, repository)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         if path.endswith((".apk", index.INDEX)):

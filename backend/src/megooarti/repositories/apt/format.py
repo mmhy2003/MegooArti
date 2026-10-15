@@ -19,6 +19,7 @@ import hashlib
 from collections.abc import Sequence
 from contextlib import aclosing
 from typing import Any
+from urllib.parse import urlsplit
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -252,6 +253,37 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
     )
 
 
+def setup_of(address: str, repository: Repository) -> list[Usage]:
+    """The repository's key, its line in `sources.list.d`, and the account apt signs in with."""
+    name = repository.name
+    parts = urlsplit(address)
+    # apt sends credentials over plain HTTP only to a line that says so (`machine http://`).
+    machine = parts.netloc if parts.scheme == "https" else f"{parts.scheme}://{parts.netloc}"
+    lines = []
+    if repository.type == "proxy":
+        keyring = "/usr/share/keyrings/<distribution>-archive-keyring.gpg"
+        suite = "<suite>"
+    else:
+        keyring = f"/etc/apt/keyrings/{name}.asc"
+        lines.append(
+            f'sudo curl -fsS -u "$MEGOOARTI_USER:$MEGOOARTI_TOKEN" -o {keyring} {address}public.key'
+        )
+        format_config = repository.config.get("format_config", {})
+        suite = (
+            format_config.get("suite", DEFAULT_SUITE) if repository.type == "hosted" else "<suite>"
+        )
+    lines += [
+        f'echo "deb [signed-by={keyring}] {address.rstrip("/")} {suite} main" \\',
+        f"  | sudo tee /etc/apt/sources.list.d/{name}.list > /dev/null",
+        f"printf 'machine {machine}\\nlogin %s\\npassword %s\\n' \\",
+        '  "$MEGOOARTI_USER" "$MEGOOARTI_TOKEN" \\',
+        f"  | sudo tee /etc/apt/auth.conf.d/{name}.conf > /dev/null",
+        f"sudo chmod 600 /etc/apt/auth.conf.d/{name}.conf",
+        "sudo apt-get update",
+    ]
+    return [Usage("apt", "shell", "\n".join(lines))]
+
+
 class AptFormat(Format):
     name = "apt"
     types = frozenset({"hosted", "proxy", "group"})
@@ -337,6 +369,9 @@ class AptFormat(Format):
         if versions.NAME.fullmatch(key.name) is None or versions.split(key.version) is None:
             return []
         return [Usage("apt", "shell", f"sudo apt install {key.name}={key.version}")]
+
+    def setup(self, address: str, repository: Repository) -> list[Usage]:
+        return setup_of(address, repository)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         parsed = paths.classify(path)

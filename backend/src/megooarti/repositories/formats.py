@@ -227,6 +227,16 @@ class Format:
         """
         return []
 
+    def setup(self, address: str, repository: "Repository") -> list[Usage]:
+        """How a machine is set up to use a repository, as text to copy. The generic format:
+        nothing, as its clients are given the address alone.
+
+        `address` is what a client is given for the repository, ending in a slash. A
+        part a person must fill in is written `<so>`. Credentials are the shell's
+        `$MEGOOARTI_USER` and `$MEGOOARTI_TOKEN`.
+        """
+        return []
+
     def download_path(self, repository: str, path: str) -> str | None:
         """Where a stored file is fetched, from the root of the site.
 

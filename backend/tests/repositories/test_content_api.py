@@ -75,6 +75,7 @@ async def test_the_repositories_a_caller_may_browse_are_listed(client, files, ro
         "online": True,
         "url": "https://test/repository/files/",
         "members": None,
+        "setup": [],  # a raw repository's clients are given the address alone
     }
     assert (hidden.status_code, error_code(hidden)) == (403, "forbidden")
     assert (absent.status_code, error_code(absent)) == (404, "not_found")
