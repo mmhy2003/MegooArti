@@ -268,24 +268,19 @@ async def test_a_repository_is_read_with_the_right_to_read(client, db, hosted, m
     ("type", "format_config", "field"),
     [
         ("hosted", {"suite": "stable"}, "format_config"),
-        ("proxy", {"remote_keys": "x"}, "format_config"),
+        ("proxy", {"remote_keys": "x"}, "format_config.remote_keys"),
+        ("proxy", {"suite": "x"}, "format_config.suite"),
+        ("group", {"suite": "x"}, "format_config"),
     ],
 )
 async def test_settings_that_cannot_be_used_are_refused(admin_client, type, format_config, field):
     body = {"name": "apk", "format": "apk", "type": type, "format_config": format_config}
     if type == "proxy":
         body["proxy"] = {"remote_url": "https://dl-cdn.alpinelinux.org/alpine"}
+    if type == "group":
+        body["group"] = {"members": []}
 
     refused = await admin_client.post("/api/v1/repositories", json=body)
 
     assert refused.status_code == 422
     assert refused.json()["error"]["details"][0]["field"] == field
-
-
-async def test_a_group_of_apk_repositories_is_not_made_yet(admin_client):
-    refused = await admin_client.post(
-        "/api/v1/repositories",
-        json={"name": "apk-all", "format": "apk", "type": "group", "group": {"members": []}},
-    )
-
-    assert refused.status_code == 422

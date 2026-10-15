@@ -25,12 +25,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
-from megooarti.repositories import derived, signing
+from megooarti.repositories import checks, derived, signing
 from megooarti.repositories.apk import index, packages, paths, versions
 from megooarti.repositories.content import RepositoryContext, Snapshot
 from megooarti.repositories.formats import (
     ComponentKey,
     Format,
+    Serve,
     Usage,
     declared_hashes,
     declared_size,
@@ -39,6 +40,7 @@ from megooarti.repositories.formats import (
     register,
 )
 from megooarti.repositories.forms import UploadForm
+from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
 from megooarti.storage.backends import StagedBlob
 
@@ -213,6 +215,11 @@ async def hosted_indexes(context: RepositoryContext) -> derived.Written:
     return await derived.written(context.repository.id, revision, write)
 
 
+def holds_packages(written: derived.Written, directory: str) -> bool:
+    """Whether a directory of a revision has packages in its index."""
+    return paths.in_directory(directory, index.INDEX) in written.files
+
+
 def index_file(written: derived.Written, directory: str) -> bytes:
     """A directory's index, from what was written of a revision: an empty one if it has none."""
     found = written.files.get(paths.in_directory(directory, index.INDEX))
@@ -247,11 +254,33 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
     )
 
 
+def _invalid_setting(field: str, message: str) -> ApiError:
+    details = [{"field": field, "message": message}]
+    return ApiError(422, "validation_error", "The request is not valid.", details)
+
+
 class ApkFormat(Format):
     name = "apk"
-    types = frozenset({"hosted", "proxy"})
+    types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.RSA
+
+    def validate_config(
+        self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """A proxy's remote's keys, PEM, which a group checks it with; nothing else."""
+        if repository_type == "proxy":
+            return checks.remote_keys_setting(config, "apk", signing.read_rsa_public_keys)
+        return super().validate_config(repository_type, config, current)
+
+    def validate_member(self, member: Repository) -> None:
+        """A proxy whose signatures a group cannot check is not one of its members."""
+        if member.type == "proxy" and not member.config.get("format_config", {}).get("remote_keys"):
+            raise _invalid_setting(
+                "group.members",
+                f"{member.name} is a proxy without its remote's keys "
+                "(format_config.remote_keys): a group could not check what it signs.",
+            )
 
     def describe_component(
         self, path: str, attributes: dict[str, Any] | None = None
@@ -338,6 +367,16 @@ class ApkFormat(Format):
         if parsed.kind == "index":
             return await _index(context, request, parsed)
         raise _not_found()
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        if paths.classify(path, context.repository.name).kind == "key" and _is_read(request):
+            return await _public_key(context, request)
+        # Imported here: it is written against this module.
+        from megooarti.repositories.apk import groups
+
+        return await groups.handle_group(context, request, path, serve)
 
 
 register(ApkFormat())
