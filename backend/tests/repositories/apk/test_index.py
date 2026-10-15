@@ -1,5 +1,6 @@
 """A directory's `APKINDEX.tar.gz`, written as apk-tools 3's `apk index` writes it."""
 
+import gzip
 import io
 import tarfile
 import zlib
@@ -104,3 +105,63 @@ def test_an_empty_index_lists_nothing(key):
     data = index.index_file([], "", "d", "k.rsa.pub", signing.RsaSigner(key.private_key), 1)
 
     assert apkindex(data) == ""
+
+
+def test_an_index_abuild_wrote_reads_back_whole():
+    read = index.read((DATA / "APKINDEX.tar.gz").read_bytes())
+
+    assert (read.key_name, read.sha256) == ("builder-6ad0887f.rsa.pub", False)
+    assert read.text == apkindex((DATA / "APKINDEX.tar.gz").read_bytes())
+    assert len(read.signature) == 512
+
+
+@pytest.mark.parametrize(
+    ("data", "reason"),
+    [
+        (b"not gzip", "not gzip streams"),
+        (gzip.compress(b"x" * 100, mtime=0), "not a tar archive"),
+        ((DATA / "APKINDEX.tar.gz").read_bytes()[:700], "ends early"),
+    ],
+)
+def test_what_is_not_an_index_a_group_can_read_is_refused(data, reason):
+    with pytest.raises(index.InvalidIndex, match=reason):
+        index.read(data)
+
+
+def test_an_index_larger_unpacked_than_the_bound_is_refused():
+    with pytest.raises(index.InvalidIndex, match="larger unpacked"):
+        index.read((DATA / "APKINDEX.tar.gz").read_bytes(), most=1000)
+
+
+def test_members_records_are_merged_an_earlier_members_first():
+    first = "C:Q1a\nP:hello\nV:1.0-r0\nA:x86_64\n\nC:Q1b\nP:tool\nV:1.0-r0\nA:x86_64\n\n"
+    later = (
+        "C:Q1c\nP:hello\nV:1.0-r0\nA:x86_64\n\n"  # the same file apk would ask for
+        "C:Q1d\nP:hello\nV:2.0-r0\nA:x86_64\n\n"
+        "C:Q1e\nA:x86_64\n\n"  # names no package
+    )
+
+    merged = index.merged([first, later])
+
+    assert [line for line in merged.splitlines() if line.startswith("C:")] == [
+        "C:Q1a",
+        "C:Q1b",
+        "C:Q1d",
+    ]
+    assert merged.endswith("\n\n")
+
+
+def test_an_index_abuild_signed_is_checked_with_its_key_and_no_other():
+    read = index.read((DATA / "APKINDEX.tar.gz").read_bytes())
+    builder = signing.read_rsa_public_keys(
+        (DATA / "builder-6ad0887f.rsa.pub").read_text(encoding="utf-8")
+    )
+    another = signing.read_rsa_public_keys(signing.generate_rsa().public_key)
+
+    signing.verify_rsa(read.packed, read.signature, another + builder)
+    with pytest.raises(signing.Unverified):
+        signing.verify_rsa(read.packed, read.signature, another)
+    with pytest.raises(signing.Unverified):
+        signing.verify_rsa(read.packed + b"x", read.signature, builder)
+    with pytest.raises(signing.Unverified):
+        signing.verify_rsa(read.packed, read.signature, builder, sha256=True)

@@ -11,7 +11,9 @@ at `<repository>/<architecture>/<name>-<version>.apk`, by what the index says.
 """
 
 import gzip
+import io
 import tarfile
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -121,3 +123,91 @@ def index_file(
     """A whole `APKINDEX.tar.gz`, signed."""
     packed = archive(description, apkindex(listed, architecture), moment)
     return signature(packed, key_name, signer, moment) + packed
+
+
+# --- What a group reads of its members' indexes ----------------------------------------
+
+# The most of a member's index that is read unpacked (spec 9).
+UNPACKED_MOST = 1024 * 1024 * 1024
+_SIGNED = {".SIGN.RSA.": False, ".SIGN.RSA256.": True}  # by its prefix: whether SHA-256
+
+
+class InvalidIndex(ValueError):
+    """Bytes that are not an `APKINDEX.tar.gz` a group can read."""
+
+
+@dataclass(frozen=True)
+class Read:
+    """What an index is: who signed it and how, its second stream, and its records."""
+
+    key_name: str  # of the key it says signed it; empty if it is not signed
+    sha256: bool  # whether its signature is of SHA-256 (`.SIGN.RSA256.`) or SHA-1
+    signature: bytes
+    packed: bytes  # the stream it signs, as it is packed
+    text: str  # APKINDEX
+
+
+def _stream(data: bytes, most: int) -> tuple[bytes, bytes, bytes]:
+    """The first gzip stream of `data`, packed and unpacked, and what follows it."""
+    unpack = zlib.decompressobj(wbits=31)
+    try:
+        opened = unpack.decompress(data, most + 1)
+    except zlib.error:
+        raise InvalidIndex("it is not gzip streams, as an APKINDEX.tar.gz is") from None
+    if len(opened) > most or unpack.unconsumed_tail:
+        raise InvalidIndex("it is larger unpacked than this server reads")
+    if not unpack.eof:
+        raise InvalidIndex("it ends early")
+    rest = unpack.unused_data
+    return data[: len(data) - len(rest)], opened, rest
+
+
+def _files(opened: bytes) -> dict[str, bytes]:
+    try:
+        with tarfile.open(fileobj=io.BytesIO(opened + b"\0" * 1024)) as tar:
+            return {
+                member.name: tar.extractfile(member).read()
+                for member in tar.getmembers()
+                if member.isfile()
+            }
+    except (tarfile.TarError, ValueError, OverflowError):
+        raise InvalidIndex("a part of it is not a tar archive") from None
+
+
+def read(data: bytes, most: int = UNPACKED_MOST) -> Read:
+    """What an `APKINDEX.tar.gz` says, and of its signature. Raises InvalidIndex."""
+    packed, opened, rest = _stream(data, most)
+    first = _files(opened)
+    signed = [name for name in first if name.startswith(".SIGN.")]
+    key_name, sha256, signature = "", False, b""
+    if signed:
+        name = signed[0]
+        prefix = next((p for p in _SIGNED if name.startswith(p)), None)
+        if prefix is None:
+            raise InvalidIndex(f"it is signed in a way this server cannot check ({name})")
+        key_name, sha256, signature = name.removeprefix(prefix), _SIGNED[prefix], first[name]
+        packed, opened, _ = _stream(rest, most)
+        first = _files(opened)
+    if "APKINDEX" not in first:
+        raise InvalidIndex("it has no APKINDEX")
+    try:
+        text = first["APKINDEX"].decode("utf-8")
+    except UnicodeDecodeError:
+        raise InvalidIndex("its APKINDEX is not UTF-8") from None
+    return Read(key_name, sha256, signature, packed, text)
+
+
+def merged(texts: Sequence[str]) -> str:
+    """Members' `APKINDEX`, in their order: of a name and version in a directory (the
+    file apk would ask for), the first member's record alone."""
+    seen: set[tuple[str, str]] = set()
+    kept = []
+    for text in texts:
+        for record in text.split("\n\n"):
+            fields = dict(line.split(":", 1) for line in record.splitlines() if line[1:2] == ":")
+            named = (fields.get("P", ""), fields.get("V", ""))
+            if not all(named) or named in seen:
+                continue
+            seen.add(named)
+            kept.append(record.strip("\n") + "\n\n")
+    return "".join(kept)
