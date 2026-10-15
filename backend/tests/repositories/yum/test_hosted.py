@@ -296,7 +296,7 @@ async def test_the_depth_is_chosen_when_the_repository_is_made_and_kept(admin_cl
         ("hosted", {"repodata_depth": "2"}, "format_config.repodata_depth"),
         ("hosted", {"repodata_depth": True}, "format_config.repodata_depth"),
         ("hosted", {"suite": "stable"}, "format_config.suite"),
-        ("proxy", {"repodata_depth": 1}, "format_config"),
+        ("proxy", {"repodata_depth": 1}, "format_config.repodata_depth"),
     ],
 )
 async def test_settings_that_cannot_be_used_are_refused(admin_client, type, format_config, field):
@@ -308,15 +308,6 @@ async def test_settings_that_cannot_be_used_are_refused(admin_client, type, form
 
     assert refused.status_code == 422
     assert refused.json()["error"]["details"][0]["field"] == field
-
-
-async def test_a_group_of_yum_repositories_is_not_made_yet(admin_client):
-    refused = await admin_client.post(
-        "/api/v1/repositories",
-        json={"name": "yum-all", "format": "yum", "type": "group", "group": {"members": []}},
-    )
-
-    assert refused.status_code == 422
 
 
 async def test_what_an_empty_directorys_repomd_named_is_served_after_its_first_package(

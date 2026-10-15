@@ -112,10 +112,93 @@ would lead dnf past MegooArti.
   checked again with the remote after `metadata_max_age_minutes`; the files it names
   carry their hash in their names, and are kept, as packages are. A metalink or a
   mirror list is not proxied.
+- **A proxy's `remote_keys`**, its remote's public keys, armoured, are what a group it
+  is a member of checks its `repomd.xml` with. They are optional: Rocky Linux signs its
+  repositories' `repomd.xml`, Fedora does not.
+
+## Groups
+
+A group puts your own repositories and the mirrors behind one address, and signs the
+metadata it serves with a key of its own: a machine needs that one key for the
+metadata, and dnf goes on checking each package's own signature where `gpgcheck=1`.
+Give a proxy of a distribution that signs its metadata its keys, and the group checks
+them for the machines. For Rocky Linux's, on a machine that has them and jq:
+
+```bash
+keys=$(cat /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-10)
+jq -n --arg keys "$keys" '{
+  name: "yum-rocky", format: "yum", type: "proxy",
+  proxy: {remote_url: "http://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"},
+  format_config: {remote_keys: $keys}
+}' | curl -u admin -H 'Content-Type: application/json' -d @- \
+  http://localhost:8000/api/v1/repositories
+
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "yum-public", "format": "yum", "type": "group",
+  "group": {"members": ["yum-flat", "yum-rocky"]}
+}' http://localhost:8000/api/v1/repositories
+```
+
+Here `yum-flat` is a hosted repository at depth 0. On each machine, the group's key
+and the group:
+
+```bash
+curl -fsS -u ci -o /etc/pki/rpm-gpg/yum-public.asc \
+  https://repo.example.com/repository/yum-public/public.key
+cat > /etc/yum.repos.d/megooarti.repo <<EOF
+[megooarti]
+name=MegooArti
+baseurl=https://repo.example.com/repository/yum-public
+username=ci
+password=$MEGOOARTI_TOKEN
+repo_gpgcheck=1
+gpgcheck=0
+gpgkey=file:///etc/pki/rpm-gpg/yum-public.asc
+EOF
+```
+
+`gpgcheck=0`, as the packages of `yum-flat` are not signed; with them signed, give
+`gpgkey=` their key and the distribution's as well, and `gpgcheck=1`.
+
+- **The group serves a `repodata/` in each directory where a member has one**: a
+  hosted member in a directory as deep as its `repodata_depth` that holds packages, a
+  proxy where its remote has `repodata/repomd.xml`.
+- **A directory one member has** is that member's: its `repomd.xml`, signed again with
+  the group's key, and every file it names sent on from that member. dnf checks each
+  against that `repomd.xml`.
+- **A directory several members have** (a hosted repository at depth 0 beside a proxy
+  of Rocky's BaseOS, both at the root, as above) gets `primary.xml`, `filelists.xml`
+  and `other.xml` of the group's own, written from the members' and packed with zstd.
+  A package (the same name, epoch, version, release and architecture) that an earlier
+  member has is left out of a later one's, and so is a later member's package at a
+  path an earlier one holds with another package. Package groups (comps), updates
+  (updateinfo) and modules are not merged: the group names those of its first member
+  that has them, as that member gave them. The members' databases (`*.sqlite`) and
+  zchunk files are not named; dnf reads the XML.
+- **A member is checked before it is used**: every file the group reads of it must
+  have the checksum its `repomd.xml` names, and a proxy given `remote_keys` must have a
+  `repomd.xml.asc` that one of them made. A member that fails is left out, it is
+  logged, and the proxy's page says why as its last error until the proxy next
+  reaches its remote. While a member the last metadata had cannot be checked, that
+  metadata is kept a minute longer, and the group then tries again.
+- **The metadata is written again when a member's changes**, behind the requests: a
+  machine is given the last one meanwhile, and waits only the first time. The first
+  time takes as long as fetching the mirror's metadata and merging it: for Fedora's
+  whole release, 70 MB to fetch and about 17 seconds to merge with its updates. That
+  is longer than dnf waits for an answer, so ask for the group's `repomd.xml` once
+  (`curl -u ci https://repo.example.com/repository/yum-public/repodata/repomd.xml`)
+  before the machines do. What is merged of a directory is kept in memory: about
+  120 MB for Fedora's release and updates.
+- **Packages** are asked of the members in order, as in any group. A package's path
+  must therefore be the same file in every member that has it.
+- **The group's key** is made the first time it is needed, and is at
+  `/repository/<group>/public.key`, as a hosted repository's is.
 
 ## Clients
 
 Tested with dnf on Fedora 44 (dnf5) and Rocky Linux 10 (dnf 4): a package built with
 `rpmbuild`, uploaded two directories down and installed from a hosted repository with
-`repo_gpgcheck=1`; metadata signed with a key dnf was not given, refused; and a
-package from each distribution's mirror, installed through a proxy.
+`repo_gpgcheck=1`; metadata signed with a key dnf was not given, refused; a package
+from each distribution's mirror, installed through a proxy; and through groups: ours
+and the mirror's merged in one directory, a directory one member has, and, on Rocky
+Linux, a proxy given a key Rocky does not sign with left out.

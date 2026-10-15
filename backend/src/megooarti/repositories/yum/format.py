@@ -28,11 +28,12 @@ from starlette.responses import Response
 
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
-from megooarti.repositories import derived, signing
+from megooarti.repositories import checks, derived, signing
 from megooarti.repositories.content import RepositoryContext, Snapshot
 from megooarti.repositories.formats import (
     ComponentKey,
     Format,
+    Serve,
     Usage,
     declared_hashes,
     declared_size,
@@ -218,8 +219,10 @@ def _written(
     moment = int(snapshot.changed.timestamp())
     listed = _listed(snapshot, depth)
     # At depth 0 the root always has one; deeper, any directory without packages has
-    # the same, empty one.
-    listed.setdefault("" if depth == 0 else _EMPTY, [])
+    # the same, empty one, kept as well beside the root's, to tell an empty one by.
+    if depth == 0:
+        listed.setdefault("", [])
+    listed[_EMPTY] = []
     files = _carried(previous)
     for directory, packages in listed.items():
         for name, data in _signed(packages, moment, signer).items():
@@ -242,6 +245,26 @@ async def hosted_repodata(context: RepositoryContext) -> derived.Written:
     return await derived.written(context.repository.id, revision, write)
 
 
+def repodata_file(written: derived.Written, directory: str, filename: str) -> bytes | None:
+    """A file of a directory's `repodata/`, from what was written of a revision.
+
+    The directory is one as deep as the repository's `repodata_depth`.
+    """
+    data = written.files.get(paths.in_repodata(directory, filename))
+    own = paths.in_repodata(directory, paths.REPOMD) in written.files
+    if data is None and (not own or paths.hashed(filename)):
+        # A directory without packages has the empty one; a client that read its
+        # `repomd.xml` before the first package came still finds what it named.
+        data = written.files.get(paths.in_repodata(_EMPTY, filename))
+    return data
+
+
+def holds_packages(written: derived.Written, directory: str) -> bool:
+    """Whether a directory of a revision has packages in its `repodata/`."""
+    own = written.files.get(paths.in_repodata(directory, paths.REPOMD))
+    return own is not None and own != written.files.get(paths.in_repodata(_EMPTY, paths.REPOMD))
+
+
 def repodata_content_type(filename: str) -> str:
     if filename.endswith(".asc"):
         return _SIGNATURE
@@ -259,12 +282,7 @@ async def _repodata(
             f"This repository's metadata is {depth} directories down (repodata_depth)."
         )
     written = await hosted_repodata(context)
-    data = written.files.get(paths.in_repodata(parsed.directory, parsed.filename))
-    own = paths.in_repodata(parsed.directory, paths.REPOMD) in written.files
-    if data is None and (not own or paths.hashed(parsed.filename)):
-        # A directory without packages has the empty one; a client that read its
-        # `repomd.xml` before the first package came still finds what it named.
-        data = written.files.get(paths.in_repodata(_EMPTY, parsed.filename))
+    data = repodata_file(written, parsed.directory, parsed.filename)
     if data is None:
         raise _not_found("This repository's metadata has no such file.")
     return context.respond_with(
@@ -294,14 +312,16 @@ async def _public_key(context: RepositoryContext, request: Request) -> Response:
 
 class YumFormat(Format):
     name = "yum"
-    types = frozenset({"hosted", "proxy"})
+    types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.OPENPGP
 
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """A hosted repository's `repodata_depth`, which never changes."""
+        """A hosted repository's `repodata_depth`, which never changes; a proxy's remote's keys."""
+        if repository_type == "proxy":
+            return checks.remote_keys_setting(config, "YUM")
         if repository_type != "hosted":
             return super().validate_config(repository_type, config, current)
         unknown = sorted(set(config) - {"repodata_depth"})
@@ -406,6 +426,16 @@ class YumFormat(Format):
         if parsed.kind == "repodata":
             return await _repodata(context, request, parsed)
         raise _not_found()
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        if paths.classify(path).kind == "key" and _is_read(request):
+            return await _public_key(context, request)
+        # Imported here: it is written against this module.
+        from megooarti.repositories.yum import groups
+
+        return await groups.handle_group(context, request, path, serve)
 
 
 register(YumFormat())
