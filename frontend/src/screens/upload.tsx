@@ -27,8 +27,20 @@ import { askAgainIfChanged, useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
 
 // The formats the form knows: each has its fields, and its texts in the messages.
-const UPLOADABLE = ["raw", "maven", "npm", "pypi"] as const;
+const UPLOADABLE = ["raw", "maven", "npm", "pypi", "apt", "yum", "apk"] as const;
 type Uploadable = (typeof UPLOADABLE)[number];
+// Those whose files are put in a directory that is chosen. An APT package's place is
+// its pool path, which the package says.
+const IN_A_DIRECTORY = new Set(["raw", "yum", "apk"]);
+// Those that take several files at once, and the files each takes.
+const SEVERAL = new Set(["raw", "pypi", "apt", "yum", "apk"]);
+const ACCEPTED: Partial<Record<string, string>> = {
+  npm: ".tgz,.tar.gz",
+  pypi: ".whl,.tar.gz,.zip",
+  apt: ".deb",
+  yum: ".rpm",
+  apk: ".apk",
+};
 
 function isUploadable(format: string): format is Uploadable {
   return (UPLOADABLE as readonly string[]).includes(format);
@@ -103,7 +115,7 @@ function useUploadForm(repository: RepositoryView, directory: string) {
         ["summary", "requires_python", "keywords"].forEach(put);
         break;
       default:
-        put("directory");
+        if (IN_A_DIRECTORY.has(repository.format)) put("directory");
     }
     return form;
   }
@@ -219,10 +231,14 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
   const maven = repository.format === "maven";
   return (
     <form ref={fields} onSubmit={submit} className="flex flex-col gap-5" noValidate>
-      {repository.format === "raw" ? (
+      {IN_A_DIRECTORY.has(repository.format) ? (
         <TextField
           label={t("fields.directory")}
-          hint={t("hints.directory")}
+          hint={
+            repository.format === "raw"
+              ? t("hints.directory")
+              : t(`hints.directoryOf.${repository.format as "yum"}`)
+          }
           spellCheck={false}
           value={texts.directory ?? ""}
           error={refused.directory}
@@ -274,14 +290,8 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
             : t(repository.format === "npm" ? "fields.tarball" : "fields.files")
         }
         hint={isUploadable(repository.format) ? t(`hints.files.${repository.format}`) : undefined}
-        multiple={repository.format === "raw" || repository.format === "pypi"}
-        accept={
-          repository.format === "npm"
-            ? ".tgz,.tar.gz"
-            : repository.format === "pypi"
-              ? ".whl,.tar.gz,.zip"
-              : undefined
-        }
+        multiple={SEVERAL.has(repository.format)}
+        accept={ACCEPTED[repository.format]}
         files={form.files}
         error={refused.file}
         onChange={form.setFiles}

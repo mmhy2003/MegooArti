@@ -329,6 +329,67 @@ describe("uploading to the other formats", () => {
   });
 });
 
+describe("uploading to APT, YUM and apk", () => {
+  test("APT takes Debian packages, and nothing else: their place is the one they say", async () => {
+    const user = userEvent.setup();
+    // Come from a folder: an APT package goes where its pool path is all the same.
+    const { uploads } = at("apt", "/upload/apt-own?directory=pool%2Fmain");
+    const files = await screen.findByLabelText("Files");
+
+    expect(screen.getByText(/^Debian packages\. Each is kept in the pool/)).toBeVisible();
+    expect(screen.queryByLabelText("Directory")).toBeNull();
+    expect(files).toHaveAttribute("multiple");
+    expect(files).toHaveAttribute("accept", ".deb");
+    expect(files).toHaveAccessibleDescription(".deb files.");
+    await user.upload(files, [file("hello_1.0_amd64.deb"), file("hello_1.0_arm64.deb")]);
+    await user.click(send());
+
+    expect(uploads[0]?.parts).toEqual([
+      ["file", "file:hello_1.0_amd64.deb"],
+      ["file", "file:hello_1.0_arm64.deb"],
+    ]);
+    await expectAccessible();
+  });
+
+  test("YUM takes RPMs, to a directory", async () => {
+    const user = userEvent.setup();
+    const { uploads } = at("yum", "/upload/yum-own?directory=el9");
+    const files = await screen.findByLabelText("Files");
+
+    expect(files).toHaveAttribute("accept", ".rpm");
+    expect(screen.getByLabelText("Directory")).toHaveValue("el9");
+    expect(screen.getByLabelText("Directory")).toHaveAccessibleDescription(
+      "Where in the repository the packages go: at least as deep as its metadata.",
+    );
+    await user.upload(files, file("hello-1.0-1.x86_64.rpm"));
+    await user.click(send());
+
+    expect(uploads[0]?.parts).toEqual([
+      ["file", "file:hello-1.0-1.x86_64.rpm"],
+      ["directory", "el9"],
+    ]);
+  });
+
+  test("apk takes packages, to the directory of their architecture", async () => {
+    const user = userEvent.setup();
+    const { uploads } = at("apk", "/upload/apk-own");
+    const files = await screen.findByLabelText("Files");
+
+    expect(files).toHaveAttribute("accept", ".apk");
+    expect(screen.getByLabelText("Directory")).toHaveAccessibleDescription(
+      "The directory apk is given, then the architecture: v3.24/main/x86_64. The last part is the packages' own architecture.",
+    );
+    await user.type(screen.getByLabelText("Directory"), "v3.24/main/x86_64");
+    await user.upload(files, file("hello-1.0-r0.apk"));
+    await user.click(send());
+
+    expect(uploads[0]?.parts).toEqual([
+      ["file", "file:hello-1.0-r0.apk"],
+      ["directory", "v3.24/main/x86_64"],
+    ]);
+  });
+});
+
 describe("where nothing can be uploaded", () => {
   const READER: SessionInfo = { ...ADMIN, permissions: ["repository:*:*:browse"] };
 
@@ -367,10 +428,13 @@ describe("choosing where to upload", () => {
     repository("central", "maven", "proxy"),
     repository("images", "docker"),
     repository("releases", "maven"),
+    repository("debs", "apt"),
+    repository("rpms", "yum"),
+    repository("alpine", "apk"),
   ];
 
   test("offers the hosted repositories that take one", async () => {
-    mockApi({ "GET /content": { json: { items: HELD, total: 4 } } });
+    mockApi({ "GET /content": { json: { items: HELD, total: HELD.length } } });
     renderUi(<UploadChooserScreen />, { session: ADMIN });
 
     const offered = await screen.findAllByRole("link");
@@ -378,6 +442,9 @@ describe("choosing where to upload", () => {
     expect(offered.map((link) => link.getAttribute("href"))).toEqual([
       "/upload/files",
       "/upload/releases",
+      "/upload/debs",
+      "/upload/rpms",
+      "/upload/alpine",
     ]);
     await expectAccessible();
   });

@@ -268,7 +268,10 @@
       "raw": "Files, stored under a directory by their own names.",
       "maven": "An artifact, stored where its coordinates say. Checksums and metadata follow by themselves.",
       "npm": "A package tarball, as npm pack writes it. Its package.json says what it is.",
-      "pypi": "Wheels and source distributions. Each one's name says its project and version."
+      "pypi": "Wheels and source distributions. Each one's name says its project and version.",
+      "apt": "Debian packages. Each is kept in the pool by its name, version and architecture, and the indexes follow by themselves.",
+      "yum": "RPM packages, stored under a directory by their own names. The metadata follows by itself.",
+      "apk": "apk packages, stored in the directory of their architecture. The index follows by itself."
     },
     "fields": {
       "directory": "Directory",
@@ -300,7 +303,14 @@
         "raw": "Any files.",
         "maven": "The file's own name does not matter. What it is (jar, war) is read from its end.",
         "npm": "One .tgz file.",
-        "pypi": ".whl, .tar.gz or .zip."
+        "pypi": ".whl, .tar.gz or .zip.",
+        "apt": ".deb files.",
+        "yum": ".rpm files.",
+        "apk": ".apk files."
+      },
+      "directoryOf": {
+        "yum": "Where in the repository the packages go: at least as deep as its metadata.",
+        "apk": "The directory apk is given, then the architecture: v3.24/main/x86_64. The last part is the packages' own architecture."
       }
     },
     "extraLegend": "Another file of this version",
