@@ -36,6 +36,10 @@ export type RepositoryCreate = Schemas["RepositoryCreate"];
 export type RepositoryUpdate = Schemas["RepositoryUpdate"];
 export type ProxyStatus = Schemas["ProxyStatus"];
 export type IndexRebuilt = Schemas["IndexRebuilt"];
+/** What a repository signs its indexes with: never its private key. */
+export type SigningKeyOut = Schemas["SigningKeyOut"];
+export type SigningKeyGenerate = Schemas["SigningKeyGenerate"];
+export type SigningKeyImport = Schemas["SigningKeyImport"];
 export type BlobStoreOut = Schemas["BlobStoreOut"];
 export type BlobStoreCreate = Schemas["BlobStoreCreate"];
 /** What is running: version, schema, runtime, database. */

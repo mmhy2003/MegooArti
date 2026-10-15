@@ -850,5 +850,39 @@
     "baseUrlCleared": "The base URL is cleared.",
     "storesTitle": "Blob stores",
     "toStores": "Manage the blob stores"
+  },
+  "signing": {
+    "title": "Signing key",
+    "intro": "Its indexes are signed with this key. A machine that uses the repository installs the public key, and trusts what the key signed.",
+    "kind": "Kind",
+    "algorithm": "Algorithm",
+    "fingerprint": "Fingerprint",
+    "created": "Made",
+    "kinds": {
+      "openpgp": "OpenPGP",
+      "rsa": "RSA"
+    },
+    "publicKey": "Public key",
+    "download": "Download the public key",
+    "replaceTitle": "Sign with another key",
+    "replaceIntro": "Every machine that uses the repository must then install the new public key, or it refuses what the repository serves.",
+    "algorithmField": "Algorithm of a new key",
+    "algorithms": {
+      "ed25519": "Ed25519",
+      "rsa4096": "RSA 4096, for older clients"
+    },
+    "generate": "Generate a new key",
+    "generateAsk": "Sign {name} with a new key?",
+    "generated": "{name} signs with a new key.",
+    "privateKey": "A private key to import",
+    "privateKeyHints": {
+      "openpgp": "ASCII-armoured OpenPGP that can sign, without a passphrase. It is sealed before it is stored, and shown to nobody.",
+      "rsa": "PEM RSA, without a passphrase. It is sealed before it is stored, and shown to nobody."
+    },
+    "privateKeyNeeded": "Paste the private key.",
+    "import": "Import the key",
+    "importAsk": "Sign {name} with the imported key?",
+    "imported": "{name} signs with the imported key.",
+    "replaceBody": "Its indexes are signed with that key from now on. Every machine that uses {name} must install the new public key, or it refuses what the repository serves."
   }
 }

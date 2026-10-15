@@ -49,6 +49,7 @@ import {
   EMPTY,
   FORMATS,
   hasMavenSettings,
+  hasSigningKey,
   LAYOUT_POLICIES,
   policyOf,
   problemsOf,
@@ -62,6 +63,7 @@ import {
 import { allows } from "@/lib/session/rules";
 import { useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
+import { SigningKeyPanel } from "@/screens/signing-key";
 
 const H2 = "mb-4 text-lg font-semibold text-fg uppercase";
 const SECTION = "flex min-w-0 flex-col gap-4 rounded-sm border border-line p-4";
@@ -639,6 +641,7 @@ export function RepositorySettingsScreen() {
           }}
         />
       </Panel>
+      {hasSigningKey(found) ? <SigningKeyPanel repository={found} mayWrite={mayWrite} /> : null}
       {found.type === "proxy" ? <ProxyState repository={found} mayWrite={mayWrite} /> : null}
       {mayWrite && found.type !== "group" ? <RebuildIndex repository={found} /> : null}
       {mayWrite ? (

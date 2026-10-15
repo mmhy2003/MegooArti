@@ -1042,6 +1042,201 @@ describe("the settings of a repository", () => {
   });
 });
 
+describe("the signing key of a repository (4.2)", () => {
+  const APT = repository("apt-own", { format: "apt", format_config: { suite: "stable" } });
+  const APK = repository("apk-own", { format: "apk", format_config: {} });
+  const NEW_KEY = {
+    ...KEY,
+    algorithm: "rsa4096",
+    fingerprint: "AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555",
+  };
+  const RSA_KEY = {
+    ...KEY,
+    kind: "rsa",
+    algorithm: "rsa4096",
+    public_key: "-----BEGIN PUBLIC KEY-----\nMIIC\n-----END PUBLIC KEY-----\n",
+  };
+
+  function keyed(which: ReturnType<typeof repository> = APT, more: Routes = {}, session = ADMIN) {
+    const api = mockApi({
+      [`GET /repositories/${which.name}`]: { json: which },
+      [`GET /content/${which.name}`]: { json: view(which) },
+      [`GET /repositories/${which.name}/signing-key`]: { json: KEY },
+      "GET /repositories": { json: page([which]) },
+      ...more,
+    });
+    navigation.at(`/admin/repositories/${which.name}`);
+    return { ...renderUi(<RepositorySettingsScreen />, { session }), ...api };
+  }
+  const panel = () =>
+    screen.getByRole("heading", { name: "Signing key" }).parentElement as HTMLElement;
+  const dialog = (name: string) => screen.getByRole("alertdialog", { name });
+
+  test("is shown with what it is, and its public key to copy or to save", async () => {
+    keyed();
+
+    expect(await screen.findByText(KEY.fingerprint)).toBeVisible();
+    for (const fact of ["OpenPGP", "ed25519"])
+      expect(within(panel()).getByText(fact)).toBeVisible();
+    expect(within(panel()).getByRole("figure")).toHaveTextContent("BEGIN PGP PUBLIC KEY BLOCK");
+    const download = within(panel()).getByRole("link", { name: "Download the public key" });
+    expect(download).toHaveAttribute("download", "apt-own.asc");
+    expect(download.getAttribute("href")).toBe(
+      `data:application/pgp-keys;charset=utf-8,${encodeURIComponent(KEY.public_key)}`,
+    );
+    await expectAccessible();
+  });
+
+  test("of apk is saved under the name apk finds it by", async () => {
+    keyed(APK, { "GET /repositories/apk-own/signing-key": { json: RSA_KEY } });
+
+    const download = await screen.findByRole("link", { name: "Download the public key" });
+    expect(download).toHaveAttribute("download", "megooarti-apk-own.rsa.pub");
+    expect(within(panel()).getByText("RSA")).toBeVisible();
+  });
+
+  test("is had for a group of them too, and for no proxy and no other format", async () => {
+    const group = repository("apt-all", {
+      format: "apt",
+      type: "group",
+      blob_store: null,
+      hosted: null,
+      format_config: {},
+      group: { members: [] },
+    });
+    const first = keyed(group);
+    expect(await screen.findByText(KEY.fingerprint)).toBeVisible();
+    first.unmount();
+
+    const mirror = repository("apt-debian", {
+      ...proxy("apt-debian"),
+      format: "apt",
+      format_config: { remote_keys: "" },
+    });
+    const { calls } = keyed(mirror);
+    await screen.findByRole("heading", { level: 1, name: "apt-debian" });
+    await screen.findByText("https://ui.test/repository/apt-debian/");
+    expect(calls.some((call) => call.path.endsWith("/signing-key"))).toBe(false);
+    expect(screen.queryByRole("heading", { name: "Signing key" })).toBeNull();
+  });
+
+  test("a new one is made only after asking, of the algorithm chosen, and is shown", async () => {
+    const user = userEvent.setup();
+    const { calls } = keyed(APT, {
+      "POST /repositories/apt-own/signing-key/generate": { json: NEW_KEY },
+    });
+    await screen.findByText(KEY.fingerprint);
+
+    await user.selectOptions(screen.getByLabelText("Algorithm of a new key"), "rsa4096");
+    await user.click(screen.getByRole("button", { name: "Generate a new key" }));
+    const asked = dialog("Sign apt-own with a new key?");
+    expect(asked).toHaveTextContent(
+      "Every machine that uses apt-own must install the new public key, or it refuses what the repository serves.",
+    );
+    expect(of(calls, "POST")).toHaveLength(0);
+    await user.click(within(asked).getByRole("button", { name: "Generate a new key" }));
+
+    await waitFor(() => expect(notices()).toHaveTextContent("apt-own signs with a new key."));
+    expect(of(calls, "POST")[0]?.body).toEqual({ algorithm: "rsa4096" });
+    expect(screen.getByText(NEW_KEY.fingerprint)).toBeVisible();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  test("a new apk key is RSA, and no algorithm is asked for", async () => {
+    const user = userEvent.setup();
+    const { calls } = keyed(APK, {
+      "GET /repositories/apk-own/signing-key": { json: RSA_KEY },
+      "POST /repositories/apk-own/signing-key/generate": { json: RSA_KEY },
+    });
+    await screen.findByText(RSA_KEY.fingerprint);
+
+    expect(screen.queryByLabelText("Algorithm of a new key")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate a new key" }));
+    await user.click(
+      within(dialog("Sign apk-own with a new key?")).getByRole("button", {
+        name: "Generate a new key",
+      }),
+    );
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(of(calls, "POST")[0]?.body).toEqual({});
+  });
+
+  test("one is imported only after asking, is refused at its field, and is then kept nowhere", async () => {
+    const user = userEvent.setup();
+    let answer = failure(422, "validation_error", "The request is not valid.", [
+      { field: "body.private_key", message: "This key is protected by a passphrase." },
+    ]);
+    const { calls, client } = keyed(APT, {
+      "PUT /repositories/apt-own/signing-key": () => answer,
+    });
+    await screen.findByText(KEY.fingerprint);
+    const field = screen.getByLabelText("A private key to import");
+    const press = () => user.click(screen.getByRole("button", { name: "Import the key" }));
+
+    await press();
+    expect(field).toHaveAccessibleDescription("Paste the private key.");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    await user.type(field, "the-private-key");
+    await press();
+    const asked = dialog("Sign apt-own with the imported key?");
+    expect(asked).toHaveTextContent(
+      "Every machine that uses apt-own must install the new public key",
+    );
+    await user.click(within(asked).getByRole("button", { name: "Import the key" }));
+    await waitFor(() =>
+      expect(field).toHaveAccessibleDescription("This key is protected by a passphrase."),
+    );
+    expect(field).toHaveValue("the-private-key"); // to be put right, not typed again
+
+    answer = { json: NEW_KEY };
+    await press();
+    await user.click(
+      within(dialog("Sign apt-own with the imported key?")).getByRole("button", {
+        name: "Import the key",
+      }),
+    );
+    await waitFor(() =>
+      expect(notices()).toHaveTextContent("apt-own signs with the imported key."),
+    );
+    expect(of(calls, "PUT").map((call) => call.body)).toEqual([
+      { private_key: "the-private-key" },
+      { private_key: "the-private-key" },
+    ]);
+    expect(field).toHaveValue("");
+    expect(screen.getByText(NEW_KEY.fingerprint)).toBeVisible();
+    await waitFor(() =>
+      expect(
+        JSON.stringify(
+          client
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state.variables),
+        ),
+      ).not.toContain("the-private-key"),
+    );
+  });
+
+  test("is shown, and not replaced, to whoever may only read it", async () => {
+    keyed(APT, {}, holding("admin:repositories:read"));
+
+    expect(await screen.findByText(KEY.fingerprint)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download the public key" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Generate a new key" })).toBeNull();
+    expect(screen.queryByLabelText("A private key to import")).toBeNull();
+  });
+
+  test("says so when it cannot be had", async () => {
+    keyed(APT, {
+      "GET /repositories/apt-own/signing-key": failure(500, "internal_error", "Something broke."),
+    });
+
+    await screen.findByRole("heading", { name: "Signing key" });
+    expect(await within(panel()).findByRole("alert")).toHaveTextContent("The server met a fault.");
+  });
+});
+
 describe("the blob stores (R10)", () => {
   function stores(more: Routes = {}, session = ADMIN) {
     const api = mockApi({ "GET /blob-stores": { json: page(STORES) }, ...more });

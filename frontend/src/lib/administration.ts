@@ -17,6 +17,9 @@ import type {
   RepositoryOut,
   RepositoryUpdate,
   SettingsOut,
+  SigningKeyGenerate,
+  SigningKeyImport,
+  SigningKeyOut,
 } from "@/lib/api/types";
 import { SETTINGS_KEY } from "@/lib/security";
 
@@ -127,6 +130,36 @@ export function useRebuildIndex(name: string) {
       void client.invalidateQueries({ queryKey: [CONTENT] });
       return client.invalidateQueries({ queryKey: ["search"] });
     },
+  });
+}
+
+/** The key a repository signs its indexes with. The server makes it if it has none yet. */
+export function useSigningKey(name: string, enabled = true) {
+  return useQuery({
+    queryKey: [REPOSITORIES, "signing-key", name],
+    queryFn: () => api.get<SigningKeyOut>(`${repository(name)}/signing-key`),
+    enabled,
+  });
+}
+
+/** Signs with a new key from now on. */
+export function useGenerateSigningKey(name: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (wanted: SigningKeyGenerate) =>
+      api.post<SigningKeyOut>(`${repository(name)}/signing-key/generate`, wanted),
+    onSuccess: (key) => client.setQueryData([REPOSITORIES, "signing-key", name], key),
+  });
+}
+
+/** Signs with an administrator's own key from now on. */
+export function useImportSigningKey(name: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (wanted: SigningKeyImport) =>
+      api.put<SigningKeyOut>(`${repository(name)}/signing-key`, wanted),
+    gcTime: 0, // what was sent is a private key
+    onSuccess: (key) => client.setQueryData([REPOSITORIES, "signing-key", name], key),
   });
 }
 
