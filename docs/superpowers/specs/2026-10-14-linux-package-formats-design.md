@@ -1,7 +1,7 @@
 # Linux package formats: design
 
 **Date:** 2026-10-14
-**Plans:** 12a (signing keys, APT hosted and proxy), 12b (APT groups), 12c (YUM hosted and proxy), 12d (YUM groups), 12e (Alpine), 12f (the web UI)
+**Plans:** 12a (signing keys, APT hosted and proxy), 12b (APT groups), 12c (YUM hosted and proxy), 12d (YUM groups), 12e (Alpine hosted and proxy), 12f (Alpine groups), 12g (the web UI)
 **BRD:** FMT-12 (APT), FMT-13 (YUM), SEC-9; and Alpine, which the BRD does not have yet (section 3, D7)
 
 ## 1. Goal
@@ -197,6 +197,20 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | S13 | A member's file packed in several streams (as `pigz` and `pbzip2` write them) is read whole; one that ends inside a stream is refused. | gzip's second stream was dropped without a word, and bzip2's and xz's answered `500`. |
 | S14 | What every group keeps stays at 256 MiB (Q13). A merged directory of Fedora's release and updates takes about 120 MB, and twice that after a change while the last revision's files are kept; the guide says so. A budget of its own, or merged files kept outside memory, is left until a server needs it. | Measured by the review; the budget is the one plan 12b set. |
 
+### Settled while building plan 12e
+
+| # | What | Why |
+| --- | --- | --- |
+| T1 | apk is two plans, as APT and YUM were: 12e its hosted and proxy repositories, 12f its groups (7.4) and `remote_keys`. The web UI follows as 12g. | Each plan ends with a working format. |
+| T2 | An apk repository's key is RSA, made and used with `cryptography`: 4096 bits when made, 2048 or more when imported (PEM, PKCS#1 or PKCS#8, as `abuild-keygen` makes one). An index is signed as `abuild-sign` signs one: `.SIGN.RSA.<key name>`, PKCS#1 v1.5 with SHA-1, of the index's second stream as it is packed, as Alpine signs its own. Its fingerprint is the SHA-256 of the public key. `POST .../signing-key/generate` takes no `algorithm` for an apk repository, or `rsa4096`; another is refused with `422` at `body.algorithm`. An OpenPGP key is still `ed25519` unless asked otherwise. | 4.2 and A4. |
+| T3 | Each package's record is what apk-tools 3.0's `apk index` writes, byte for byte: `C`, `P`, `V`, `A`, `S`, `I`, `T`, `U`, `L`, then `o`, `m`, `t`, `c`, `k`, `D`, `p`, `i` where the package says them (7.2's list has `k`, the provider's priority, besides). `replaces` and `triggers` are not listed. `DESCRIPTION` is `MegooArti <repository>`. | Held against abuild's index of two packages built for the tests and Alpine 3.24's own index of two of its packages. |
+| T4 | A package for no architecture (`noarch`) may be uploaded to any architecture's directory, and is listed there as that architecture's (in place of 7.2's "the last directory must be the package's own architecture" for these). | Alpine keeps such packages in each architecture's directory, and abuild has `apk index` rewrite them so (`--rewrite-arch`): apk asks for a package at `<repository>/<architecture>/<name>-<version>.apk`, by what the index says. |
+| T5 | A package's path is `<directory>/<architecture>/<name>-<version>.apk`: a `PUT` to another name is refused with `400 invalid_path`, and the upload form stores each file under that name, whatever it is called. | An index names no file: apk asks for a package by its name and version. |
+| T6 | A package's own signature is not checked, and need not be one a client trusts: apk-tools 3 on Alpine 3.23 and 3.24 installs a package that a trusted index names by its checksum. | Section 11's first apk risk, settled by plan 12e's tests. |
+| T7 | abuild on Alpine 3.24 writes packages in apk-tools 2's format, and apk-tools 3.0 on Alpine 3.23 and 3.24 reads indexes in it. A package in apk-tools 3's own format (ADB) is refused, with a message that says so. | Section 11's second apk risk, settled by plan 12e's tests. |
+| T8 | Every directory of a hosted repository has an `APKINDEX.tar.gz`: one without packages has an empty one. | A machine can be set up before the first package for it is uploaded. |
+| T9 | In plan 12e an apk proxy has no settings, and there are no apk groups (the format's types are hosted and proxy). | What has no use yet is not offered. |
+
 ## 5. APT
 
 ### 5.1 Layout
@@ -319,8 +333,8 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 
 | Risk | What settles it |
 | --- | --- |
-| apk refuses an unsigned package that a signed index vouches for. | The first real-client test of plan 12e. If so, a hosted apk repository accepts only packages signed with a key its clients trust, and its guide says so. |
-| apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Plan 12e's tests on the two newest releases. If packages in the newer format are what `abuild` writes, reading them becomes part of plan 12d. |
+| apk refuses an unsigned package that a signed index vouches for. | Settled: it does not (T6). |
+| apk-tools 3 reads the index or the packages differently from apk-tools 2, or the newest Alpine writes packages in the newer format. | Settled for Alpine 3.23 and 3.24 (T7): abuild writes the older format, which apk-tools 3 reads. A package in the newer one is refused, with a message that says so. |
 | A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1) and dnf (R9): `pysequoia`. |
 | `zstd` packages need `zstandard` (Python 3.13 has no `zstd` of its own). | A dependency, added in plan 12a. |
 | Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | Measured in plan 12b (Q2): Debian's `main` for amd64, 69,908 packages, merged and packed in 2.4 seconds, 13 MB kept; a suite one member has is not merged at all (Q1). |
@@ -335,10 +349,11 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 | 12b | Groups of `apt` repositories, `remote_keys` and the checks of 4.5. |
 | 12c | The `yum` format: hosted (with `repodata_depth`) and proxy, its tests and guide. |
 | 12d | Groups of `yum` repositories (6.4), and `remote_keys` for a YUM proxy. |
-| 12e | The `apk` format: hosted, proxy and group, its tests and guide. |
-| 12f | The web UI: the three formats in every list, the repository form's fields, the signing-key panel, the setup snippets, and the left-out members of a group. |
+| 12e | The `apk` format: hosted and proxy, RSA signing keys, its tests and guide. |
+| 12f | Groups of `apk` repositories (7.4), and `remote_keys` for an apk proxy. |
+| 12g | The web UI: the three formats in every list, the repository form's fields, the signing-key panel, the setup snippets, and the left-out members of a group. |
 
-Each plan ends with a working format and its tests; the API serves the three formats from the plan that adds each, and the web UI lists them from 12f.
+Each plan ends with a working format and its tests; the API serves the three formats from the plan that adds each, and the web UI lists them from 12g.
 
 ## 13. Requirements
 
