@@ -18,7 +18,6 @@ its `.nuspec`.
 
 import json
 import xml.sax.saxutils
-from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import aclosing
 from dataclasses import replace
@@ -242,10 +241,18 @@ async def _held(context: RepositoryContext, package_id: str) -> list[Published]:
 
 async def _search(context: RepositoryContext, request: Request) -> Response:
     query = queries.parse(request.query_params)
-    by_id: dict[str, list[ComponentInfo]] = defaultdict(list)
-    for name, held in await context.matching("", query.stored_words):
-        by_id[name].append(held)
-    found, total = queries.select(query, {name: _published(held) for name, held in by_id.items()})
+    names, total = await context.package_page(
+        "",
+        query.words,
+        exact=query.exact_id,
+        containing=query.id_contains,
+        ranked_by=" ".join(query.words),
+        stable_only=not query.prerelease,
+        limit=query.take,
+        offset=query.skip,
+    )
+    held = await context.components_of("", names)
+    found = queries.shown(query, names, {name: _published(infos) for name, infos in held.items()})
     return await _respond(
         context, request, documents.search_result(await _base(context, request), found, total)
     )
@@ -264,20 +271,16 @@ async def _autocomplete(context: RepositoryContext, request: Request) -> Respons
         return await _respond(context, request, documents.autocomplete(shown, len(shown)))
     query = queries.parse({**arguments, "q": ""})
     typed = arguments.get("q", "").strip().lower()
-    by_id: dict[str, list[ComponentInfo]] = defaultdict(list)
-    for name, held in await context.matching("", [typed] if typed else []):
-        by_id[name].append(held)
-    ids = sorted(
-        (
-            name
-            for name, held in by_id.items()
-            if typed in name.lower()
-            and any(prerelease or not one.nuspec.is_prerelease for one in _published(held))
-        ),
-        key=lambda name: (not name.lower().startswith(typed), name.lower()),
+    ids, total = await context.package_page(
+        "",
+        [],
+        containing=typed,
+        ranked_by=typed,
+        stable_only=not prerelease,
+        limit=query.take,
+        offset=query.skip,
     )
-    page = ids[query.skip : query.skip + query.take]
-    return await _respond(context, request, documents.autocomplete(page, len(ids)))
+    return await _respond(context, request, documents.autocomplete(ids, total))
 
 
 async def _read_request(

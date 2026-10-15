@@ -2,7 +2,7 @@
 
 from tests.accounts import error_code
 from tests.repositories.nuget.conftest import create, push
-from tests.repositories.nuget.packages import nupkg, snupkg
+from tests.repositories.nuget.packages import nupkg, nuspec, snupkg
 
 CONTENT = "/api/v1/content"
 UPLOAD = f"{CONTENT}/nuget-hosted/upload"
@@ -119,3 +119,21 @@ async def test_a_proxy_or_a_group_is_not_made_yet(client, root):
             headers=root,
         )
         assert answer.status_code == 422, answer.text
+
+
+async def test_a_refused_upload_leaves_no_file_of_a_package_it_stored_before(
+    client, hosted, root, settings
+):
+    await push(client, root, nupkg("MegooArti.Hello", "1.0.0"))
+    files = [
+        ("file", ("new.nupkg", nupkg("Brand.New", "1.0.0"))),
+        ("file", ("again.nupkg", nupkg("MegooArti.Hello", "1.0.0"))),
+    ]
+
+    answer = await client.post(UPLOAD, files=files, headers=root)
+
+    assert answer.status_code == 409, answer.text
+    store = settings.data_dir / "blobs" / "default"
+    kept = [path.read_bytes() for path in store.rglob("*") if path.is_file()]
+    assert nuspec("Brand.New", "1.0.0") not in kept
+    assert nupkg("Brand.New", "1.0.0") not in kept

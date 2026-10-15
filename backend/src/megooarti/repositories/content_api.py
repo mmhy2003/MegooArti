@@ -509,7 +509,7 @@ async def upload(
         # Each file was put in place in the blob store as it was stored. The rows that
         # knew of them are not kept, so the files must not be either.
         await db.rollback()
-        await context.forget([file.staged for file in form.files])
+        await context.forget([*(file.staged for file in form.files), *context.recorded])
         await db.commit()
         raise
     finally:

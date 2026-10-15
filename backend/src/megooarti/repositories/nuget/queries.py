@@ -2,8 +2,9 @@
 
 Pure functions. A query is read as nuget.org reads one: words that each must be in an
 id, a title, a description, the tags or the authors; `packageid:<id>` for one id
-exactly, and `id:<text>` for ids that contain it. An exact id comes first, then ids
-that begin with what was typed, then the rest, each by id.
+exactly, and `id:<text>` for ids that contain it. The repository finds and orders the
+ids (an exact id first, then ids that begin with what was typed, then the rest, each
+by id); what is here is the reading of a query and the choice of versions to show.
 """
 
 from collections.abc import Mapping, Sequence
@@ -26,11 +27,6 @@ class Query:
     prerelease: bool = False
     skip: int = 0
     take: int = TAKE_DEFAULT
-
-    @property
-    def stored_words(self) -> tuple[str, ...]:
-        """What a package's stored search text must hold: every word, and the id's."""
-        return tuple(word for word in (*self.words, self.exact_id, self.id_contains) if word)
 
 
 def _invalid(name: str, message: str) -> ApiError:
@@ -73,40 +69,14 @@ def parse(arguments: Mapping[str, str]) -> Query:
     )
 
 
-def _text(held: Published) -> str:
-    said = held.nuspec
-    return " ".join(
-        (said.id, said.title, said.description, said.tags, said.authors, said.summary)
-    ).lower()
+def shown(
+    query: Query, names: Sequence[str], held: Mapping[str, Sequence[Published]]
+) -> list[list[Published]]:
+    """The versions of each of a page's ids that may be shown, in the page's order.
 
-
-def _matches(query: Query, package_id: str, held: Sequence[Published]) -> bool:
-    lower = package_id.lower()
-    if query.exact_id and lower != query.exact_id:
-        return False
-    if query.id_contains and query.id_contains not in lower:
-        return False
-    return any(all(word in _text(one) for word in query.words) for one in held)
-
-
-def _rank(query: Query, package_id: str) -> tuple:
-    lower, typed = package_id.lower(), " ".join(query.words)
-    return (lower != typed, not lower.startswith(typed), lower)
-
-
-def select(
-    query: Query, held: Mapping[str, Sequence[Published]]
-) -> tuple[list[list[Published]], int]:
-    """The page of ids that answer, each with the versions it may show, and how many answer.
-
-    `held` is every version of each id that may answer, by id. A prerelease is shown
-    only if the query asks for them; an id with nothing else is then not found.
+    A prerelease is shown only if the query asks for them.
     """
-    answering = []
-    for package_id, versions_held in held.items():
-        shown = [one for one in versions_held if query.prerelease or not one.nuspec.is_prerelease]
-        if shown and _matches(query, package_id, shown):
-            answering.append((package_id, shown))
-    answering.sort(key=lambda pair: _rank(query, pair[0]))
-    page = answering[query.skip : query.skip + query.take]
-    return [shown for _, shown in page], len(answering)
+    return [
+        [one for one in held.get(name, ()) if query.prerelease or not one.nuspec.is_prerelease]
+        for name in names
+    ]

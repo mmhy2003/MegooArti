@@ -97,3 +97,34 @@ async def test_autocomplete_gives_ids_and_an_ids_versions(client, root, held):
 
     assert ids.json() == {"totalHits": 2, "data": ["MegooArti.Hello", "MegooArti.Hello.Extras"]}
     assert held_versions.json() == {"totalHits": 2, "data": ["1.0.0", "2.0.0-beta"]}
+
+
+async def test_a_page_of_names_is_chosen_in_the_database_and_all_are_counted(
+    db, hosted, held, context_for
+):
+    context = await context_for(hosted, None)
+
+    names, total = await context.package_page(
+        "", ["hello"], ranked_by="hello", stable_only=True, limit=2, offset=0
+    )
+    rest, _ = await context.package_page(
+        "", ["hello"], ranked_by="hello", stable_only=True, limit=2, offset=2
+    )
+    nightly, count = await context.package_page("", [], stable_only=False, limit=1, offset=0)
+    stable, stable_count = await context.package_page("", [], stable_only=True, limit=10, offset=0)
+
+    assert (names, total) == (["Hello", "MegooArti.Hello"], 3)
+    assert rest == ["MegooArti.Hello.Extras"]
+    assert (len(nightly), count) == (1, 4)
+    assert "Nightly.Tool" not in stable and stable_count == 3
+
+
+async def test_the_versions_of_the_names_of_a_page_are_read_together(db, hosted, held, context_for):
+    context = await context_for(hosted, None)
+
+    got = await context.components_of("", ["MegooArti.Hello", "Hello"])
+
+    assert {name: sorted(one.version for one in infos) for name, infos in got.items()} == {
+        "MegooArti.Hello": ["1.0.0", "2.0.0-beta"],
+        "Hello": ["3.0.0"],
+    }

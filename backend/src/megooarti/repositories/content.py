@@ -193,6 +193,8 @@ class RepositoryContext:
         self.backend = backend  # None for a group, which stores nothing itself
         # How to get the application's outbound HTTP client; None if there is none.
         self.outbound = outbound
+        # Every staged blob recorded for this request, in case the request is rolled back.
+        self.recorded: list[StagedBlob] = []
 
     def permission(self, action: str) -> str:
         return f"repository:{self.repository.format}:{self.repository.name}:{action}"
@@ -455,23 +457,59 @@ class RepositoryContext:
             .limit(1)
         )
 
-    async def matching(
-        self, namespace: str, words: Sequence[str]
-    ) -> list[tuple[str, ComponentInfo]]:
-        """Every version that has a file, of every package with a version whose search text
-        holds each of `words`: each with its package's name. No words, every version."""
+    async def package_page(
+        self,
+        namespace: str,
+        words: Sequence[str],
+        *,
+        exact: str = "",
+        containing: str = "",
+        ranked_by: str = "",
+        stable_only: bool = False,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[str], int]:
+        """One page of the names of packages with a version whose search text holds each
+        of `words`, and how many names there are in all.
+
+        `exact` and `containing`, when given, ask for a name that equals or contains
+        them, without regard to case. With `stable_only`, only versions without a
+        release label count, where a version has one if it contains `-`: for formats
+        that write versions so, as NuGet's are kept. The page is ordered with the name
+        equal to `ranked_by` (without regard to case) first, then the names that begin
+        with it, then by lower-case name.
+        """
+        lower = func.lower(Component.name)
         conditions = [
-            Component.search.like(f"%{_literal(word.lower())}%", escape="\\") for word in words
+            Component.repository_id == self.repository.id,
+            Component.namespace == namespace,
+            *(Component.search.like(f"%{_literal(word.lower())}%", escape="\\") for word in words),
         ]
-        names = (
-            select(Component.name)
-            .where(
-                Component.repository_id == self.repository.id,
-                Component.namespace == namespace,
-                *conditions,
-            )
-            .distinct()
-        )
+        if exact:
+            conditions.append(lower == exact.lower())
+        if containing:
+            conditions.append(lower.like(f"%{_literal(containing.lower())}%", escape="\\"))
+        if stable_only:
+            conditions.append(Component.version.not_like("%-%"))
+        names = select(Component.name).where(*conditions).group_by(Component.name)
+        total = await self.db.scalar(select(func.count()).select_from(names.subquery()))
+        ranked = ranked_by.lower()
+        order = []
+        if ranked:
+            order = [
+                lower != ranked,
+                lower.not_like(f"{_literal(ranked)}%", escape="\\"),
+            ]
+        page = await self.db.scalars(names.order_by(*order, lower).limit(limit).offset(offset))
+        return list(page), total or 0
+
+    async def components_of(
+        self, namespace: str, names: Sequence[str]
+    ) -> dict[str, list[ComponentInfo]]:
+        """Every version that has a file, of each of these packages, by name."""
+        found: dict[str, list[ComponentInfo]] = {}
+        if not names:
+            return found
         rows = await self.db.execute(
             select(
                 Component.name,
@@ -488,10 +526,9 @@ class RepositoryContext:
             )
             .group_by(Component.id)
         )
-        return [
-            (name, ComponentInfo(version, attributes, created, changed))
-            for name, version, attributes, created, changed in rows
-        ]
+        for name, version, attributes, created, changed in rows:
+            found.setdefault(name, []).append(ComponentInfo(version, attributes, created, changed))
+        return found
 
     async def package_names(
         self,
@@ -861,6 +898,7 @@ class RepositoryContext:
                 self._check_may_store(existing)
             await self._new_revision()
             blob = await blobs.record(self.db, self.backend, self.repository.blob_store_id, staged)
+            self.recorded.append(staged)
         except BaseException:
             await self.backend.discard(staged)
             raise
