@@ -379,6 +379,7 @@ CLIENTS = {
     "apt": ["apt"],
     "yum": ["dnf"],
     "apk": ["apk"],
+    "nuget": ["dotnet"],
 }
 
 
