@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import pysequoia
 import structlog
-from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from sqlalchemy import select, update
@@ -176,6 +176,48 @@ def verify_detached(data: bytes, signature: bytes, certificates: list[object]) -
         raise Unverified(
             str(error).splitlines()[0] if str(error) else "it is not a signature"
         ) from None
+
+
+_PUBLIC_PEM = "-----BEGIN PUBLIC KEY-----"
+
+
+def read_rsa_public_keys(text: str) -> list[rsa.RSAPublicKey]:
+    """The RSA public keys in PEM text, as apk keeps them: a remote's, which a group checks
+    it with. One or more, one after the other.
+
+    Raises KeysUnusable for text that has none, is too long, or holds a private key.
+    """
+    if len(text.encode()) > PUBLIC_KEYS_MOST:
+        raise KeysUnusable("The keys are longer than this server keeps.")
+    if "PRIVATE KEY" in text:
+        raise KeysUnusable("This holds a private key. Give the public keys only.")
+    keys = []
+    for part in text.split(_PUBLIC_PEM)[1:]:
+        try:
+            key = serialization.load_pem_public_key((_PUBLIC_PEM + part).encode())
+        except (ValueError, UnsupportedAlgorithm):
+            raise KeysUnusable("A key of these cannot be read as a PEM public key.") from None
+        if not isinstance(key, rsa.RSAPublicKey):
+            raise KeysUnusable("apk's keys are RSA; one of these is another kind.")
+        keys.append(key)
+    if not keys:
+        raise KeysUnusable("This is not one or more RSA public keys, PEM.")
+    return keys
+
+
+def verify_rsa(
+    data: bytes, signature: bytes, keys: list[rsa.RSAPublicKey], *, sha256: bool = False
+) -> None:
+    """Raise Unverified unless one of the keys made this signature of `data`, as
+    `abuild-sign` makes one: PKCS#1 v1.5, with SHA-1, or SHA-256 where said."""
+    digest = hashes.SHA256() if sha256 else hashes.SHA1()
+    for key in keys:
+        try:
+            key.verify(signature, data, padding.PKCS1v15(), digest)
+            return
+        except (InvalidSignature, ValueError):
+            continue
+    raise Unverified("none of the keys made its signature")
 
 
 def signs(repository: Repository) -> str | None:

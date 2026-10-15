@@ -471,3 +471,42 @@ def test_an_rsa_signer_reads_its_key_only_when_it_first_signs(monkeypatch):
     signer.sign(b"b")
 
     assert loaded == [True]  # once, and without checking again what was checked when kept
+
+
+# --- A remote's RSA keys, for groups of apk repositories -------------------------------
+
+APK_DATA = DATA.parent.parent / "apk/data"
+
+
+def test_a_remotes_rsa_keys_are_read_from_pem_text():
+    builder = (APK_DATA / "builder-6ad0887f.rsa.pub").read_text(encoding="utf-8")
+    another = signing.generate_rsa().public_key
+
+    assert len(signing.read_rsa_public_keys(builder + another)) == 2
+
+
+@pytest.mark.parametrize(
+    ("make", "said"),
+    [
+        (lambda: "not a key", "not one or more RSA public keys"),
+        (lambda: signing.generate_rsa().private_key, "private key"),
+        (
+            lambda: (
+                ec.generate_private_key(ec.SECP256R1())
+                .public_key()
+                .public_bytes(
+                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+                )
+                .decode()
+            ),
+            "another kind",
+        ),
+        (
+            lambda: "-----BEGIN PUBLIC KEY-----\nbroken\n-----END PUBLIC KEY-----\n",
+            "cannot be read",
+        ),
+    ],
+)
+def test_text_that_is_not_rsa_public_keys_is_refused(make, said):
+    with pytest.raises(signing.KeysUnusable, match=said):
+        signing.read_rsa_public_keys(make())

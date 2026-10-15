@@ -7,7 +7,7 @@ last error until it next reaches its remote.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import structlog
@@ -31,8 +31,15 @@ def remote_keys(member: RepositoryContext) -> str:
     return member.repository.config.get("format_config", {}).get("remote_keys") or ""
 
 
-def remote_keys_setting(config: dict[str, Any], format_label: str) -> dict[str, Any]:
-    """A proxy's settings: its remote's public keys, which a group checks it with."""
+def remote_keys_setting(
+    config: dict[str, Any],
+    format_label: str,
+    read: Callable[[str], object] = signing.read_public_keys,
+) -> dict[str, Any]:
+    """A proxy's settings: its remote's public keys, which a group checks it with.
+
+    `read` is what reads the format's kind of key: OpenPGP's unless said.
+    """
 
     def invalid(field: str, message: str) -> ApiError:
         details = [{"field": field, "message": message}]
@@ -43,11 +50,11 @@ def remote_keys_setting(config: dict[str, Any], format_label: str) -> dict[str, 
         raise invalid(f"format_config.{unknown[0]}", f"This is not a setting of {format_label}.")
     keys = config.get("remote_keys") or ""
     if not isinstance(keys, str):
-        raise invalid("format_config.remote_keys", "The keys are armoured text.")
+        raise invalid("format_config.remote_keys", "The keys are text.")
     if not keys.strip():
         return {}
     try:
-        signing.read_public_keys(keys)
+        read(keys)
     except signing.KeysUnusable as error:
         raise invalid("format_config.remote_keys", str(error)) from None
     return {"remote_keys": keys}
