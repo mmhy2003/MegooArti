@@ -434,3 +434,40 @@ async def test_an_openpgp_key_is_ed25519_unless_another_is_asked_for(admin_clien
     generated = await admin_client.post(f"{KEYS}/generate", json={})
 
     assert generated.json()["algorithm"] == "ed25519"
+
+
+def test_an_rsa_key_larger_than_apk_needs_is_refused(monkeypatch):
+    monkeypatch.setattr(signing, "RSA_MOST_BITS", 2048)
+    private = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+    text = private.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+    with pytest.raises(signing.KeyUnusable, match="more than 2048 bits"):
+        signing.read_rsa(text)
+
+
+def test_text_longer_than_any_rsa_key_apk_takes_is_refused_before_it_is_read():
+    with pytest.raises(signing.KeyUnusable, match="longer than"):
+        signing.read_rsa("-----BEGIN PRIVATE KEY-----\n" + "A" * 20_000)
+
+
+def test_an_rsa_signer_reads_its_key_only_when_it_first_signs(monkeypatch):
+    key = signing.generate_rsa()
+    loaded = []
+    load = serialization.load_pem_private_key
+
+    def counted(*arguments, **keywords):
+        loaded.append(keywords.get("unsafe_skip_rsa_key_validation"))
+        return load(*arguments, **keywords)
+
+    monkeypatch.setattr(serialization, "load_pem_private_key", counted)
+    signer = signing.RsaSigner(key.private_key)
+    assert loaded == []
+
+    signer.sign(b"a")
+    signer.sign(b"b")
+
+    assert loaded == [True]  # once, and without checking again what was checked when kept

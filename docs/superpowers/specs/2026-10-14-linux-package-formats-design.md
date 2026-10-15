@@ -211,6 +211,14 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | T8 | Every directory of a hosted repository has an `APKINDEX.tar.gz`: one without packages has an empty one. | A machine can be set up before the first package for it is uploaded. |
 | T9 | In plan 12e an apk proxy has no settings, and there are no apk groups (the format's types are hosted and proxy). | What has no use yet is not offered. |
 
+### Settled by the review of plan 12e
+
+| # | What | Why |
+| --- | --- | --- |
+| T10 | A package whose `.PKGINFO` is larger than 1 MiB, has a field longer than 64 KiB (a field said many times, as `depend`, counted whole), or holds a NUL, is refused with `400 invalid_package`; and so is one whose control part's tar Python cannot read, whatever the error. | apk stops reading an index at a line longer than it holds (about 128 KiB): one package with a long description hid every package after it in its directory. A 16 KB upload made five million dependencies, and a NUL or a broken tar header answered `500`. |
+| T11 | A `.PKGINFO` is read, and what is kept of it written out, in a worker thread. An index's RSA key is read when it first signs, in the worker thread that writes the indexes, and is not checked again as it was when kept. An imported key is read in a worker thread too, and may have at most 8192 bits. | Reading a 4096-bit key took a quarter of a second on the loop at every change, and a large imported key many seconds. |
+| T12 | The 16 MiB bound on a package's control part holds however the bytes arrive. | At an exact boundary of the pieces, the next piece was unpacked without a bound. |
+
 ## 5. APT
 
 ### 5.1 Layout

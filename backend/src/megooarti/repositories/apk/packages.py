@@ -11,6 +11,7 @@ digest in base64): an index lists it so, and apk installs a file only if it is t
 the index named.
 """
 
+import asyncio
 import base64
 import hashlib
 import io
@@ -25,6 +26,11 @@ from megooarti.repositories.apk import versions
 # The most of the signature and of the control part that is read, packed and unpacked:
 # a real one is a few kilobytes.
 CONTROL_MOST = 16 * 1024 * 1024
+# The most a `.PKGINFO` may be, and any one field of it, said once or many times: apk
+# stops reading an index at a line longer than it holds (128 KiB), and with it every
+# package after that line. A real `.PKGINFO` is a few kilobytes.
+INFO_MOST = 1024 * 1024
+VALUE_MOST = 64 * 1024
 _GZIP = b"\x1f\x8b"
 _ADB = b"ADB"
 # Fields of `.PKGINFO` that may be said more than once, each a list in what is kept.
@@ -93,8 +99,13 @@ class _Streams:
                 if chunk is None:
                     raise InvalidPackage("it ends early")
                 self._held = chunk
+            room = CONTROL_MOST + 1 - len(opened)
+            if room <= 0:
+                raise InvalidPackage(
+                    f"its control part is larger than {CONTROL_MOST // (1024 * 1024)} MiB"
+                )
             try:
-                opened += unpack.decompress(self._held, CONTROL_MOST + 1 - len(opened))
+                opened += unpack.decompress(self._held, room)
             except zlib.error:
                 raise InvalidPackage("it is not gzip streams, as apk packages are") from None
             if unpack.unconsumed_tail:
@@ -109,6 +120,10 @@ class _Streams:
                     f"its control part is larger than {CONTROL_MOST // (1024 * 1024)} MiB"
                 )
             if unpack.eof:
+                if len(opened) > CONTROL_MOST:
+                    raise InvalidPackage(
+                        f"its control part is larger than {CONTROL_MOST // (1024 * 1024)} MiB"
+                    )
                 return bytes(packed), bytes(opened)
 
 
@@ -120,13 +135,19 @@ def _members(opened: bytes) -> dict[str, bytes]:
             for member in tar.getmembers():
                 if member.isfile():
                     found[member.name] = tar.extractfile(member).read()
-    except tarfile.TarError:
+    except (tarfile.TarError, ValueError, OverflowError):
         raise InvalidPackage("a part of it is not a tar archive") from None
     return found
 
 
 def parse_info(text: str) -> dict[str, Any]:
-    """`.PKGINFO`: `key = value` lines; a key of LISTS may be said more than once."""
+    """`.PKGINFO`: `key = value` lines; a key of LISTS may be said more than once.
+
+    Refuses what an index could not hold, or apk not read back: a NUL, and a field
+    longer than VALUE_MOST, said once or in all.
+    """
+    if "\0" in text:
+        raise InvalidPackage("its .PKGINFO holds a NUL")
     info: dict[str, Any] = {}
     for line in text.splitlines():
         if not line.strip() or line.startswith("#"):
@@ -138,6 +159,13 @@ def parse_info(text: str) -> dict[str, Any]:
             info.setdefault(key, []).extend(value.split())
         else:
             info[key] = value
+    for key, value in info.items():
+        said = " ".join(value) if isinstance(value, list) else value
+        if len(said.encode()) > VALUE_MOST:
+            raise InvalidPackage(
+                f"its {key} is longer than {VALUE_MOST // 1024} KiB, "
+                "which apk cannot read in an index"
+            )
     return info
 
 
@@ -146,6 +174,8 @@ def describe(control: bytes, opened: bytes) -> Apk:
     files = _members(opened)
     if ".PKGINFO" not in files:
         raise InvalidPackage("its control part has no .PKGINFO")
+    if len(files[".PKGINFO"]) > INFO_MOST:
+        raise InvalidPackage(f"its .PKGINFO is larger than {INFO_MOST // 1024} KiB")
     try:
         info = parse_info(files[".PKGINFO"].decode("utf-8"))
     except UnicodeDecodeError:
@@ -180,4 +210,5 @@ async def read(chunks: AsyncIterator[bytes]) -> Apk:
     packed, opened = await streams.next()
     if any(name.startswith(".SIGN.") for name in _members(opened)):
         packed, opened = await streams.next()  # the signature: the control part is next
-    return describe(packed, opened)
+    # Reading a large one is work: not on the loop that serves everyone.
+    return await asyncio.to_thread(describe, packed, opened)

@@ -55,7 +55,10 @@ echo "https://repo.example.com/repository/apk-alpine/v3.24/main" > /etc/apk/repo
   architecture (`noarch`) may go in any architecture's directory, and is listed there
   as that architecture's, as `abuild` lists it.
 - **What is read of a package** is its `.PKGINFO`, at most 16 MiB of its signature
-  and control part. A file that is not an apk package as `abuild` writes it is refused
+  and control part. A `.PKGINFO` larger than 1 MiB, a field of it longer than 64 KiB
+  (all its `depend` lines together count as one), or one that holds a NUL, is
+  refused: apk stops reading an index at a line longer than it holds, and would lose
+  every package after it. A file that is not an apk package as `abuild` writes it is refused
   with `400 invalid_package`, and so is one in apk-tools 3's newer package format
   (ADB), which Alpine does not publish yet. A package's own signature is not checked:
   apk installs a package the repository's signed index names, by its checksum,
@@ -75,7 +78,7 @@ echo "https://repo.example.com/repository/apk-alpine/v3.24/main" > /etc/apk/repo
   served at `/repository/<name>/megooarti-<name>.rsa.pub`.
   `GET /api/v1/repositories/<name>/signing-key` shows it, and
   `POST /api/v1/repositories/<name>/signing-key/generate` or `PUT` of a PEM private
-  key in `private_key` (as `abuild-keygen` makes one, of 2048 bits or more) replaces
+  key in `private_key` (as `abuild-keygen` makes one, of 2048 to 8192 bits) replaces
   it, for whoever holds `admin:repositories:write`. From then on the indexes are
   signed with the new key only: every machine must fetch it again. The private key is
   kept sealed with the installation's secret key, and is never shown.

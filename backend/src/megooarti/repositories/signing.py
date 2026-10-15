@@ -36,6 +36,10 @@ log = structlog.get_logger(__name__)
 OPENPGP = "openpgp"
 RSA = "rsa"
 RSA_ALGORITHM = "rsa4096"
+# The largest RSA key taken, and the longest text of one: a larger key takes seconds
+# to read and to sign with, for nothing apk needs.
+RSA_MOST_BITS = 8192
+RSA_TEXT_MOST = 12_000
 # What an administrator may ask for when generating a key, and what it is made with.
 GENERATED = {"ed25519": pysequoia.CipherSuite.Cv25519, "rsa4096": pysequoia.CipherSuite.RSA4k}
 DEFAULT_ALGORITHM = "ed25519"
@@ -196,6 +200,8 @@ def generate_rsa() -> Material:
 
 def read_rsa(private_key: str) -> Material:
     """An administrator's RSA key, PEM, checked: private, unprotected, and RSA."""
+    if len(private_key) > RSA_TEXT_MOST:
+        raise KeyUnusable(f"The key is longer than one of {RSA_MOST_BITS} bits.")
     try:
         private = serialization.load_pem_private_key(private_key.encode(), password=None)
     except TypeError:
@@ -206,6 +212,8 @@ def read_rsa(private_key: str) -> Material:
         raise KeyUnusable("apk signs with RSA keys only; this is another kind.")
     if private.key_size < 2048:
         raise KeyUnusable("The key has fewer than 2048 bits, which apk refuses.")
+    if private.key_size > RSA_MOST_BITS:
+        raise KeyUnusable(f"The key has more than {RSA_MOST_BITS} bits.")
     return _rsa_material(private)
 
 
@@ -231,12 +239,22 @@ def _rsa_material(private: rsa.RSAPrivateKey) -> Material:
 
 
 class RsaSigner:
-    """Signs with one repository's RSA key, as `abuild-sign` does: PKCS#1 v1.5, SHA-1."""
+    """Signs with one repository's RSA key, as `abuild-sign` does: PKCS#1 v1.5, SHA-1.
+
+    The key is read when it first signs, where that is done: in a worker thread, as the
+    indexes are written. It is not checked again, as it was when it was kept: checking a
+    key of 4096 bits takes a quarter of a second.
+    """
 
     def __init__(self, private_key: str) -> None:
-        self._key = serialization.load_pem_private_key(private_key.encode(), password=None)
+        self._text = private_key
+        self._key: rsa.RSAPrivateKey | None = None
 
     def sign(self, data: bytes) -> bytes:
+        if self._key is None:
+            self._key = serialization.load_pem_private_key(
+                self._text.encode(), password=None, unsafe_skip_rsa_key_validation=True
+            )
         return self._key.sign(data, padding.PKCS1v15(), hashes.SHA1())
 
 
@@ -345,7 +363,8 @@ async def import_key(
     kind = signs(repository)
     if kind is None:
         raise _signs_nothing()
-    material = read_rsa(private_key) if kind == RSA else read_openpgp(private_key)
+    read = read_rsa if kind == RSA else read_openpgp
+    material = await asyncio.to_thread(read, private_key)  # checking a key takes time
     return await _keep(db, settings, repository, material, kind)
 
 

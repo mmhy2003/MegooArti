@@ -125,12 +125,13 @@ async def _keep(
 ) -> bool:
     """Store a package at its path. Returns whether it is new there."""
     held = await context.component("", apk.name, apk.version)
+    said = await asyncio.to_thread(apk.as_json)
     known = _declared(held.attributes if held else None).get("architectures", [])
     _, created = await context.store(
         path,
         staged,
         content_type=_PACKED,
-        attributes={_DECLARED: {"apk": apk.as_json()}},
+        attributes={_DECLARED: {"apk": said}},
         component_attributes={
             _DECLARED: {
                 "description": apk.info.get("pkgdesc", ""),

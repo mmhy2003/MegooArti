@@ -107,3 +107,45 @@ async def test_a_control_part_larger_than_the_bound_is_refused_before_it_is_read
 
     with pytest.raises(packages.InvalidPackage, match="larger than"):
         await read(large)
+
+
+@pytest.mark.parametrize(
+    ("extra", "reason"),
+    [
+        (f"pkgdesc = {'x' * 70_000}\n", "pkgdesc is longer than"),
+        ("depend = " + " ".join(["so:libx"] * 10_000) + "\n", "depend is longer than"),
+        ("pkgdesc = a\x00b\n", "NUL"),
+    ],
+    ids=["description", "dependencies", "nul"],
+)
+async def test_what_apk_could_not_read_back_from_an_index_is_refused(extra, reason):
+    """apk stops reading an index at a line longer than it holds: every package after it."""
+    with pytest.raises(packages.InvalidPackage, match=reason):
+        await read(make_apk(pkginfo(extra=extra)))
+
+
+async def test_a_pkginfo_larger_than_a_package_needs_is_refused(monkeypatch):
+    monkeypatch.setattr(packages, "INFO_MOST", 1000)
+
+    with pytest.raises(packages.InvalidPackage, match=".PKGINFO is larger than"):
+        await read(make_apk(pkginfo(extra="".join(f"replaces = r{n}\n" for n in range(100)))))
+
+
+async def test_a_tar_header_python_cannot_read_is_refused_as_any_broken_part():
+    member = tarfile.TarInfo(".PKGINFO")
+    member.size = len(pkginfo())
+    member.pax_headers = {"GNU.sparse.size": "abc"}
+    control = member.tobuf(format=tarfile.PAX_FORMAT) + pkginfo().encode().ljust(512, b"\0")
+
+    with pytest.raises(packages.InvalidPackage, match="not a tar archive"):
+        await read(gzip.compress(control, mtime=0) + gzip.compress(tar_of({}, end=True), mtime=0))
+
+
+async def test_a_control_part_one_byte_over_the_bound_is_refused_however_it_arrives(monkeypatch):
+    package = make_apk(signed=False)
+    first = zlib.decompressobj(wbits=31)
+    opened = first.decompress(package)
+    monkeypatch.setattr(packages, "CONTROL_MOST", len(opened) - 1)
+
+    with pytest.raises(packages.InvalidPackage, match="larger than"):
+        await packages.read(pieces(package, size=1))
