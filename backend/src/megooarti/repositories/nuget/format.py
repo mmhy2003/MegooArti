@@ -293,8 +293,11 @@ async def _read_request(
     if parsed.kind in ("package", "nuspec", "symbols"):
         return await context.respond(path, request)
     if parsed.kind == "versions":
-        held = await _held(context, parsed.id)
-        listed = [one.nuspec.version for one in held]
+        # Written from the versions alone: what each said of itself is not read.
+        spelling = await context.spelling("", parsed.id)
+        listed = [] if spelling is None else list(await context.versions("", spelling))
+        if not listed:
+            raise _not_found(f"This repository has no package {parsed.id}.")
         return await _respond(context, request, documents.version_list(listed))
     if parsed.kind == "registration":
         held = await _held(context, parsed.id)

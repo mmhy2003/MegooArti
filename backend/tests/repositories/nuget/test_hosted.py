@@ -1,7 +1,9 @@
 """A hosted NuGet repository over V3: pushed to, read from, and deleted from."""
 
 import pytest
+from sqlalchemy import update
 
+from megooarti.repositories.models import Component
 from megooarti.repositories.nuget import documents
 from tests.accounts import error_code
 from tests.repositories.nuget.conftest import BASE, URL, create, push
@@ -225,6 +227,18 @@ async def test_a_registration_has_pages_of_64_versions(client, hosted, root):
     first, second = registration["items"]
     assert (first["count"], first["lower"], first["upper"]) == (documents.PAGE, "1.0.0", "1.63.0")
     assert (second["count"], second["lower"], second["upper"]) == (1, "1.64.0", "1.64.0")
+
+
+async def test_a_version_list_is_written_from_the_versions_alone(client, db, hosted, root):
+    await push(client, root, nupkg(version="1.0.0"))
+    await push(client, root, nupkg(version="2.0.0"))
+    # What a version said of itself is not read for a list: with it gone, it is listed.
+    await db.execute(update(Component).values(attributes=None))
+    await db.commit()
+
+    listed = await client.get(f"{URL}/v3/package/megooarti.hello/index.json", headers=root)
+
+    assert listed.json() == {"versions": ["1.0.0", "2.0.0"]}
 
 
 @pytest.mark.parametrize(
