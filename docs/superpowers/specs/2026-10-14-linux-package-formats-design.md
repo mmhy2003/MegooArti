@@ -219,6 +219,17 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | T11 | A `.PKGINFO` is read, and what is kept of it written out, in a worker thread. An index's RSA key is read when it first signs, in the worker thread that writes the indexes, and is not checked again as it was when kept. An imported key is read in a worker thread too, and may have at most 8192 bits. | Reading a 4096-bit key took a quarter of a second on the loop at every change, and a large imported key many seconds. |
 | T12 | The 16 MiB bound on a package's control part holds however the bytes arrive. | At an exact boundary of the pieces, the next piece was unpacked without a bound. |
 
+### Settled while building plan 12f
+
+| # | What | Why |
+| --- | --- | --- |
+| U1 | An apk proxy's `remote_keys` are RSA public keys, PEM, one or more one after the other, as `/etc/apk/keys/*.rsa.pub` holds them; anything else, or a private key, is refused with `422` at `format_config.remote_keys`. A proxy without them cannot be a member of a group (`422` at `group.members`), as an APT proxy cannot (Q5). | 4.5 and 7.4. |
+| U2 | A proxy member's index is checked as apk checks it: one of its `remote_keys` must have signed its second stream, with SHA-1 (`.SIGN.RSA.`) or SHA-256 (`.SIGN.RSA256.`). An index not signed, or signed in another way, is left out. | Alpine signs with SHA-1; abuild-sign can sign with either. |
+| U3 | A directory one member has is that member's index: its second stream, as the member wrote it, signed again with the group's key. | What apk reads is what the member's own signature vouched for. |
+| U4 | Where several members have a directory, the group writes an index of its own: the members' records as they wrote them, in their order, and of a name and version the first member's alone (in place of 7.4's "name, version and architecture": in one directory, a name and version is the one file apk asks for). Its `DESCRIPTION` is `MegooArti <group>`, and its files' times are 0, so that every process writes the same bytes but for the signature. | Packages are asked of the members in order: a later member's package of the same name and version could not be fetched through the group. |
+| U5 | A hosted member's directory without packages adds nothing where another member has the directory, as in a YUM group (S5); a group with a hosted member serves an empty index for a directory no member has packages in. | A machine can be set up before anything is uploaded. |
+| U6 | An apk group writes as YUM's do: behind the requests, one writing of a directory at a time (S10), the last whole index kept only while a member it had cannot be checked (S11), and why a member was left out said once the writing is done, and committed (S12). | The lessons of plans 12b and 12d. |
+
 ## 5. APT
 
 ### 5.1 Layout
