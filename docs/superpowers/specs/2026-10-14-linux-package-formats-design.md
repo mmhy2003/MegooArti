@@ -250,6 +250,15 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | V6 | A new key is OpenPGP of the algorithm chosen on the page (Ed25519 unless RSA 4096 is), or RSA 4096 for apk, which is asked no algorithm. The private key to import is pasted into the page; the dialog only asks, and says that every machine must install the new public key. A key that is imported is kept nowhere in the page once the server has it. | A4 and A2. A dialog that asks is not a form. |
 | V7 | A member a check left out is a member whose last error begins `Left out of the group <group>: `, as `checks.leave_out` writes it; the page shows the rest of it. It is listed until the proxy next reaches its remote, or fails in another way. | The member's last error is where 4.5 keeps the reason: there is nothing else to read. Only a proxy is checked, so only a proxy is listed. |
 
+### Settled by the review of plan 12g
+
+| # | What | Why |
+| --- | --- | --- |
+| V8 | apk's set-up puts the account into the address with a user name's `@` written `%40` (`account="$(printf %s "$MEGOOARTI_USER" \| sed 's/@/%40/g'):$MEGOOARTI_TOKEN"`); apk and busybox `wget` read it back. | A user name may hold an `@`, and apk took what follows it for the host: `apk update` failed with an invalid address. |
+| V9 | A YUM group's `baseurl` ends in `<directory>`, which is empty where its members keep their metadata at the top. | A group has metadata wherever a member has, at any depth: a hosted member at depth 2 left the group's address without a `repomd.xml`. |
+| V10 | `GET /api/v1/repositories/<name>/signing-key` says whether the installation's secret key unseals the key (`readable`), and the panel says, when it does not, that nothing is signed and a key must be generated or imported (9). | After a restore with another secret key every index request failed with `500`, while the page showed the key as if nothing were wrong. |
+| V11 | A private key that is missing or refused is said at its field, which then has the keyboard, in place of the button that opened the dialog. | A refusal that only appears is not heard by a screen reader (B11). |
+
 ## 5. APT
 
 ### 5.1 Layout
