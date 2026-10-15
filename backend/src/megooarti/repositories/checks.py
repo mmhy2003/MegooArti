@@ -54,7 +54,11 @@ def remote_keys_setting(config: dict[str, Any], format_label: str) -> dict[str, 
 
 
 async def leave_out(context: RepositoryContext, member: RepositoryContext, reason: str) -> None:
-    """Say that a group left a member out, and why. The caller commits."""
+    """Say that a group left a member out, and why, at once.
+
+    Committed here: what is said holds the proxy's row, which every request through
+    the proxy waits for, and a group may go on merging for a minute after.
+    """
     log.warning(
         "group_member_unverified",
         group=context.repository.name,
@@ -66,6 +70,7 @@ async def leave_out(context: RepositoryContext, member: RepositoryContext, reaso
         await proxy_state.record_failure(
             member.db, member.repository, utcnow(), said, blockable=False
         )
+        await member.db.commit()
 
 
 async def members_in(

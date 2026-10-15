@@ -105,31 +105,43 @@ def check(data: Data, packed: bytes) -> None:
         raise InvalidMetadata(f"its {data.type} is not the one its repomd.xml names")
 
 
-def _decompressor(href: str):
-    if href.endswith(".gz"):
-        return zlib.decompressobj(wbits=47).decompress
-    if href.endswith(".xz"):
-        return lzma.LZMADecompressor().decompress
-    if href.endswith(".bz2"):
-        return bz2.BZ2Decompressor().decompress
-    if href.endswith(".zst"):
-        return zstandard.ZstdDecompressor().decompressobj().decompress
+_UNPACKERS = {
+    ".gz": lambda: zlib.decompressobj(wbits=47),
+    ".xz": lzma.LZMADecompressor,
+    ".bz2": bz2.BZ2Decompressor,
+    ".zst": lambda: zstandard.ZstdDecompressor().decompressobj(),
+}
+_BROKEN = (zlib.error, lzma.LZMAError, OSError, zstandard.ZstdError, ValueError, EOFError)
+
+
+def _pieces(href: str, packed: bytes) -> Iterator[bytes]:
+    """A packed file's text, in pieces, however many streams it was packed in."""
+    name = href.rpartition("/")[2]
     if href.endswith(".xml"):
-        return lambda piece: piece
-    raise InvalidMetadata(f"{href.rpartition('/')[2]} is packed in a way this server cannot read")
+        yield from (packed[at : at + _PIECE] for at in range(0, len(packed), _PIECE))
+        return
+    make = _UNPACKERS.get(href[href.rfind(".") :])
+    if make is None:
+        raise InvalidMetadata(f"{name} is packed in a way this server cannot read")
+    unpack = make()
+    for at in range(0, len(packed), _PIECE // 16):
+        data = packed[at : at + _PIECE // 16]
+        while data:
+            if unpack.eof:
+                unpack = make()  # the next stream, as gzip, xz, bzip2 and zstd allow
+            try:
+                yield unpack.decompress(data)
+            except _BROKEN as error:
+                raise InvalidMetadata(f"{name} cannot be unpacked: {error}") from None
+            data = unpack.unused_data if unpack.eof else b""
+    if not unpack.eof:
+        raise InvalidMetadata(f"{name} ends before its end")
 
 
 def unpacked(href: str, packed: bytes, most: int = UNPACKED_MOST) -> Iterator[bytes]:
     """A packed file's text, in pieces. Raises InvalidMetadata beyond `most` bytes."""
-    unpack = _decompressor(href)
     total = 0
-    for at in range(0, len(packed), _PIECE // 16):
-        try:
-            piece = unpack(packed[at : at + _PIECE // 16])
-        except (zlib.error, lzma.LZMAError, OSError, zstandard.ZstdError, ValueError) as error:
-            raise InvalidMetadata(
-                f"{href.rpartition('/')[2]} cannot be unpacked: {error}"
-            ) from None
+    for piece in _pieces(href, packed):
         total += len(piece)
         if total > most:
             raise InvalidMetadata(f"{href.rpartition('/')[2]} is larger than this server reads")

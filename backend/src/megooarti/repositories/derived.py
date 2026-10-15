@@ -52,6 +52,8 @@ class Written:
     files: Files
     routes: dict[str, uuid.UUID | None] = field(default_factory=dict)
     held_until: datetime | None = None
+    # For a group: the members it was written from.
+    members: frozenset[uuid.UUID] = frozenset()
 
     @property
     def size(self) -> int:
@@ -60,6 +62,8 @@ class Written:
 
 _kept: OrderedDict[Hashable, Written] = OrderedDict()
 _writing: dict[tuple[Hashable, Revision], asyncio.Future[Written]] = {}
+# What is being written behind requests (`stale`), by what it is of: one at a time.
+_behind: dict[Hashable, asyncio.Future[Written]] = {}
 
 
 def _kind(of: Hashable) -> str:
@@ -118,11 +122,17 @@ async def written(
     `make` may write a newer revision than was asked for, if the repository changed
     meanwhile: that is what every request that waited is then given. With `stale`, a
     request is given what is kept of an older revision, if anything is, and does not
-    wait for the new one.
+    wait for the new one; and while one revision is written behind the requests, the
+    next is not begun: each writing can take a minute and much memory, and one that
+    ended last would take the place of a newer one.
     """
     kept = get(of, revision)
     if kept is not None:
         return kept
+    behind = _behind.get(of) if stale else None
+    if behind is not None:
+        previous = peek(of)
+        return previous if previous is not None else await asyncio.shield(behind)
     key = (of, revision)
     pending = _writing.get(key)
     if pending is None:
@@ -140,6 +150,9 @@ async def written(
             put(of, task.result())
 
         pending.add_done_callback(done)
+        if stale:
+            _behind[of] = pending
+            pending.add_done_callback(lambda task: _behind.pop(of, None))
     previous = peek(of) if stale else None
     if previous is not None:
         return previous
@@ -149,3 +162,4 @@ async def written(
 def forget() -> None:
     """Drop everything kept. For tests."""
     _kept.clear()
+    _behind.clear()

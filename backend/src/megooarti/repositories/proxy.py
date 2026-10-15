@@ -232,7 +232,12 @@ async def still_current(context: RepositoryContext, path: str) -> None:
 
 
 async def _refresh(
-    context: RepositoryContext, path: str, asset: Asset | None, source: Source | None = None
+    context: RepositoryContext,
+    path: str,
+    asset: Asset | None,
+    source: Source | None = None,
+    *,
+    again: bool = False,
 ) -> None:
     """Make `path` servable from the cache, or raise 404 or 502.
 
@@ -242,7 +247,12 @@ async def _refresh(
     db, repository = context.db, context.repository
     now = utcnow()
     remember = source is None or source.remember_missing
-    if asset is None and remember and await proxy_state.known_missing(db, repository, path, now):
+    if (
+        asset is None
+        and remember
+        and not again
+        and await proxy_state.known_missing(db, repository, path, now)
+    ):
         raise _not_found()
     if await proxy_state.blocked(db, repository, now):
         if asset is None:
@@ -342,7 +352,11 @@ async def _head_remote(context: RepositoryContext, path: str) -> Response:
 
 
 async def ensure_cached(
-    context: RepositoryContext, path: str, *, source: Source | None = None
+    context: RepositoryContext,
+    path: str,
+    *,
+    source: Source | None = None,
+    again: bool = False,
 ) -> None:
     """Make `path` servable from this proxy's cache, or raise 404 or 502.
 
@@ -352,20 +366,21 @@ async def ensure_cached(
     `source` says where the path is found when the remote's own content names the
     address. The remote's credential then goes only to the remote's own origin, an
     internal address is refused unless the remote is at that host, and content that
-    does not match the hashes given is not cached.
+    does not match the hashes given is not cached. With `again`, the remote is asked
+    however new the copy, and whatever it said of the path before.
 
     This commits: before waiting for a download, and to record what came of it. A
     caller must have no uncommitted work of its own when it calls this.
     """
     path = normalise_path(path)
     asset = await context.get(path)
-    if _fresh(context, asset, path):
+    if not again and _fresh(context, asset, path):
         return
     await context.db.commit()  # hold no connection while waiting for another's download
     async with _downloads.hold((context.repository.id, path)):
         asset = await context.get(path, fresh=True)  # the previous holder may have fetched it
-        if not _fresh(context, asset, path):
-            await _refresh(context, path, asset, source)
+        if again or not _fresh(context, asset, path):
+            await _refresh(context, path, asset, source, again=again)
 
 
 async def handle_proxy(context: RepositoryContext, request: Request, path: str) -> Response:

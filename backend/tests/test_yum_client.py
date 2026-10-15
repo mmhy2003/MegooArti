@@ -21,8 +21,8 @@ pytestmark = pytest.mark.docker
 # The two distributions, by the version each was tested with.
 IMAGES = {"fedora": "fedora:44", "rocky": "rockylinux/rockylinux:10"}
 MIRRORS = {
-    "fedora": "http://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os",
-    "rocky": "http://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os",
+    "fedora": "https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os",
+    "rocky": "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os",
 }
 KEYS = {
     "fedora": "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-44-primary",
@@ -35,10 +35,11 @@ USERNAME = "ci"
 PASSWORD = "installs-rpm-packages"
 PACKAGE = "megooarti-hello"
 
-# Builds `/out/<package>-<version>-1.noarch.rpm`, of epoch 1, with rpmbuild in Fedora's image.
+# Builds `/out/<package>-<version>-1.noarch.rpm`, of epoch 1, with rpmbuild in Fedora's image,
+# and signs it with a key made for it, `/out/ci-key.asc`.
 BUILD = """
 set -e
-dnf install -y -q rpm-build > /dev/null
+dnf install -y -q rpm-build rpm-sign gnupg2 > /dev/null
 mkdir -p /tmp/rpm/SPECS
 cat > /tmp/rpm/SPECS/p.spec <<SPEC
 Name: $1
@@ -58,21 +59,29 @@ chmod 755 %{buildroot}/usr/bin/$1
 /usr/bin/$1
 SPEC
 rpmbuild --quiet --define "_topdir /tmp/rpm" -bb /tmp/rpm/SPECS/p.spec
+export GNUPGHOME=/tmp/gnupg
+mkdir -m 700 $GNUPGHOME
+gpg --batch --passphrase '' --quick-gen-key 'MegooArti CI <ci@example.com>' rsa4096 sign never
+rpmsign --define '_gpg_name MegooArti CI' --addsign /tmp/rpm/RPMS/noarch/*.rpm > /dev/null
+gpg --armor --export 'MegooArti CI' > /out/ci-key.asc
 cp /tmp/rpm/RPMS/noarch/*.rpm /out/
 """
 
 # Sets dnf up to reach nothing but one repository of the stack, as `ci`.
-# `with_dnf <repository path> <key> <repo_gpgcheck> <gpgcheck>`
+# `with_dnf <repository path> <keys> <repo_gpgcheck> <gpgcheck>`, the keys' paths
+# separated by spaces.
 SETUP = f"""
 with_dnf() {{
   rm -f /etc/yum.repos.d/*
+  keys=""
+  for key in $2; do keys="$keys file://$key"; done
   cat > /etc/yum.repos.d/megooarti.repo <<REPO
 [megooarti]
 name=MegooArti
 baseurl=http://gateway/repository/$1
 username={USERNAME}
 password={PASSWORD}
-gpgkey=file://$2
+gpgkey=$keys
 repo_gpgcheck=$3
 gpgcheck=$4
 REPO
@@ -336,7 +345,8 @@ def test_dnf_installs_ours_and_the_mirrors_through_a_group_that_merges_them(grou
     installed = dnf(
         distribution,
         groups,
-        f"with_dnf {name} /src/{name}.asc 1 0"
+        # Every package checked: Fedora's metadata is not, and the group signs it.
+        f"with_dnf {name} '/src/{name}.asc /src/ci-key.asc {KEYS[distribution]}' 1 1"
         f" && dnf install -y {PACKAGE} bc && {PACKAGE} && echo '6 * 7' | bc",
     )
 

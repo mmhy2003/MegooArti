@@ -307,3 +307,34 @@ def test_hosted_repositories_and_groups_have_a_budget_each(monkeypatch):
     assert derived.get(hosted, 1) is not None  # the groups' suites did not push it out
     assert derived.get(suites[0], 1) is None and derived.get(suites[2], 1) is not None
     derived.forget()
+
+
+async def test_a_group_writes_one_revision_at_a_time_and_an_older_never_follows_a_newer():
+    """Five uploads in a row start one writing behind the requests, not five at once."""
+    derived.forget()
+    suite = (uuid.uuid4(), "trixie")
+    derived.put(suite, written("a"))
+    go = asyncio.Event()
+    made = []
+
+    def maker(revision: str):
+        async def make() -> derived.Written:
+            made.append(revision)
+            await go.wait()
+            return written(revision)
+
+        return make
+
+    first = await derived.written(suite, "b", maker("b"), stale=True)
+    second = await derived.written(suite, "c", maker("c"), stale=True)
+    await asyncio.sleep(0)
+    assert (first.revision, second.revision, made) == ("a", "a", ["b"])
+    go.set()
+    await asyncio.sleep(0.05)
+    assert derived.peek(suite).revision == "b"
+    third = await derived.written(suite, "c", maker("c"), stale=True)
+    await asyncio.sleep(0.05)
+
+    assert third.revision == "b" and made == ["b", "c"]
+    assert derived.peek(suite).revision == "c"
+    derived.forget()

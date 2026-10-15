@@ -24,6 +24,18 @@ Task 5 writes these into the spec's section 4, as "Settled while building plan 1
 | S6 | What a group checks of a member, whatever the format, is in one module (`repositories/checks.py`): a proxy's `remote_keys` as a setting, leaving a member out, and the members as contexts of the writing's own session. APT's groups use it. `signing.verify_detached` checks a detached signature. | One way to leave a member out, and to say why. |
 | S7 | Fedora 44 and Rocky Linux 10 have no modules: the spec's risk of a group that passes on one member's `modules` concerns older distributions only (Rocky Linux 8 and 9's AppStream). The guide says that modules are the first member's. | Fedora dropped modularity in Fedora 39, and RHEL 10 has none. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first where code changed, and the spec's section 4 records what they settle as S8 to S14.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `docs/formats/yum.md`: with a member without `remote_keys`, machines check every package (`gpgcheck=1`); the example signs its packages, and reaches Rocky over HTTPS. `test_yum_client.py`: the mirrors over HTTPS, our package signed with `rpmsign`, and `gpgcheck=1` through the merging groups (`with_dnf` takes several keys). | C1: the guide's `gpgcheck=0` let a group vouch for whatever a keyless mirror's network path served. |
+| F2 | `groups.Stale`; `proxy.ensure_cached(..., again=True)`; `groups._write` asks stale proxies again (`_ask_again`) once, and writes for what it then finds (`_digest`). | C2, I7. |
+| F3 | `derived.written(..., stale=True)` begins no writing of a directory or suite while another runs (`derived._behind`). | I3. |
+| F4 | `derived.Written.members`; `groups._write` keeps the last whole metadata only while a member it was written from is left out, in the offers or in the merge (`_Outcome`). | I6. |
+| F5 | `groups._merged_kind`: a member whose `filelists.xml` or `other.xml` cannot be read is left out of that file alone. `_leave` notes; `_write` says, at the end; `checks.leave_out` commits. | I5, I8. |
+| F6 | `merge._pieces`: several streams in one file, and a file that ends inside one refused. | Minor 1, re-graded: a member's file answered `500` for the whole group. |
+| F7 | In the tests, `metadata()` waits for what is written behind each request, as plan 12b's did. | The tests of F2. |
+
 ## Global Constraints
 
 - **A client trusts the group's key and nothing else**: nothing a member gave is named in the group's `repomd.xml` unless it was checked against the checksum the member's `repomd.xml` names, and a proxy given `remote_keys` is used only if they signed its `repomd.xml`.

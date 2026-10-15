@@ -1,6 +1,7 @@
 """A group of YUM repositories: one address and one key for its members' `repodata/`."""
 
 import gzip
+import hashlib
 import re
 from datetime import timedelta
 from xml.etree import ElementTree
@@ -8,8 +9,11 @@ from xml.etree import ElementTree
 import pysequoia
 import pytest
 import zstandard
+from sqlalchemy import select
 
-from megooarti.repositories import signing
+from megooarti.repositories import checks, signing
+from megooarti.repositories.content import build_context
+from megooarti.repositories.models import ProxyState
 from megooarti.repositories.yum import groups as yum_groups
 from tests.accounts import error_code
 from tests.repositories.yum.conftest import (
@@ -55,11 +59,13 @@ async def metadata(client, headers, base: str) -> dict[str, bytes]:
     """A `repomd.xml`, and each file it names, unpacked where packed, by its type."""
     repomd = await client.get(f"{base}/repodata/repomd.xml", headers=headers)
     assert repomd.status_code == 200, repomd.text
+    await written_behind()
     found = {"repomd": repomd.content}
     for data in ElementTree.fromstring(repomd.content).iter(f"{REPO}data"):
         href = data.find(f"{REPO}location").get("href")
         got = await client.get(f"{base}/{href}", headers=headers)
         assert got.status_code == 200, href
+        await written_behind()
         found[data.get("type")] = (
             got.content if href.endswith(".xml") else unpacked(href, got.content)
         )
@@ -77,12 +83,12 @@ async def mirror(fake_remote):
     return fake_remote
 
 
-async def a_proxy(db, keys: str | None = None):
+async def a_proxy(db, keys: str | None = None, age: int = 0):
     return await create(
         db,
         "yum-fedora",
         type="proxy",
-        proxy={"remote_url": REMOTE, "metadata_max_age_minutes": 0},
+        proxy={"remote_url": REMOTE, "metadata_max_age_minutes": age},
         format_config={"remote_keys": keys} if keys else None,
     )
 
@@ -333,3 +339,111 @@ async def test_settings_a_proxy_or_group_cannot_use_are_refused(
 
     assert (refused.status_code, error_code(refused)) == (422, "validation_error")
     assert refused.json()["error"]["details"][0]["field"] == field
+
+
+def swapped(mirror, kind: str, data: bytes) -> None:
+    """The mirror's file of one kind in place of another, its repomd.xml naming it."""
+    old = next(path for path in mirror.files if path.endswith(f"-{kind}.xml.gz"))
+    digest = old.rpartition("/")[2].split("-")[0]
+    new = hashlib.sha256(data).hexdigest()
+    del mirror.files[old]
+    mirror.files[old.replace(digest, new)] = data
+    repomd = f"{ROOT}/repodata/repomd.xml"
+    mirror.files[repomd] = mirror.files[repomd].replace(digest.encode(), new.encode())
+
+
+async def test_a_member_whose_filelists_cannot_be_read_leaves_the_others_filelists_named(
+    client, db, root, mirror
+):
+    await create(db)
+    await a_proxy(db)
+    await a_group(db, "yum-hosted", "yum-fedora")
+    await upload(client, root, "a.rpm", make_rpm())
+    swapped(mirror, "filelists", gzip.compress(b'<filelists><package name="x"></package>', mtime=0))
+
+    await client.get(f"{GROUP}/repodata/repomd.xml", headers=root)
+    # Until the proxy next reaches its remote, as the group's next request has it do.
+    shown = (await client.get("/api/v1/repositories/yum-fedora", headers=root)).json()
+    found = await metadata(client, root, GROUP)
+
+    assert [p.get("name") for p in ElementTree.fromstring(found["filelists"])] == [
+        "megooarti-hello"
+    ]
+    assert ITS_OWN in locations(found["primary"])
+    assert "filelists.xml cannot be read" in (shown["status"]["last_error"] or "")
+
+
+async def test_a_member_added_that_cannot_be_checked_does_not_keep_the_others_still(
+    client, db, root, mirror
+):
+    await create(db)
+    await a_proxy(db, keys=signing.generate_openpgp("Not the mirror").public_key)
+    await a_group(db, "yum-hosted")
+    await upload(client, root, "a.rpm", make_rpm())
+    await metadata(client, root, GROUP)
+    changed = await client.put(
+        "/api/v1/repositories/yum-public",
+        json={"group": {"members": ["yum-hosted", "yum-fedora"]}},
+        headers=root,
+    )
+    assert changed.status_code == 200, changed.text
+    await upload(client, root, "b.rpm", make_rpm(version="2.0"))
+
+    await client.get(f"{GROUP}/repodata/repomd.xml", headers=root)
+    await written_behind()
+    found = await metadata(client, root, GROUP)
+
+    assert locations(found["primary"]) == ["a.rpm", "b.rpm"]
+
+
+async def test_a_signature_fetched_after_its_repomd_changed_is_fetched_again_with_it(
+    client, db, root, fake_remote
+):
+    """The proxy kept the mirror's repomd.xml a day; its signature was fetched later."""
+    fake_remote.files.update(await mirror_files({SHARED: MIRRORED[SHARED]}, key=mirror_key()))
+    await a_proxy(db, keys=mirror_key().public_key, age=1440)
+    await a_group(db, "yum-fedora")
+    await client.get("/repository/yum-fedora/repodata/repomd.xml", headers=root)
+    fake_remote.files.clear()
+    fake_remote.files.update(await mirror_files(MIRRORED, key=mirror_key()))
+
+    found = await metadata(client, root, GROUP)
+
+    assert sorted(locations(found["primary"])) == sorted(MIRRORED)
+
+
+async def test_a_file_the_kept_repomd_names_and_the_mirror_no_longer_has_is_asked_again(
+    client, db, root, fake_remote
+):
+    fake_remote.files.update(await mirror_files({SHARED: MIRRORED[SHARED]}))
+    await create(db)
+    await a_proxy(db, age=1440)
+    await a_group(db, "yum-hosted", "yum-fedora")
+    await client.get("/repository/yum-fedora/repodata/repomd.xml", headers=root)
+    fake_remote.files.clear()
+    fake_remote.files.update(await mirror_files(MIRRORED))
+    await upload(client, root, "a.rpm", make_rpm())
+
+    found = await metadata(client, root, GROUP)
+
+    assert ITS_OWN in locations(found["primary"])
+
+
+async def test_a_member_left_out_says_so_at_once_whatever_comes_after(db, settings, mirror):
+    """Said and committed: nothing holds the proxy's row while the group goes on merging."""
+    await create(db)
+    proxy = await a_proxy(db)
+    group = await a_group(db, "yum-hosted", "yum-fedora")
+    context = await build_context(db, settings, group, None)
+    member = await build_context(db, settings, proxy, None)
+
+    proxy_id = proxy.id
+    await checks.leave_out(context, member, "a reason")
+    await db.rollback()
+
+    state = await db.scalar(
+        select(ProxyState)
+        .where(ProxyState.repository_id == proxy_id)
+        .execution_options(populate_existing=True)
+    )
+    assert state.last_error == "Left out of the group yum-public: a reason"

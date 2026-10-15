@@ -50,7 +50,7 @@ of its packages, with the keys it already has:
 ```bash
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "yum-rocky", "format": "yum", "type": "proxy",
-  "proxy": {"remote_url": "http://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"}
+  "proxy": {"remote_url": "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"}
 }' http://localhost:8000/api/v1/repositories
 
 cat > /etc/yum.repos.d/rocky-baseos.repo <<EOF
@@ -128,7 +128,7 @@ them for the machines. For Rocky Linux's, on a machine that has them and jq:
 keys=$(cat /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-10)
 jq -n --arg keys "$keys" '{
   name: "yum-rocky", format: "yum", type: "proxy",
-  proxy: {remote_url: "http://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"},
+  proxy: {remote_url: "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"},
   format_config: {remote_keys: $keys}
 }' | curl -u admin -H 'Content-Type: application/json' -d @- \
   http://localhost:8000/api/v1/repositories
@@ -139,8 +139,9 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 }' http://localhost:8000/api/v1/repositories
 ```
 
-Here `yum-flat` is a hosted repository at depth 0. On each machine, the group's key
-and the group:
+Here `yum-flat` is a hosted repository at depth 0, whose packages are signed with
+`rpmsign --addsign` and a key of yours, `megooarti-packages.asc`. On each machine,
+the group's key, the keys of the packages, and the group:
 
 ```bash
 curl -fsS -u ci -o /etc/pki/rpm-gpg/yum-public.asc \
@@ -152,13 +153,20 @@ baseurl=https://repo.example.com/repository/yum-public
 username=ci
 password=$MEGOOARTI_TOKEN
 repo_gpgcheck=1
-gpgcheck=0
-gpgkey=file:///etc/pki/rpm-gpg/yum-public.asc
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/yum-public.asc file:///etc/pki/rpm-gpg/megooarti-packages.asc
+  file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-10
 EOF
 ```
 
-`gpgcheck=0`, as the packages of `yum-flat` are not signed; with them signed, give
-`gpgkey=` their key and the distribution's as well, and `gpgcheck=1`.
+**Check every package where a member is not checked.** The group checks a member's
+metadata as far as its remote signed it, and no further: a proxy without
+`remote_keys` (one of Fedora, whose mirrors do not sign their metadata) is taken as
+its remote served it, and the group's signature then vouches for whatever came over
+the network. With such a member every machine must check each package's own
+signature (`gpgcheck=1`, with the distribution's key and your packages' key), and
+the remote is best reached over HTTPS. `gpgcheck=0` is enough only for a group whose
+every proxy has `remote_keys`, and whose hosted members hold your own packages.
 
 - **The group serves a `repodata/` in each directory where a member has one**: a
   hosted member in a directory as deep as its `repodata_depth` that holds packages, a
@@ -187,8 +195,17 @@ EOF
   whole release, 70 MB to fetch and about 17 seconds to merge with its updates. That
   is longer than dnf waits for an answer, so ask for the group's `repomd.xml` once
   (`curl -u ci https://repo.example.com/repository/yum-public/repodata/repomd.xml`)
-  before the machines do. What is merged of a directory is kept in memory: about
-  120 MB for Fedora's release and updates.
+  before the machines do. A directory is written by one request at a time, and
+  the others are given the last one meanwhile.
+- **What is merged is kept in memory**: about 120 MB for a directory of Fedora's
+  release and updates, and twice that for a while after a change, as the files the
+  last `repomd.xml` named are kept too. What every group keeps is at most 256 MiB,
+  the least recently used going first: a second such directory pushes the first
+  out, and the next request for it waits for it to be merged again.
+- **A proxy member that seems behind its remote is asked again**: where its
+  signature does not fit its `repomd.xml`, or a file it names is gone or not what
+  it says, the group fetches its `repomd.xml` and signature again, however new its
+  copies, before it leaves the member out.
 - **Packages** are asked of the members in order, as in any group. A package's path
   must therefore be the same file in every member that has it.
 - **The group's key** is made the first time it is needed, and is at

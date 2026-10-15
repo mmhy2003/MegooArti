@@ -185,6 +185,18 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | S6 | What a group checks of a member, whatever the format, is in one module (`repositories/checks.py`): a proxy's `remote_keys` as a setting, leaving a member out, and the members as contexts of the writing's own session. APT's groups use it. `signing.verify_detached` checks a detached signature. | One way to leave a member out, and to say why. |
 | S7 | Fedora 44 and Rocky Linux 10 have no modules: section 11's risk of a group that passes on one member's `modules` concerns older distributions only (Rocky Linux 8 and 9's AppStream). The guide says that modules are the first member's. | Fedora dropped modularity in Fedora 39, and RHEL 10 has none. |
 
+### Settled by the review of plan 12d
+
+| # | What | Why |
+| --- | --- | --- |
+| S8 | A group signs a proxy member's metadata as far as its remote signed it, and no further: with a member without `remote_keys` (Fedora's mirrors sign none), every machine must check each package's own signature (`gpgcheck=1`). The guide says so, and its example and the real-client tests do it, with the hosted packages signed by `rpmsign` and the mirrors reached over HTTPS. | 6.4's "dnf checks those signatures through a group" holds only with `gpgcheck=1`; the guide had said `gpgcheck=0`, under which whoever could change a mirror's answers could have the group vouch for their packages. |
+| S9 | A proxy member whose signature does not fit its `repomd.xml`, or a file of which that `repomd.xml` names is gone or not what it says, is asked again within the same writing: its `repomd.xml` and signature fetched however new the copies, and whatever was said of them before. Only then is it left out. | The two are cached each on its own clock: after a mirror changed, a keyed proxy was left out for a day, its error blaming its keys. |
+| S10 | What is written behind the requests of one group's directory or suite is written once at a time: while one writing runs, requests are given what is kept, and the next begins after it. | Each upload started another merge of the whole directory beside the last (17 seconds and 245 MB each for Fedora), and an older one that ended last took the place of a newer. |
+| S11 | The last whole metadata is kept (Q12) only while a member it was written from cannot be checked, whether at its `repomd.xml` or in the merge. A member that could not be checked and was not in it is left out, and the metadata is written without it. | A member added to a group that failed its checks kept the group's hosted packages from changing until it was mended. |
+| S12 | A member whose `filelists.xml` or `other.xml` cannot be read is left out of that file alone; the others' stay named. Why a member was left out is said once the writing is done, and committed at once. | The whole file went missing for every member, and the wrong member was blamed; said along the way, the member's next fetch in the same writing wiped it, and the row stayed locked for the rest of the merge. |
+| S13 | A member's file packed in several streams (as `pigz` and `pbzip2` write them) is read whole; one that ends inside a stream is refused. | gzip's second stream was dropped without a word, and bzip2's and xz's answered `500`. |
+| S14 | What every group keeps stays at 256 MiB (Q13). A merged directory of Fedora's release and updates takes about 120 MB, and twice that after a change while the last revision's files are kept; the guide says so. A budget of its own, or merged files kept outside memory, is left until a server needs it. | Measured by the review; the budget is the one plan 12b set. |
+
 ## 5. APT
 
 ### 5.1 Layout

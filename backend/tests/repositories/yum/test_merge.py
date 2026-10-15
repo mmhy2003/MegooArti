@@ -200,3 +200,19 @@ def test_the_groups_repomd_names_what_it_wrote_and_what_it_passes_on():
         assert node.findtext(f"{REPO}open-checksum") == part.open_checksum
         assert node.findtext(f"{REPO}size") == str(len(part.packed))
     assert comps.element in written
+
+
+@pytest.mark.parametrize("kind", sorted(PACKERS))
+def test_a_file_packed_in_several_streams_is_unpacked_whole(kind):
+    first, second = text("createrepo-primary.xml"), text("real-createrepo-primary.xml")
+    data = PACKERS[kind](first) + PACKERS[kind](second)
+
+    assert b"".join(merge.unpacked(f"repodata/x.xml.{kind}", data)) == first + second
+
+
+@pytest.mark.parametrize("kind", ["bz2", "xz", "gz"])
+def test_a_file_that_ends_inside_a_stream_is_refused(kind):
+    data = PACKERS[kind](text("createrepo-primary.xml"))
+
+    with pytest.raises(merge.InvalidMetadata):
+        list(merge.unpacked(f"repodata/x.xml.{kind}", data[: len(data) // 2]))
