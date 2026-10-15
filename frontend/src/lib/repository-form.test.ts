@@ -12,10 +12,13 @@ import {
   createBody,
   draftOf,
   EMPTY,
+  FORMATS,
   hasMavenSettings,
+  hasSigningKey,
   moved,
   policyOf,
   problemsOf,
+  takesRemoteKeys,
   updateBody,
   type Draft,
 } from "./repository-form";
@@ -314,6 +317,109 @@ describe("what is wrong with a form before the server is asked", () => {
   test("what a hosted repository or a group does not have is not checked", () => {
     expect(problemsOf(draft({ remoteUrl: "nonsense", contentMaxAge: "x" }), true)).toEqual({});
     expect(problemsOf(draft({ type: "group", remoteUrl: "" }), true)).toEqual({});
+  });
+});
+
+describe("APT, YUM and apk", () => {
+  const KEYS = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n...\n-----END PGP PUBLIC KEY BLOCK-----\n";
+
+  test("are formats a repository can have", () => {
+    expect(FORMATS).toEqual(expect.arrayContaining(["apt", "yum", "apk"]));
+  });
+
+  test("a hosted APT repository is made with its suite, and the server's own unless one is typed", () => {
+    expect(createBody(draft({ format: "apt" })).format_config).toEqual({ suite: "stable" });
+    expect(createBody(draft({ format: "apt", suite: " trixie " })).format_config).toEqual({
+      suite: "trixie",
+    });
+  });
+
+  test("a hosted YUM repository is made with the depth of its metadata, as a number", () => {
+    expect(createBody(draft({ format: "yum" })).format_config).toEqual({ repodata_depth: 0 });
+    expect(createBody(draft({ format: "yum", repodataDepth: " 2 " })).format_config).toEqual({
+      repodata_depth: 2,
+    });
+  });
+
+  test("a hosted apk repository, and a group of any of them, has no settings of its own", () => {
+    expect(createBody(draft({ format: "apk" })).format_config).toEqual({});
+    for (const format of ["apt", "yum", "apk"]) {
+      expect(createBody(draft({ format, type: "group" })).format_config).toEqual({});
+    }
+  });
+
+  test("a proxy always sends its remote's keys: settings that are sent are replaced whole", () => {
+    for (const format of ["apt", "yum", "apk"]) {
+      const proxy = { ...PROXY, format };
+      expect(createBody({ ...proxy, remoteKeys: KEYS }).format_config).toEqual({
+        remote_keys: KEYS,
+      });
+      // Saved without a change, the keys it has are sent back, and kept.
+      expect(updateBody({ ...proxy, remoteKeys: KEYS }).format_config).toEqual({
+        remote_keys: KEYS,
+      });
+      expect(updateBody(proxy).format_config).toEqual({ remote_keys: "" });
+    }
+  });
+
+  test("the form of one that is there starts from its suite, its depth and its keys", () => {
+    const apt = draftOf(stored({ format: "apt", format_config: { suite: "trixie" } }));
+    const yum = draftOf(stored({ format: "yum", format_config: { repodata_depth: 2 } }));
+    const mirror = draftOf(
+      stored({ format: "apk", type: "proxy", format_config: { remote_keys: KEYS } }),
+    );
+
+    expect(apt.suite).toBe("trixie");
+    expect(yum.repodataDepth).toBe("2");
+    expect(mirror.remoteKeys).toBe(KEYS);
+    // Sent back as they are held: the server takes again what it has.
+    expect(updateBody(apt).format_config).toEqual({ suite: "trixie" });
+    expect(updateBody(yum).format_config).toEqual({ repodata_depth: 2 });
+    // One made before there were settings has the server's own.
+    expect(draftOf(stored({ format: "apt", format_config: {} })).suite).toBe("stable");
+    expect(draftOf(stored({ format: "yum", format_config: {} })).repodataDepth).toBe("0");
+  });
+
+  test.each([
+    ["", "suiteRule"],
+    ["-x", "suiteRule"],
+    ["has space", "suiteRule"],
+    ["x".repeat(65), "suiteRule"],
+    ["trixie", undefined],
+    ["stable-updates", undefined],
+    ["9.4", undefined],
+  ])("a suite %j: %s", (suite, problem) => {
+    expect(problemsOf(draft({ format: "apt", suite }), true).suite).toBe(problem);
+  });
+
+  test.each([
+    ["", "depthRule"],
+    ["-1", "depthRule"],
+    ["6", "depthRule"],
+    ["1.5", "depthRule"],
+    ["0", undefined],
+    ["5", undefined],
+  ])("a depth %j: %s", (repodataDepth, problem) => {
+    expect(problemsOf(draft({ format: "yum", repodataDepth }), true).repodataDepth).toBe(problem);
+  });
+
+  test("a suite and a depth are checked only when they are chosen: as one is made, hosted", () => {
+    expect(problemsOf(draft({ format: "apt", suite: "" }), false)).toEqual({});
+    expect(problemsOf(draft({ format: "yum", repodataDepth: "9" }), false)).toEqual({});
+    expect(problemsOf(draft({ format: "apt", type: "group", suite: "" }), true)).toEqual({});
+    expect(problemsOf({ ...PROXY, format: "yum", repodataDepth: "9" }, true)).toEqual({});
+  });
+
+  test("a proxy of them is given its remote's keys, and a hosted one or a group has a key of its own", () => {
+    for (const format of ["apt", "yum", "apk"]) {
+      expect(takesRemoteKeys({ format, type: "proxy" })).toBe(true);
+      expect(takesRemoteKeys({ format, type: "hosted" })).toBe(false);
+      expect(hasSigningKey({ format, type: "hosted" })).toBe(true);
+      expect(hasSigningKey({ format, type: "group" })).toBe(true);
+      expect(hasSigningKey({ format, type: "proxy" })).toBe(false);
+    }
+    expect(takesRemoteKeys({ format: "maven", type: "proxy" })).toBe(false);
+    expect(hasSigningKey({ format: "raw", type: "hosted" })).toBe(false);
   });
 });
 

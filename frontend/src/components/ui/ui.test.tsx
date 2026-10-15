@@ -11,7 +11,7 @@ import { Alert, StatusTag } from "./alert";
 import { Button } from "./button";
 import { ConfirmDialog } from "./confirm-dialog";
 import { CopyButton } from "./copy-button";
-import { TextField } from "./field";
+import { TextAreaField, TextField } from "./field";
 import { Menu, MenuContent, MenuItem, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./menu";
 import { PageHeader, Panel } from "./panel";
 import { EmptyState, ErrorState, LoadingState } from "./states";
@@ -85,6 +85,20 @@ describe("a field", () => {
     expect(screen.queryByText("At least 8 characters.")).toBeNull();
     expect(screen.getByText("Too short.").parentElement?.querySelector("svg")).not.toBeNull();
     await expectAccessible();
+  });
+
+  test("of several lines is labelled, and says its hint or what is wrong the same way", async () => {
+    const { rerender } = renderUi(<TextAreaField label="Keys" hint="Armoured." />);
+
+    const area = screen.getByLabelText("Keys");
+    expect(area.tagName).toBe("TEXTAREA");
+    expect(area).toHaveAccessibleDescription("Armoured.");
+    await expectAccessible();
+
+    rerender(<TextAreaField label="Keys" hint="Armoured." error="Not a key." />);
+    expect(area).toHaveAttribute("aria-invalid", "true");
+    expect(area).toHaveAccessibleDescription("Not a key.");
+    expect(screen.queryByText("Armoured.")).toBeNull();
   });
 
   test("two fields with the same label are still two fields", () => {

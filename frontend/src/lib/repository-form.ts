@@ -9,7 +9,9 @@ import type { RepositoryCreate, RepositoryOut, RepositoryUpdate } from "@/lib/ap
 import { isAddressable } from "@/lib/paths";
 
 /** The formats the server has. Each can be hosted, a proxy or a group. */
-export const FORMATS = ["raw", "maven", "npm", "pypi", "docker"] as const;
+export const FORMATS = ["raw", "maven", "npm", "pypi", "docker", "apt", "yum", "apk"] as const;
+/** The formats whose indexes are signed: a key of their own, and a remote's keys for a proxy. */
+export const SIGNED: ReadonlySet<string> = new Set(["apt", "yum", "apk"]);
 export const TYPES = ["hosted", "proxy", "group"] as const;
 export type RepositoryType = (typeof TYPES)[number];
 export const DEPLOYMENT_POLICIES = ["allow_redeploy", "disable_redeploy", "read_only"] as const;
@@ -18,11 +20,17 @@ export const VERSION_POLICIES = ["release", "snapshot", "mixed"] as const;
 export const LAYOUT_POLICIES = ["strict", "permissive"] as const;
 /** The blob store a repository gets when none is chosen. */
 export const DEFAULT_BLOB_STORE = "default";
+/** The suite a hosted APT repository has when none is given: the server's own. */
+export const DEFAULT_SUITE = "stable";
+/** How many directories down a YUM repository's metadata may be. */
+export const DEPTH_MOST = 5;
 
 // The server's rule for a name, said before the request is made.
 const NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 // A Docker repository's name is the first part of its images' names.
 const DOCKER_NAME = /^[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*$/;
+// The server's rule for an APT suite: the name in each machine's sources line.
+const SUITE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /** What the form holds. Numbers are text while they are typed. */
 export type Draft = {
@@ -49,6 +57,12 @@ export type Draft = {
   members: string[];
   versionPolicy: string;
   layoutPolicy: string;
+  /** A hosted APT repository's. Chosen once. */
+  suite: string;
+  /** How many directories down a hosted YUM repository's metadata is. Chosen once. */
+  repodataDepth: string;
+  /** A proxy's remote's public keys, as they are pasted. */
+  remoteKeys: string;
 };
 
 /** A form for a repository that is not there yet: the server's own defaults. */
@@ -73,6 +87,9 @@ export const EMPTY: Draft = {
   members: [],
   versionPolicy: "release",
   layoutPolicy: "strict",
+  suite: DEFAULT_SUITE,
+  repodataDepth: "0",
+  remoteKeys: "",
 };
 
 const text = (value: unknown, otherwise: string): string =>
@@ -104,6 +121,11 @@ export function draftOf(repository: RepositoryOut): Draft {
     members: group?.members ?? [],
     versionPolicy: text(config.version_policy, EMPTY.versionPolicy),
     layoutPolicy: text(config.layout_policy, EMPTY.layoutPolicy),
+    suite: text(config.suite, EMPTY.suite),
+    repodataDepth: String(
+      typeof config.repodata_depth === "number" ? config.repodata_depth : EMPTY.repodataDepth,
+    ),
+    remoteKeys: text(config.remote_keys, EMPTY.remoteKeys),
   };
 }
 
@@ -123,6 +145,16 @@ export function policyOf(
 /** Whether a combination has settings of the format's own: a Maven repository that stores. */
 export function hasMavenSettings(draft: Pick<Draft, "format" | "type">): boolean {
   return draft.format === "maven" && draft.type !== "group";
+}
+
+/** Whether a combination is given its remote's keys: a proxy of a format that signs. */
+export function takesRemoteKeys(draft: Pick<Draft, "format" | "type">): boolean {
+  return draft.type === "proxy" && SIGNED.has(draft.format);
+}
+
+/** Whether a combination has a key of its own: a hosted repository or a group that signs. */
+export function hasSigningKey(repository: { format: string; type: string }): boolean {
+  return repository.type !== "proxy" && SIGNED.has(repository.format);
 }
 
 /** A whole number of at least `minimum`, or null for what is none. */
@@ -151,7 +183,9 @@ export type Problem =
   | "ageRule"
   | "ttlRule"
   | "usernameNeeded"
-  | "secretNeeded";
+  | "secretNeeded"
+  | "suiteRule"
+  | "depthRule";
 
 export type Problems = Partial<
   Record<
@@ -161,7 +195,9 @@ export type Problems = Partial<
     | "metadataMaxAge"
     | "negativeCacheTtl"
     | "authUsername"
-    | "authSecret",
+    | "authSecret"
+    | "suite"
+    | "repodataDepth",
     Problem
   >
 >;
@@ -188,6 +224,14 @@ export function problemsOf(draft: Draft, creating: boolean): Problems {
     }
     if (draft.authType !== "none" && draft.authSecret === "" && !draft.hasSecret) {
       problems.authSecret = "secretNeeded";
+    }
+  }
+  // Chosen once: a repository that is there has the one it was made with.
+  if (creating && draft.type === "hosted") {
+    if (draft.format === "apt" && !SUITE.test(draft.suite.trim())) problems.suite = "suiteRule";
+    const depth = whole(draft.repodataDepth, 0);
+    if (draft.format === "yum" && (depth === null || depth > DEPTH_MOST)) {
+      problems.repodataDepth = "depthRule";
     }
   }
   return problems;
@@ -224,10 +268,24 @@ function parts(draft: Draft) {
         }
       : null,
     group: draft.type === "group" ? { members: draft.members } : null,
-    format_config: hasMavenSettings(draft)
-      ? { version_policy: draft.versionPolicy, layout_policy: draft.layoutPolicy }
-      : {},
+    format_config: formatConfig(draft),
   };
+}
+
+/**
+ * The settings of the format's own. What was chosen once is sent as it is held, and the
+ * server takes it again unchanged. A proxy's keys are always sent: the settings are
+ * replaced whole, and keys that were not sent would be none.
+ */
+function formatConfig(draft: Draft): Record<string, unknown> {
+  if (hasMavenSettings(draft)) {
+    return { version_policy: draft.versionPolicy, layout_policy: draft.layoutPolicy };
+  }
+  if (takesRemoteKeys(draft)) return { remote_keys: draft.remoteKeys };
+  if (draft.type !== "hosted") return {};
+  if (draft.format === "apt") return { suite: draft.suite.trim() };
+  if (draft.format === "yum") return { repodata_depth: whole(draft.repodataDepth, 0) ?? 0 };
+  return {};
 }
 
 /** What is sent to make a repository. A group stores nothing, and so names no blob store. */

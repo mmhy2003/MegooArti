@@ -98,11 +98,14 @@ describe("permissions as rows (A2)", () => {
 
     expect(options(within(row(1)).getByLabelText("Format"))).toEqual([
       "Any",
+      "apk",
+      "apt",
       "docker",
       "maven",
       "npm",
       "pypi",
       "raw",
+      "yum",
     ]);
   });
 

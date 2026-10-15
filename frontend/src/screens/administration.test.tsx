@@ -72,6 +72,14 @@ const ALL = repository("all", {
   group: { members: ["releases", "central"] },
 });
 const NPM = repository("npm-own", { format: "npm", format_config: {} });
+/** A repository's signing key, as the API shows it. */
+const KEY = {
+  kind: "openpgp",
+  algorithm: "ed25519",
+  fingerprint: "0F1E2D3C4B5A69788796A5B4C3D2E1F00F1E2D3C",
+  public_key: "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEZ\n-----END PGP PUBLIC KEY BLOCK-----\n",
+  created_at: "2026-10-01T09:30:00Z",
+};
 const store = (name: string, more: Record<string, unknown> = {}) => ({
   name,
   type: "file",
@@ -541,6 +549,111 @@ describe("a new repository (R2)", () => {
     expect(navigation.router.push).not.toHaveBeenCalled();
   });
 
+  test("offers APT, YUM and apk among the formats", () => {
+    fresh();
+
+    const formats = within(screen.getByLabelText("Format"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(formats).toEqual(expect.arrayContaining(["apt", "yum", "apk"]));
+  });
+
+  test("a hosted APT repository is made with the suite that is typed, which is checked first", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.selectOptions(screen.getByLabelText("Format"), "apt");
+    const suite = screen.getByLabelText("Suite");
+    expect(suite).toHaveValue("stable"); // the server's own
+    await user.type(screen.getByLabelText("Name"), "apt-own");
+    await user.clear(suite);
+    await user.type(suite, "-trixie");
+    await user.click(create());
+    expect(suite).toHaveAccessibleDescription(
+      "A suite is 1 to 64 letters, digits or . _ - , and begins with a letter or a digit.",
+    );
+    expect(of(calls, "POST")).toHaveLength(0);
+
+    await user.clear(suite);
+    await user.type(suite, "trixie");
+    await user.click(create());
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({ format: "apt", format_config: { suite: "trixie" } });
+  });
+
+  test("a hosted YUM repository is made with the depth of its metadata", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.selectOptions(screen.getByLabelText("Format"), "yum");
+    const depth = screen.getByLabelText("Depth of the metadata");
+    expect(depth).toHaveValue("0");
+    await user.type(screen.getByLabelText("Name"), "yum-own");
+    await user.clear(depth);
+    await user.type(depth, "6");
+    await user.click(create());
+    expect(depth).toHaveAccessibleDescription("A whole number from 0 to 5.");
+
+    await user.clear(depth);
+    await user.type(depth, "2");
+    await user.click(create());
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({ format: "yum", format_config: { repodata_depth: 2 } });
+  });
+
+  test("a proxy of APT, YUM or apk is given its remote's keys, and told why", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.selectOptions(screen.getByLabelText("Format"), "apk");
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    expect(screen.queryByLabelText("Suite")).toBeNull();
+    const keys = screen.getByLabelText("The remote's public keys");
+    expect(keys).toHaveAccessibleDescription(
+      /Alpine's are in \/usr\/share\/apk\/keys\. A group checks what this proxy fetched with them: without them, it cannot be a member of one\./,
+    );
+    await user.selectOptions(screen.getByLabelText("Format"), "yum");
+    expect(screen.getByLabelText("The remote's public keys")).toHaveAccessibleDescription(
+      /They are not needed: dnf checks each package's own signature\./,
+    );
+    await user.selectOptions(screen.getByLabelText("Format"), "apt");
+    await user.type(screen.getByLabelText("Name"), "apt-debian");
+    await user.type(screen.getByLabelText("Remote address"), "http://deb.debian.org/debian");
+    await user.type(screen.getByLabelText("The remote's public keys"), "the keys");
+    await user.click(create());
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      format: "apt",
+      type: "proxy",
+      format_config: { remote_keys: "the keys" },
+    });
+    await expectAccessible();
+  });
+
+  test("says where the server refuses a suite, a depth or a remote's keys", async () => {
+    const user = userEvent.setup();
+    fresh({
+      "POST /repositories": failure(422, "validation_error", "The request is not valid.", [
+        { field: "format_config.remote_keys", message: "These are not public keys." },
+      ]),
+    });
+
+    await user.selectOptions(screen.getByLabelText("Format"), "apt");
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    await user.type(screen.getByLabelText("Name"), "apt-debian");
+    await user.type(screen.getByLabelText("Remote address"), "http://deb.debian.org/debian");
+    await user.type(screen.getByLabelText("The remote's public keys"), "nonsense");
+    await user.click(create());
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("The remote's public keys")).toHaveAccessibleDescription(
+        "These are not public keys.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   test("offers the blob stores there are, or the default one where they may not be seen", async () => {
     const first = fresh();
     const choices = () =>
@@ -839,6 +952,48 @@ describe("the settings of a repository", () => {
     expect(screen.queryByRole("button", { name: "Rebuild the index" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete repository" })).toBeNull();
     expect(screen.getByRole("heading", { name: "The remote" })).toBeVisible(); // its state can be seen
+  });
+
+  test("of APT and YUM show the suite and the depth they were made with as facts", async () => {
+    const apt = repository("apt-own", {
+      format: "apt",
+      hosted: { deployment_policy: "allow_redeploy" },
+      format_config: { suite: "trixie" },
+    });
+    const first = settings(apt, {
+      "GET /repositories/apt-own/signing-key": { json: KEY },
+    });
+    expect(await screen.findByText("trixie")).toBeVisible();
+    expect(screen.getByText("Suite")).toBeVisible();
+    expect(screen.queryByLabelText("Suite")).toBeNull(); // chosen once
+    first.unmount();
+
+    const yum = repository("yum-own", { format: "yum", format_config: { repodata_depth: 2 } });
+    settings(yum, { "GET /repositories/yum-own/signing-key": { json: KEY } });
+    expect(await screen.findByText("Depth of the metadata")).toBeVisible();
+    expect(screen.getByText("2")).toBeVisible();
+    expect(screen.queryByLabelText("Depth of the metadata")).toBeNull();
+  });
+
+  test("of an APT, YUM or apk proxy keep its remote's keys, and send them back when saved", async () => {
+    const user = userEvent.setup();
+    const held = repository("apk-alpine", {
+      ...proxy("apk-alpine"),
+      format: "apk",
+      format_config: { remote_keys: "the keys" },
+    });
+    const { calls } = settings(held, { "PUT /repositories/apk-alpine": { json: held } });
+
+    const keys = await screen.findByLabelText("The remote's public keys");
+    expect(keys).toHaveValue("the keys");
+    await user.click(screen.getByRole("checkbox", { name: "Online" }));
+    await user.click(save());
+
+    await waitFor(() => expect(of(calls, "PUT")).toHaveLength(1));
+    expect(of(calls, "PUT")[0]?.body).toMatchObject({
+      online: false,
+      format_config: { remote_keys: "the keys" },
+    });
   });
 
   test("delete the repository only for whoever types its name, and say what goes with it (R9)", async () => {

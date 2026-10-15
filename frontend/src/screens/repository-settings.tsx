@@ -11,7 +11,7 @@ import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Fact, Facts, Time } from "@/components/ui/details";
-import { TextField } from "@/components/ui/field";
+import { TextAreaField, TextField } from "@/components/ui/field";
 import { CheckboxField, ChoiceGroup, SelectField } from "@/components/ui/inputs";
 import { AppLink } from "@/components/ui/link";
 import { useNotify } from "@/components/ui/notifications";
@@ -43,6 +43,7 @@ import {
   AUTH_TYPES,
   createBody,
   DEFAULT_BLOB_STORE,
+  DEPTH_MOST,
   DEPLOYMENT_POLICIES,
   draftOf,
   EMPTY,
@@ -51,6 +52,7 @@ import {
   LAYOUT_POLICIES,
   policyOf,
   problemsOf,
+  takesRemoteKeys,
   TYPES,
   updateBody,
   VERSION_POLICIES,
@@ -80,6 +82,9 @@ const REFUSED_AT = [
   "group.members",
   "format_config.version_policy",
   "format_config.layout_policy",
+  "format_config.suite",
+  "format_config.repodata_depth",
+  "format_config.remote_keys",
 ] as const;
 
 function useMay(): (permission: string) => boolean {
@@ -225,6 +230,28 @@ function RepositoryForm({
             {refused.at["hosted.deployment_policy"] ? (
               <Alert tone="danger">{refused.at["hosted.deployment_policy"]}</Alert>
             ) : null}
+            {/* Chosen once: a repository that is there shows it as a fact. */}
+            {creating && draft.format === "apt" ? (
+              <TextField
+                label={t("fields.suite")}
+                hint={t("hints.suite")}
+                spellCheck={false}
+                autoComplete="off"
+                value={draft.suite}
+                error={wrong("suite", refused.at["format_config.suite"])}
+                onChange={(event) => set({ suite: event.target.value })}
+              />
+            ) : null}
+            {creating && draft.format === "yum" ? (
+              <TextField
+                label={t("fields.repodataDepth")}
+                hint={t("hints.repodataDepth", { most: DEPTH_MOST })}
+                inputMode="numeric"
+                value={draft.repodataDepth}
+                error={wrong("repodataDepth", refused.at["format_config.repodata_depth"])}
+                onChange={(event) => set({ repodataDepth: event.target.value })}
+              />
+            ) : null}
           </fieldset>
         ) : null}
 
@@ -270,6 +297,15 @@ function RepositoryForm({
                   value={draft.authSecret}
                   error={wrong("authSecret", refused.at["proxy.remote_auth.secret"])}
                   onChange={(event) => set({ authSecret: event.target.value })}
+                />
+              ) : null}
+              {takesRemoteKeys(draft) ? (
+                <TextAreaField
+                  label={t("fields.remoteKeys")}
+                  hint={t(`hints.remoteKeys.${draft.format as "apt"}`)}
+                  value={draft.remoteKeys}
+                  error={refused.at["format_config.remote_keys"]}
+                  onChange={(event) => set({ remoteKeys: event.target.value })}
                 />
               ) : null}
             </fieldset>
@@ -569,6 +605,14 @@ export function RepositorySettingsScreen() {
             <Fact name={t("fields.versionPolicy")}>
               {String(found.format_config.version_policy ?? "")}
             </Fact>
+          ) : null}
+          {found.type === "hosted" && found.format === "apt" ? (
+            <Fact name={t("fields.suite")} mono>
+              {draftOf(found).suite}
+            </Fact>
+          ) : null}
+          {found.type === "hosted" && found.format === "yum" ? (
+            <Fact name={t("fields.repodataDepth")}>{draftOf(found).repodataDepth}</Fact>
           ) : null}
           {view.data ? (
             <Fact name={t("fields.address")} copy={view.data.url} mono>

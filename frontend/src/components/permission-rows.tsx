@@ -22,7 +22,7 @@ import {
 
 const KINDS: readonly RowKind[] = ["repository", "admin", "all", "typed"];
 // The formats there are, whether or not a repository of each exists yet.
-const FORMATS = ["raw", "maven", "npm", "pypi", "docker"];
+const FORMATS = ["raw", "maven", "npm", "pypi", "docker", "apt", "yum", "apk"];
 
 /** A repository, as far as a permission is concerned: what it is called and its format. */
 export type Held = { name: string; format: string };

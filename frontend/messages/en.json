@@ -667,7 +667,10 @@
       "blocked": "Blocked: do not contact the remote at all",
       "members": "Members, in the order they are asked",
       "versionPolicy": "Version policy",
-      "layoutPolicy": "Layout policy"
+      "layoutPolicy": "Layout policy",
+      "suite": "Suite",
+      "repodataDepth": "Depth of the metadata",
+      "remoteKeys": "The remote's public keys"
     },
     "hints": {
       "name": "Letters, digits and . _ - , up to 64. It is part of every address, and cannot be changed later.",
@@ -683,7 +686,14 @@
       "negativeCache": "A path the remote did not have is not asked for again for a while.",
       "autoBlock": "A minute at first, doubling with each further failure up to an hour. Meanwhile what is cached is served.",
       "blocked": "Only what is cached is served, until this is unticked.",
-      "members": "The first that has what is asked for answers. Offline members, and proxies whose remote is unavailable, are passed over."
+      "members": "The first that has what is asked for answers. Offline members, and proxies whose remote is unavailable, are passed over.",
+      "suite": "The name a machine gives it in its sources line, such as trixie or stable. It cannot be changed later.",
+      "repodataDepth": "How many directories down repodata/ is: 0 at the top, 1 for one in each directory of the top (el9/repodata/), up to {most}. Packages are kept at least that deep. It cannot be changed later.",
+      "remoteKeys": {
+        "apt": "ASCII-armoured OpenPGP keys, those the remote signs its Release files with. A group checks what this proxy fetched with them: without them, it cannot be a member of one.",
+        "yum": "ASCII-armoured OpenPGP keys, those the remote signs its repomd.xml with, if it does. A group checks what this proxy fetched with them. They are not needed: dnf checks each package's own signature.",
+        "apk": "PEM RSA public keys, those the remote signs its indexes with: Alpine's are in /usr/share/apk/keys. A group checks what this proxy fetched with them: without them, it cannot be a member of one."
+      }
     },
     "sections": {
       "hosted": "What it takes",
@@ -743,7 +753,9 @@
       "ageRule": "A whole number of minutes, -1 or more.",
       "ttlRule": "A whole number of minutes, 1 or more.",
       "usernameNeeded": "Give the user name.",
-      "secretNeeded": "Give it: none is stored."
+      "secretNeeded": "Give it: none is stored.",
+      "suiteRule": "A suite is 1 to 64 letters, digits or . _ - , and begins with a letter or a digit.",
+      "depthRule": "A whole number from 0 to 5."
     },
     "mayNotCreate": "You may not create repositories.",
     "create": "Create repository",
