@@ -213,3 +213,98 @@ def test_apk_installs_a_public_package_through_a_proxy_of_its_mirror(published, 
 
     assert installed.returncode == 0, said(installed)
     assert installed.stdout.splitlines()[-1] == "42"
+
+
+# --- Groups ---------------------------------------------------------------------------
+
+ADMIN = "admin:'a brand new password'"  # what the `administrator` fixture made it
+# The guide's commands, as an administrator types them, against the stack: a proxy of
+# Alpine's mirror given Alpine's keys, as an Alpine machine has them.
+GUIDE = f"""
+set -e
+apk add -q jq curl > /dev/null
+keys=$(cat /etc/apk/keys/*.rsa.pub)
+jq -n --arg keys "$keys" '{{
+  name: "apk-alpine-keyed", format: "apk", type: "proxy",
+  proxy: {{remote_url: "{MIRROR}", auto_block: false}},
+  format_config: {{remote_keys: $keys}}
+}}' | curl -fsS -u {ADMIN} -H 'Content-Type: application/json' -d @- \\
+  http://gateway/api/v1/repositories > /dev/null
+echo made
+"""
+
+
+def made(administrator, body: dict) -> None:
+    status, _, answer = call("POST", "/repositories", body, administrator)
+    assert status == 201, answer
+
+
+@pytest.fixture(scope="module")
+def groups(published, administrator) -> Path:
+    """Two groups, with their keys saved beside the hosted repository's.
+
+    `apk-public`: the hosted repository and a proxy of Alpine's mirror given Alpine's
+    keys, merged in `v3.24/main/x86_64`. `apk-wrong`: the hosted repository, and a proxy
+    given a key Alpine does not sign with.
+    """
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--network", NETWORK, IMAGES["3.24"], "sh", "-c", GUIDE],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
+        check=False,
+    )
+    assert result.stdout.strip().endswith("made"), said(result)
+    _, _, hosted_key = call("GET", f"/repositories/{HOSTED}/signing-key", headers=administrator)
+    made(
+        administrator,
+        {
+            "name": "apk-alpine-wrong",
+            "format": "apk",
+            "type": "proxy",
+            "proxy": {"remote_url": MIRROR, "auto_block": False},
+            # A key Alpine does not sign with: the hosted repository's own.
+            "format_config": {"remote_keys": hosted_key["public_key"]},
+        },
+    )
+    for name, members in (
+        ("apk-public", [HOSTED, "apk-alpine-keyed"]),
+        ("apk-wrong", [HOSTED, "apk-alpine-wrong"]),
+    ):
+        made(
+            administrator,
+            {"name": name, "format": "apk", "type": "group", "group": {"members": members}},
+        )
+        status, key = send("GET", f"{name}/megooarti-{name}.rsa.pub")
+        assert status == 200
+        (published / f"megooarti-{name}.rsa.pub").write_bytes(key)
+    return published
+
+
+@pytest.mark.parametrize("release", sorted(IMAGES))
+def test_apk_installs_ours_and_alpines_through_a_group_trusting_its_key_alone(groups, release):
+    installed = apk(
+        release,
+        groups,
+        # Alpine's own keys taken away: the group's is the only one.
+        "rm -f /etc/apk/keys/* && with_apk apk-public/v3.24/main /src/megooarti-apk-public.rsa.pub"
+        f" && apk add {PACKAGE} bc && {PACKAGE} && echo '6 * 7' | bc",
+    )
+
+    assert installed.returncode == 0, said(installed)
+    assert installed.stdout.splitlines()[-2:] == [f"hello from {PACKAGE} 1.0", "42"]
+
+
+def test_a_member_signed_by_a_key_it_was_not_given_is_left_out_of_a_group(groups, administrator):
+    installed = apk(
+        "3.24",
+        groups,
+        "rm -f /etc/apk/keys/* && with_apk apk-wrong/v3.24/main /src/megooarti-apk-wrong.rsa.pub"
+        f" && apk add {PACKAGE} && {PACKAGE} && ! apk add bc",
+    )
+    _, _, shown = call("GET", "/repositories/apk-alpine-wrong", headers=administrator)
+
+    assert installed.returncode == 0, said(installed)
+    assert shown["status"]["last_error"].startswith("Left out of the group apk-wrong")
