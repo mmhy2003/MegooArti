@@ -6,7 +6,6 @@ from megooarti.repositories import service
 from tests.accounts import PASSWORD, basic
 
 CONTENT = "/api/v1/content"
-APT_KEYS = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n"
 
 
 @pytest.fixture
@@ -107,9 +106,10 @@ async def test_apt_is_told_to_send_credentials_over_plain_http_where_the_address
             ("repo_gpgcheck=0", "gpgcheck=1"),
         ),
         (
+            # Its members' metadata may be any number of directories down.
             "group",
             {"group": {"members": []}},
-            "baseurl=https://test/repository/yum-x/\n",
+            "baseurl=https://test/repository/yum-x/<directory>\n",
             ("repo_gpgcheck=1", "gpgcheck=1"),
         ),
     ],
@@ -139,15 +139,16 @@ async def test_an_apk_repository_says_its_key_under_the_name_apk_finds_it_by(cli
     (proxy,) = await setup(client, root, "apk-alpine")
 
     assert hosted["text"] == (
+        # A user name may hold an @, which apk would take for the end of the account.
+        'account="$(printf %s "$MEGOOARTI_USER" | sed \'s/@/%40/g\'):$MEGOOARTI_TOKEN"\n'
         "wget -q -O /etc/apk/keys/megooarti-apk-hosted.rsa.pub "
-        '"https://$MEGOOARTI_USER:$MEGOOARTI_TOKEN@test/repository/apk-hosted/'
-        'megooarti-apk-hosted.rsa.pub"\n'
-        'echo "https://$MEGOOARTI_USER:$MEGOOARTI_TOKEN@test/repository/apk-hosted/<directory>" '
-        ">> /etc/apk/repositories\n"
+        '"https://$account@test/repository/apk-hosted/megooarti-apk-hosted.rsa.pub"\n'
+        'echo "https://$account@test/repository/apk-hosted/<directory>" >> /etc/apk/repositories\n'
         "chmod 600 /etc/apk/repositories\n"
         "apk update"
     )
-    assert proxy["text"].startswith('echo "https://$MEGOOARTI_USER:$MEGOOARTI_TOKEN@test/')
+    assert '\necho "https://$account@test/repository/apk-alpine/' in proxy["text"]
+    assert "/etc/apk/keys" not in proxy["text"]
 
 
 async def test_a_format_whose_clients_need_the_address_alone_says_nothing_more(client, db, root):

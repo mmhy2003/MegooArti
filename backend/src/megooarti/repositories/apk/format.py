@@ -264,10 +264,10 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
     """The repository's key, under the name apk finds it by, and its line in
     `/etc/apk/repositories`, with the account apk signs in with in the address."""
     parts = urlsplit(address)
-    signed_in = urlunsplit(
-        parts._replace(netloc=f"$MEGOOARTI_USER:$MEGOOARTI_TOKEN@{parts.netloc}")
-    )
-    lines = []
+    signed_in = urlunsplit(parts._replace(netloc=f"$account@{parts.netloc}"))
+    # A user name may hold an @, which apk would take for the end of the account: in an
+    # address it is written %40, which apk and wget read back.
+    lines = ['account="$(printf %s "$MEGOOARTI_USER" | sed \'s/@/%40/g\'):$MEGOOARTI_TOKEN"']
     if repository.type != "proxy":
         key = paths.key_name(repository.name)
         lines.append(f'wget -q -O /etc/apk/keys/{key} "{signed_in}{key}"')

@@ -315,7 +315,9 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
     """The repository's key, and its `.repo` file with the account dnf signs in with."""
     name = repository.name
     depth = repository.config.get("format_config", {}).get("repodata_depth", 0)
-    directory = "<directory>" if repository.type == "hosted" and depth else ""
+    # A group has metadata wherever a member has, at any depth.
+    deep = repository.type == "group" or (repository.type == "hosted" and depth)
+    directory = "<directory>" if deep else ""
     lines = []
     if repository.type == "proxy":
         signed, checked, keys = "0", "1", "file:///etc/pki/rpm-gpg/<the distribution's key>"
