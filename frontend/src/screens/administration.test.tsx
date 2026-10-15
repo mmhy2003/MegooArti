@@ -1237,6 +1237,67 @@ describe("the signing key of a repository (4.2)", () => {
   });
 });
 
+describe("the members a group left out (4.5)", () => {
+  const GROUP = repository("apt-all", {
+    format: "apt",
+    type: "group",
+    blob_store: null,
+    hosted: null,
+    format_config: {},
+    group: { members: ["apt-own", "apt-debian", "apt-ubuntu", "apt-down"] },
+  });
+  const member = (name: string, lastError: string | null) =>
+    repository(name, { ...proxy(name, {}, { last_error: lastError }), format: "apt" });
+  const MEMBERS = [
+    repository("apt-own", { format: "apt", format_config: { suite: "stable" } }),
+    member(
+      "apt-debian",
+      "Left out of the group apt-all: Its InRelease is signed by no key it was given.",
+    ),
+    // Left out of another group: that group's page says so.
+    member(
+      "apt-ubuntu",
+      "Left out of the group apt-other: Its Packages.xz is not what its Release says.",
+    ),
+    // A failure of its own, which its own page shows.
+    member("apt-down", "The remote could not be reached."),
+  ];
+
+  function group(members = MEMBERS) {
+    const api = mockApi({
+      "GET /repositories/apt-all": { json: GROUP },
+      "GET /content/apt-all": { json: view(GROUP) },
+      "GET /repositories/apt-all/signing-key": { json: KEY },
+      "GET /repositories": { json: page([GROUP, ...members]) },
+    });
+    navigation.at("/admin/repositories/apt-all");
+    return { ...renderUi(<RepositorySettingsScreen />), ...api };
+  }
+
+  test("are shown on its page with the reason, and lead to the member's own", async () => {
+    group();
+
+    const heading = await screen.findByRole("heading", { name: "Members left out" });
+    const panel = heading.parentElement as HTMLElement;
+    const items = within(panel).getAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toHaveTextContent("Its InRelease is signed by no key it was given.");
+    expect(items[0]).not.toHaveTextContent("Left out of the group");
+    expect(
+      within(items[0] as HTMLElement).getByRole("link", { name: "apt-debian" }),
+    ).toHaveAttribute("href", "/admin/repositories/apt-debian");
+    await expectAccessible();
+  });
+
+  test("are not spoken of while there is none", async () => {
+    group(MEMBERS.filter((held) => held.name !== "apt-debian"));
+
+    // Once the members are had: the group's form then has none to add.
+    await screen.findByText("There is no other repository of this format to add.");
+    expect(screen.queryByRole("heading", { name: "Members left out" })).toBeNull();
+  });
+});
+
 describe("the blob stores (R10)", () => {
   function stores(more: Routes = {}, session = ADMIN) {
     const api = mockApi({ "GET /blob-stores": { json: page(STORES) }, ...more });

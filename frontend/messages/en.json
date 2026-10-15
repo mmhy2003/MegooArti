@@ -787,7 +787,9 @@
     "deleteAsk": "Delete the repository {name}?",
     "deleteBody": "Every component and file in it is deleted, and every client that uses its address is refused. This cannot be undone.",
     "deleteBodyGroup": "Every client that uses its address is refused. Its members are not touched. This cannot be undone.",
-    "deleted": "Deleted the repository {name}."
+    "deleted": "Deleted the repository {name}.",
+    "leftOutTitle": "Members left out",
+    "leftOutIntro": "A check found what these proxies fetched wanting. The group answers without each one until it next reaches its remote."
   },
   "blobStores": {
     "title": "Blob stores",

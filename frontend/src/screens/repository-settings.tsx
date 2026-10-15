@@ -523,6 +523,42 @@ function ProxyState({ repository, mayWrite }: { repository: RepositoryOut; mayWr
   );
 }
 
+/**
+ * A group's members that a check left out, and why (4.5). What a group says of a member
+ * is the proxy's last error, until the proxy next reaches its remote.
+ */
+function LeftOut({ group }: { group: RepositoryOut }) {
+  const t = useTranslations("manage");
+  // Asked for by the group's form too: the same list, had once.
+  const every = useEveryManagedRepository();
+  const said = `Left out of the group ${group.name}: `;
+  const left = (group.group?.members ?? []).flatMap((name) => {
+    const member = every.data?.find((held) => held.name === name);
+    const error = member?.status?.last_error;
+    return error?.startsWith(said) ? [{ name, why: error.slice(said.length) }] : [];
+  });
+  if (left.length === 0) return null;
+  return (
+    <Panel className="p-6">
+      <h2 className={H2}>{t("leftOutTitle")}</h2>
+      <p className="mb-4 text-fg-muted">{t("leftOutIntro")}</p>
+      <ul className="flex flex-col gap-3">
+        {left.map((member) => (
+          <li key={member.name} className="flex flex-col gap-1 border-l-4 border-warn pl-3">
+            <AppLink
+              href={repositorySettingsHref(member.name)}
+              className="font-mono font-medium break-all text-ink-cyan underline-offset-4 hover:underline"
+            >
+              {member.name}
+            </AppLink>
+            <span className="text-sm break-words text-fg-muted">{member.why}</span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
 /** Going through a repository again (R8). It is done in the request: the button waits for it. */
 function RebuildIndex({ repository }: { repository: RepositoryOut }) {
   const t = useTranslations("manage");
@@ -641,6 +677,7 @@ export function RepositorySettingsScreen() {
           }}
         />
       </Panel>
+      {found.type === "group" ? <LeftOut group={found} /> : null}
       {hasSigningKey(found) ? <SigningKeyPanel repository={found} mayWrite={mayWrite} /> : null}
       {found.type === "proxy" ? <ProxyState repository={found} mayWrite={mayWrite} /> : null}
       {mayWrite && found.type !== "group" ? <RebuildIndex repository={found} /> : null}
