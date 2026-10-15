@@ -1,16 +1,25 @@
 """What is read of a NuGet package: its zip's directory and its `.nuspec`, to their bounds."""
 
+import os
 import struct
 import zipfile
 
 import pytest
 
 from megooarti.repositories.nuget import packages
-from tests.repositories.nuget.packages import nupkg, nuspec, reader, snupkg
+from tests.repositories.nuget.packages import NUSPEC_2013, nupkg, nuspec, reader, snupkg
 
 
 async def read(data: bytes) -> packages.Nuspec:
     return (await packages.read(reader(data), len(data))).nuspec
+
+
+def forged_central(data: bytes, name: bytes, at_field: int, value: int) -> bytes:
+    """`data` with one field of the central directory entry called `name` replaced."""
+    at = data.find(b"PK\x01\x02")
+    while data[at + 46 : at + 46 + len(name)] != name:
+        at = data.find(b"PK\x01\x02", at + 1)
+    return data[: at + at_field] + struct.pack("<I", value) + data[at + at_field + 4 :]
 
 
 async def test_the_nuspec_itself_is_kept_as_the_package_has_it():
@@ -67,7 +76,12 @@ async def test_a_package_says_its_id_version_and_what_its_feed_publishes():
     ],
 )
 async def test_every_schema_of_the_nuspec_is_read_alike(namespace):
-    spec = nuspec(namespace=namespace) if namespace else nuspec().replace(b' xmlns=""', b"")
+    spec = (
+        nuspec(namespace=namespace)
+        if namespace
+        else nuspec().replace(f' xmlns="{NUSPEC_2013}"'.encode(), b"")
+    )
+    assert (b"xmlns" in spec) == bool(namespace)
     said = await read(nupkg(spec=spec))
 
     assert (said.id, said.version) == ("MegooArti.Hello", "1.0.0")
@@ -131,13 +145,29 @@ async def test_a_zip64_file_is_refused_with_a_message_that_says_so():
 
 
 async def test_only_what_is_needed_is_read_of_a_package():
-    data = nupkg(files={"content/large.bin": b"\0" * 5_000_000})
+    data = nupkg(files={"content/large.bin": os.urandom(5_000_000)})
     asked = []
 
     async def counted(start: int, length: int) -> bytes:
         asked.append(length)
         return data[start : start + length]
 
+    assert len(data) > 5_000_000  # incompressible, so the whole package is not in the tail
     await packages.read(counted, len(data))
 
     assert sum(asked) < 70_000 + 20_000  # the tail, the directory and the .nuspec
+
+
+@pytest.mark.parametrize("method", [zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED])
+async def test_a_forged_compressed_size_is_refused_before_anything_large_is_read(method):
+    data = forged_central(nupkg(method=method), b"MegooArti.Hello.nuspec", 20, 0xFFFF_FFF0)
+    asked = []
+
+    async def counted(start: int, length: int) -> bytes:
+        asked.append(length)
+        return data[start : start + length]
+
+    with pytest.raises(packages.InvalidPackage, match="compressed size"):
+        await packages.read(counted, len(data))
+
+    assert max(asked) < 100_000

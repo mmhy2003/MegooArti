@@ -33,6 +33,8 @@ _LOCAL = b"PK\x03\x04"
 # CRC, sizes, the lengths of its name, extra field and comment, and where it is.
 _CENTRAL_HEADER = "<4sHHHHHHIIIHHHHHII"
 _STORED, _DEFLATED = 0, 8
+# How much deflated data may be larger than what it inflates to.
+_DEFLATE_SLACK = 64 * 1024
 SYMBOLS = "SymbolsPackage"
 
 # The bytes of a package from a position, as many as asked for (fewer at its end).
@@ -171,6 +173,13 @@ async def extract(read: Read, entry: Entry, most: int) -> bytes:
     """One file of the zip, inflated: at most `most` bytes of it."""
     if entry.size > most:
         raise InvalidPackage(f"{entry.name} is larger than {most} bytes")
+    # The directory's compressed size is untrusted too: it is bounded before it is read.
+    # Deflate never grows data by more than a little, and a stored file is as large as it is.
+    stored = entry.method == _STORED
+    if entry.compressed > most + _DEFLATE_SLACK or (stored and entry.compressed != entry.size):
+        raise InvalidPackage(
+            f"{entry.name} has a compressed size that its uncompressed size does not allow"
+        )
     local = await read(entry.offset, 30)
     if len(local) < 30 or local[:4] != _LOCAL:
         raise InvalidPackage(f"{entry.name} is not where the zip directory says")
