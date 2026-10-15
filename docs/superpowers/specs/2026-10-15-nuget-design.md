@@ -82,6 +82,22 @@ A client is given `…/<name>/index.json` for V3 and `…/<name>/` for V2; every
 
 A package client signs in with an API token: as the `X-NuGet-ApiKey` header (what `dotnet nuget push -k`, `nuget.exe`, `choco push --api-key` and `Publish-PSResource -ApiKey` send) or as the password of HTTP Basic (what a `nuget.config` source's credentials, `choco source add -u -p` and a PowerShell credential send). An `X-NuGet-ApiKey` that is not a token of an enabled user is refused with `401`, as a wrong password is. Reads follow the repository's permissions, anonymous access included.
 
+### Settled while building plan 13a
+
+| # | What | Why |
+| --- | --- | --- |
+| W1 | A hosted repository's V3 documents are written from the database on each request, as npm's package documents are, and kept nowhere (in place of 5's "kept by revision"): an id's versions and registration from that id's versions; a search's page of ids is chosen, ranked and counted in the database, and only that page's versions are read. | Each document is of one id, or of one page of a search: a query or two, where a cache of every id's documents would be written again after every push. |
+| W2 | A registration's pages are always inlined in its index; no page has an address of its own, and nothing is gzipped by the server. | NuGet's clients read inlined pages as they read paged ones; the gateway may compress what it sends. |
+| W3 | A version's component is its normalized version in lower case, as in every address; what the package wrote is in its `.nuspec`, which the documents show. An id's first push spells it. | One version is one component whatever case a push gives it. |
+| W4 | A push is taken at `api/v2/package` and `api/v2/symbolpackage` with or without a slash after them. | `dotnet nuget push` adds one to the address the service index gives. |
+| W5 | A package of 4 GiB or more (ZIP64) is refused with `400 invalid_package`, with a message that says so. | Its zip directory is read where an ordinary zip has it; nuget.org takes no package of that size either. |
+| W6 | `X-NuGet-ApiKey` is taken as an API token by the content route only, and only from a request without an `Authorization` header. | The JSON API takes a token as a bearer token; one header to say who calls is enough. |
+| W7 | The upload API (and the web UI) takes `.nupkg` and `.snupkg` files and keeps each where a push would; packages before symbol packages. | One way of keeping a package, however it arrives. |
+| W8 | `semVerLevel` is not read: every version is served to every client. | Every client of D7 sends `semVerLevel=2.0.0`. |
+| W9 | Deleting a package's file in the web UI or the API deletes its version, as `dotnet nuget delete` does; its `.nuspec` cannot be deleted on its own (`409 managed_by_format`); its symbol package can. | D4: what a NuGet client would do. |
+| W10 | The setup snippets are `dotnet nuget add source`, and a `nuget.config` with `%MEGOOARTI_USER%` and `%MEGOOARTI_TOKEN%`, which NuGet reads from the environment; a source over plain HTTP is marked `allowInsecureConnections="true"`, and a name that is not one an element can have is encoded as NuGet encodes it (`_x0031_`). Chocolatey's and PowerShell's, as setup and as usage, come with plan 13d, as their tests do. | V1 of the Linux formats' spec, and what each client reads. |
+| W11 | Until plans 13b and 13c, a NuGet repository can only be hosted. | Each plan ends with something that works. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
