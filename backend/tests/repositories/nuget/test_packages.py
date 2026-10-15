@@ -2,6 +2,7 @@
 
 import os
 import struct
+import time
 import zipfile
 
 import pytest
@@ -171,3 +172,11 @@ async def test_a_forged_compressed_size_is_refused_before_anything_large_is_read
         await packages.read(counted, len(data))
 
     assert max(asked) < 100_000
+
+
+def test_the_same_package_made_twice_is_the_same_bytes():
+    first, symbols = nupkg(), snupkg()
+    time.sleep(2.1)  # a zip entry's time has two seconds' resolution
+
+    assert nupkg() == first
+    assert snupkg() == symbols

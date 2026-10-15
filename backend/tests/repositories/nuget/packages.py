@@ -4,6 +4,7 @@ import io
 import zipfile
 from xml.sax.saxutils import escape
 
+_DATE = (2026, 1, 1, 0, 0, 0)
 NUSPEC_2013 = "http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"
 
 
@@ -48,15 +49,20 @@ def nupkg(
     """A package: its `.nuspec` at the top, a library, and what NuGet's packer adds."""
     written = io.BytesIO()
     with zipfile.ZipFile(written, "w", compression=method) as archive:
-        archive.writestr("_rels/.rels", b"<Relationships/>")
-        archive.writestr(
+
+        def add(name: str, data: bytes) -> None:
+            # A fixed date, so that the same arguments always give the same bytes.
+            archive.writestr(zipfile.ZipInfo(name, date_time=_DATE), data, compress_type=method)
+
+        add("_rels/.rels", b"<Relationships/>")
+        add(
             f"{package_id}.nuspec",
             spec if spec is not None else nuspec(package_id, version, **fields),
         )
-        archive.writestr("lib/net8.0/Hello.dll", b"MZ" + b"\0" * 64)
-        archive.writestr("[Content_Types].xml", b"<Types/>")
+        add("lib/net8.0/Hello.dll", b"MZ" + b"\0" * 64)
+        add("[Content_Types].xml", b"<Types/>")
         for name, data in (files or {}).items():
-            archive.writestr(name, data)
+            add(name, data)
     return written.getvalue()
 
 
