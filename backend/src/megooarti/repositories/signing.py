@@ -410,6 +410,15 @@ async def import_key(
     return await _keep(db, settings, repository, material, kind)
 
 
+def readable(settings: Settings, key: SigningKey) -> bool:
+    """Whether the installation's secret key unseals a stored key (spec 9)."""
+    try:
+        unseal(settings, key.private_key)
+    except SecretUnreadable:
+        return False
+    return True
+
+
 def signer(settings: Settings, key: SigningKey) -> Signer | RsaSigner:
     """What signs with a stored key: a Signer of OpenPGP, or an RsaSigner."""
     try:

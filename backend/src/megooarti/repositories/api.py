@@ -309,6 +309,9 @@ class SigningKeyOut(BaseModel):
     fingerprint: str
     public_key: str  # what clients install; the private key is never shown
     created_at: datetime
+    # False when the installation's secret key does not unseal it (spec 9): nothing can
+    # be signed until another is generated or imported.
+    readable: bool
 
 
 class SigningKeyImport(BaseModel):
@@ -321,13 +324,14 @@ class SigningKeyGenerate(BaseModel):
     algorithm: Literal["ed25519", "rsa4096"] | None = None
 
 
-def _shown(key: SigningKey) -> SigningKeyOut:
+def _shown(settings: Settings, key: SigningKey) -> SigningKeyOut:
     return SigningKeyOut(
         kind=key.kind,
         algorithm=key.algorithm,
         fingerprint=key.fingerprint,
         public_key=key.public_key,
         created_at=key.created_at,
+        readable=signing.readable(settings, key),
     )
 
 
@@ -340,7 +344,7 @@ async def get_signing_key(
 ) -> SigningKeyOut:
     """The key a hosted repository signs its indexes with. It is made if it is not there yet."""
     key = await signing.key_of(db, request.app.state.settings, await _load(db, name))
-    shown = _shown(key)
+    shown = _shown(request.app.state.settings, key)
     await db.commit()
     return shown
 
@@ -360,7 +364,7 @@ async def import_signing_key(
     except signing.KeyUnusable as error:
         details = [{"field": "body.private_key", "message": str(error)}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
-    shown = _shown(key)
+    shown = _shown(request.app.state.settings, key)
     await db.commit()
     log.info(
         "signing_key_imported",
@@ -386,7 +390,7 @@ async def generate_signing_key(
     except signing.KeyUnusable as error:
         details = [{"field": "body.algorithm", "message": str(error)}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
-    shown = _shown(key)
+    shown = _shown(request.app.state.settings, key)
     await db.commit()
     log.info(
         "signing_key_generated",

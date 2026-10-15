@@ -2,8 +2,9 @@
 
 import { Download, KeyRound, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Fact, Facts, Snippet, Time } from "@/components/ui/details";
@@ -59,11 +60,23 @@ export function SigningKeyPanel({
   const [asking, setAsking] = useState<"generate" | "import" | null>(null);
   const refused = refusalsOf(replace.error, ["private_key"]);
   const name = repository.name;
+  // What is wrong with the key is said at its field, which then has the keyboard, so
+  // that it is read out: at once when nothing was pasted, and in place of the button
+  // that opened the dialog when the server refused it.
+  const field = useRef<HTMLTextAreaElement>(null);
+  const refusedThere = useRef(false);
+  const [pressed, setPressed] = useState(0);
+  useEffect(() => {
+    if (pressed > 0 && missing) field.current?.focus();
+  }, [pressed, missing]);
 
   function askToImport(event: FormEvent) {
     event.preventDefault();
     replace.reset();
+    generate.reset();
+    refusedThere.current = false;
     setMissing(privateKey.trim() === "");
+    setPressed((times) => times + 1);
     if (privateKey.trim() !== "") setAsking("import");
   }
 
@@ -79,6 +92,9 @@ export function SigningKeyPanel({
         { private_key: privateKey },
         {
           ...done,
+          onError: () => {
+            refusedThere.current = true;
+          },
           onSuccess: () => {
             notify(t("imported", { name }));
             // Kept nowhere once it is the server's: neither here nor in the store.
@@ -101,6 +117,11 @@ export function SigningKeyPanel({
         <LoadingState className="p-2" />
       ) : (
         <>
+          {key.data.readable ? null : (
+            <Alert tone="danger" className="mb-4">
+              {t("unreadable")}
+            </Alert>
+          )}
           <Facts className="mb-4">
             <Fact name={t("kind")}>
               {key.data.kind === "openpgp" || key.data.kind === "rsa"
@@ -154,6 +175,7 @@ export function SigningKeyPanel({
           {generate.isError ? <ErrorState error={generate.error} /> : null}
           <form onSubmit={askToImport} className="flex flex-col gap-3" noValidate>
             <TextAreaField
+              ref={field}
               label={t("privateKey")}
               hint={t(`privateKeyHints.${openpgp ? "openpgp" : "rsa"}`)}
               autoComplete="off"
@@ -175,6 +197,7 @@ export function SigningKeyPanel({
             title={t(asking === "import" ? "importAsk" : "generateAsk", { name })}
             confirmLabel={t(asking === "import" ? "import" : "generate")}
             busy={generate.isPending || replace.isPending}
+            returnFocus={() => (refusedThere.current ? field.current : null)}
             onConfirm={confirmed}
           >
             {t("replaceBody", { name })}

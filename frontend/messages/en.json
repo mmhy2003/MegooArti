@@ -897,6 +897,7 @@
     "import": "Import the key",
     "importAsk": "Sign {name} with the imported key?",
     "imported": "{name} signs with the imported key.",
-    "replaceBody": "Its indexes are signed with that key from now on. Every machine that uses {name} must install the new public key, or it refuses what the repository serves."
+    "replaceBody": "Its indexes are signed with that key from now on. Every machine that uses {name} must install the new public key, or it refuses what the repository serves.",
+    "unreadable": "This key cannot be read with the installation's secret key, so nothing is signed with it: every client is refused the indexes. Generate a new key or import one."
   }
 }

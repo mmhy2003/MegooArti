@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleAlert } from "lucide-react";
-import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useId, type ComponentProps, type InputHTMLAttributes } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -20,8 +20,7 @@ export type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> &
     plainLabel?: boolean;
   };
 
-export type TextAreaFieldProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id"> &
-  Said & { label: string };
+export type TextAreaFieldProps = Omit<ComponentProps<"textarea">, "id"> & Said & { label: string };
 
 /** The ids of a field, its hint and its error, and which of those it is described by. */
 function useIds({ hint, error }: Said) {

@@ -1374,6 +1374,8 @@ export interface components {
             kind: string;
             /** Public Key */
             public_key: string;
+            /** Readable */
+            readable: boolean;
         };
         /** TokenCreate */
         TokenCreate: {

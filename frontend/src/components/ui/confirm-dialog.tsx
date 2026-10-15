@@ -24,6 +24,11 @@ export type ConfirmDialogProps = {
    * before the button that does it can be pressed.
    */
   mustType?: string;
+  /**
+   * Where the keyboard goes when the dialog closes, if not back to what opened it: the
+   * field a refusal is about. Asked as it closes.
+   */
+  returnFocus?: () => HTMLElement | null;
 };
 
 /**
@@ -39,6 +44,7 @@ export function ConfirmDialog({
   onConfirm,
   busy = false,
   mustType,
+  returnFocus,
 }: ConfirmDialogProps) {
   const t = useTranslations("confirm");
   const [typed, setTyped] = useState("");
@@ -60,7 +66,7 @@ export function ConfirmDialog({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            opener.current?.focus();
+            (returnFocus?.() ?? opener.current)?.focus();
           }}
           className="bevel fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-bad bg-panel p-6"
         >

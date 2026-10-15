@@ -79,6 +79,7 @@ const KEY = {
   fingerprint: "0F1E2D3C4B5A69788796A5B4C3D2E1F00F1E2D3C",
   public_key: "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEZ\n-----END PGP PUBLIC KEY BLOCK-----\n",
   created_at: "2026-10-01T09:30:00Z",
+  readable: true,
 };
 const store = (name: string, more: Record<string, unknown> = {}) => ({
   name,
@@ -1176,6 +1177,7 @@ describe("the signing key of a repository (4.2)", () => {
 
     await press();
     expect(field).toHaveAccessibleDescription("Paste the private key.");
+    expect(field).toHaveFocus(); // so that what is wrong is read out
     expect(screen.queryByRole("alertdialog")).toBeNull();
 
     await user.type(field, "the-private-key");
@@ -1188,6 +1190,8 @@ describe("the signing key of a repository (4.2)", () => {
     await waitFor(() =>
       expect(field).toHaveAccessibleDescription("This key is protected by a passphrase."),
     );
+    // Not the button that opened the dialog: the field the refusal is about.
+    await waitFor(() => expect(field).toHaveFocus());
     expect(field).toHaveValue("the-private-key"); // to be put right, not typed again
 
     answer = { json: NEW_KEY };
@@ -1225,6 +1229,17 @@ describe("the signing key of a repository (4.2)", () => {
     expect(screen.getByRole("link", { name: "Download the public key" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Generate a new key" })).toBeNull();
     expect(screen.queryByLabelText("A private key to import")).toBeNull();
+  });
+
+  test("says when the installation's secret key cannot read it, and what is to be done", async () => {
+    keyed(APT, {
+      "GET /repositories/apt-own/signing-key": { json: { ...KEY, readable: false } },
+    });
+
+    expect(await screen.findByText(KEY.fingerprint)).toBeVisible();
+    expect(within(panel()).getByRole("alert")).toHaveTextContent(
+      "This key cannot be read with the installation's secret key, so nothing is signed with it: every client is refused the indexes. Generate a new key or import one.",
+    );
   });
 
   test("says so when it cannot be had", async () => {

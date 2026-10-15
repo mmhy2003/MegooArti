@@ -1816,6 +1816,10 @@
           "public_key": {
             "title": "Public Key",
             "type": "string"
+          },
+          "readable": {
+            "title": "Readable",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1823,7 +1827,8 @@
           "algorithm",
           "fingerprint",
           "public_key",
-          "created_at"
+          "created_at",
+          "readable"
         ],
         "title": "SigningKeyOut",
         "type": "object"

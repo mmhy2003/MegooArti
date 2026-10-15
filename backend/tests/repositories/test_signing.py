@@ -196,10 +196,36 @@ async def test_the_api_shows_the_public_key_and_never_the_private_one(admin_clie
 
     assert shown.status_code == 200
     body = shown.json()
-    assert set(body) == {"kind", "algorithm", "fingerprint", "public_key", "created_at"}
+    assert set(body) == {
+        "kind",
+        "algorithm",
+        "fingerprint",
+        "public_key",
+        "created_at",
+        "readable",
+    }
+    assert body["readable"] is True
     assert (body["kind"], body["algorithm"]) == ("openpgp", "ed25519")
     assert "PRIVATE" not in shown.text
     assert (await admin_client.get(KEYS)).json()["fingerprint"] == body["fingerprint"]
+
+
+async def test_the_api_says_when_the_key_cannot_be_read_with_the_secret_key(
+    app, admin_client, signs, settings
+):
+    """Spec 9: the repository's page says that the key must be generated or imported again."""
+    await admin_client.post(
+        "/api/v1/repositories", json={"name": "files", "format": "raw", "type": "hosted"}
+    )
+    await admin_client.get(KEYS)  # made, with this installation's secret key
+    app.state.settings = settings.model_copy(update={"secret_key": "another installation's key"})
+    forget_keys()
+
+    shown = await admin_client.get(KEYS)
+
+    assert shown.status_code == 200
+    assert shown.json()["readable"] is False
+    forget_keys()
 
 
 async def test_the_api_generates_and_imports_keys(admin_client, signs):
