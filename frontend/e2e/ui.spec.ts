@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
@@ -23,6 +25,19 @@ const STORE = "browser-test-store";
 const ONCE = "browser-test-once";
 const STORED = "browser-test-stored";
 const REMOTE_SECRET = "the-remote-s-own-secret";
+const DEBS = "browser-test-debs";
+const ALPINE = "browser-test-alpine";
+// A remote's public key, as Alpine publishes its own: PEM RSA.
+const REMOTE_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwh4+mF9v0dj392qnTja8
+NJK6ZqtHcAcdo/a3zXLyl1q8M0U76Z7jzN9ZOaWYiVX4hkJH+tWgyiN/DQFjxVlH
+zJwrVUQZKJrCw53qt+9wfAwrK0PLPkgUclSj+toaBSAfCY7poMwBffqEsLkHxhCa
+e2GrNCA5wHNVmEZTraliMVb3PIacQNncL7O64eXi0ArIjr4tKXHcRmo8V1B+r+JN
+r2R2T7SjQjnu0HN7D/+20CDCWDU9Qeylt4MeJkWwUIZjyp/gyTsaCpqL+j0ORY0G
+eugDvBsQUON1UCVeHlHcrmC2+pTs9gfzds8x+BlwmVtR10QG4/HwT7Izac0X8B6u
+kQIDAQAB
+-----END PUBLIC KEY-----
+`;
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
 const UPLOADS = "**/api/v1/content/*/upload";
@@ -1304,6 +1319,94 @@ test("a group is made of members in an order set by keyboard, and answers throug
   const through = await page.request.get(`/repository/${TOGETHER}/d/made.txt`);
   expect(through.status()).toBe(200);
   expect(await through.text()).toBe("made here");
+});
+
+test("an APT repository is made with its suite, signs with a key replaced only after asking, and says how a machine uses it", async () => {
+  await page.goto("/admin/repositories/~new");
+  await page.getByLabel("Format").selectOption("apt");
+  await page.getByLabel("Name", { exact: true }).fill(DEBS);
+  await expect(page.getByLabel("Suite")).toHaveValue("stable");
+  await page.getByLabel("Suite").fill("trixie");
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: DEBS })).toBeVisible();
+  // Chosen once: a fact now, and not a field that would be tried.
+  await expect(page.getByLabel("Suite")).toHaveCount(0);
+  await expect(page.getByText("trixie", { exact: true })).toBeVisible();
+
+  // The key it signs with, as the server has it, and as a machine fetches it.
+  const key = async () =>
+    (await page.request.get(`/api/v1/repositories/${DEBS}/signing-key`)).json();
+  const made = await key();
+  await expect(page.getByText(made.fingerprint, { exact: true })).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download the public key" }).click();
+  const downloaded = await downloading;
+  expect(downloaded.suggestedFilename()).toBe(`${DEBS}.asc`);
+  const fetched = await page.request.get(`/repository/${DEBS}/public.key`);
+  expect(await readFile(await downloaded.path(), "utf8")).toBe(await fetched.text());
+
+  // Another one, only after asking, and every machine is told to install it.
+  await page.getByLabel("Algorithm of a new key").selectOption("rsa4096");
+  await page.getByRole("button", { name: "Generate a new key" }).click();
+  const dialog = page.getByRole("alertdialog", { name: `Sign ${DEBS} with a new key?` });
+  await expect(dialog).toContainText(
+    `Every machine that uses ${DEBS} must install the new public key`,
+  );
+  await dialog.getByRole("button", { name: "Generate a new key" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `${DEBS} signs with a new key.`,
+  );
+  const replaced = await key();
+  expect(replaced.fingerprint).not.toBe(made.fingerprint);
+  expect(replaced.algorithm).toBe("rsa4096");
+  await expect(page.getByText(replaced.fingerprint, { exact: true })).toBeVisible();
+
+  // How a machine uses it is on its page, with the address a client is given.
+  await page.getByRole("link", { name: "Browse it" }).click();
+  await expect(page.getByRole("heading", { name: "Set up a machine" })).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  await expect(page.getByRole("figure").filter({ hasText: "sources.list.d" })).toContainText(
+    `${origin}/repository/${DEBS} trixie main`,
+  );
+});
+
+test("the settings of a repository with a signing key meet WCAG 2.1 AA in both modes", async () => {
+  await page.goto(`/admin/repositories/${DEBS}`);
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("link", { name: "Download the public key" })).toBeVisible();
+  });
+  await page.goto(`/browse/${DEBS}`);
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("heading", { name: "Set up a machine" })).toBeVisible();
+  });
+});
+
+test("a proxy of apk is given its remote's keys, and keeps them when it is saved again", async () => {
+  await page.goto("/admin/repositories/~new");
+  await page.getByLabel("Format").selectOption("apk");
+  await page.getByLabel("Name", { exact: true }).fill(ALPINE);
+  await page.getByRole("radio", { name: "Proxy" }).check();
+  await page.getByLabel("Remote address").fill("https://dl-cdn.alpinelinux.org/alpine");
+  await page.getByLabel("The remote's public keys").fill("not a key");
+  await page.getByRole("button", { name: "Create repository" }).click();
+  // Refused at its field: the server read what was pasted.
+  await expect(page.getByLabel("The remote's public keys")).toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("The remote's public keys").fill(REMOTE_KEY);
+  await page.getByRole("button", { name: "Create repository" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: ALPINE })).toBeVisible();
+  await expect(page.getByLabel("The remote's public keys")).toHaveValue(REMOTE_KEY);
+  // A proxy has no key of its own: it passes its remote's signatures on.
+  await expect(page.getByRole("heading", { name: "Signing key" })).toHaveCount(0);
+
+  await page.getByRole("checkbox", { name: "Online" }).uncheck();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    `Saved the repository ${ALPINE}.`,
+  );
+  const saved = await (await page.request.get(`/api/v1/repositories/${ALPINE}`)).json();
+  expect(saved.format_config).toEqual({ remote_keys: REMOTE_KEY });
 });
 
 test("the screens that list and make repositories meet WCAG 2.1 AA in both modes", async () => {
