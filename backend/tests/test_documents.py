@@ -378,6 +378,7 @@ CLIENTS = {
     "raw": ["curl"],
     "apt": ["apt"],
     "yum": ["dnf"],
+    "apk": ["apk"],
 }
 
 

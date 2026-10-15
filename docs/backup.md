@@ -44,8 +44,8 @@ an older version is brought up to this one when the backend starts.
 
 Without the key (`secret.key` in the data directory, or `MEGOOARTI_SECRET_KEY` if you
 set one) a proxy's stored password cannot be read and must be entered again, and an
-APT or YUM repository's signing key must be generated again and given to every machine
-that installs from it. Nothing else that is kept depends on it. If you set `MEGOOARTI_SECRET_KEY`, keep it with the
+APT, YUM or apk repository's signing key must be generated again and given to every
+machine that installs from it. Nothing else that is kept depends on it. If you set `MEGOOARTI_SECRET_KEY`, keep it with the
 backup: it is not in it.
 
 Keep a backup as you would keep a password. Besides the hashes, it has the key, which

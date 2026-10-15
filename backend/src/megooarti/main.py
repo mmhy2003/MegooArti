@@ -19,6 +19,7 @@ from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories import upkeep
 from megooarti.repositories.api import router as repositories_router
+from megooarti.repositories.apk import format as _apk_format  # noqa: F401  (registers it)
 from megooarti.repositories.apt import format as _apt_format  # noqa: F401  (registers it)
 from megooarti.repositories.content_api import router as content_api_router
 from megooarti.repositories.docker.routes import router as registry_router  # registers the format
