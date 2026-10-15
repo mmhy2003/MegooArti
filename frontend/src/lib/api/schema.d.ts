@@ -1346,12 +1346,8 @@ export interface components {
         };
         /** SigningKeyGenerate */
         SigningKeyGenerate: {
-            /**
-             * Algorithm
-             * @default ed25519
-             * @enum {string}
-             */
-            algorithm: "ed25519" | "rsa4096";
+            /** Algorithm */
+            algorithm?: ("ed25519" | "rsa4096") | null;
         };
         /** SigningKeyImport */
         SigningKeyImport: {

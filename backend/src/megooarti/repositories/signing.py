@@ -6,14 +6,20 @@ generate another, or import their own. The private key is sealed with the
 installation's secret key, as a proxy's password is, and no answer ever carries it.
 A new key is a new revision of the repository: its indexes are signed again with it.
 
-OpenPGP is done by Sequoia (`pysequoia`), whose signatures apt and dnf verify.
+OpenPGP is done by Sequoia (`pysequoia`), whose signatures apt and dnf verify. apk
+knows RSA keys alone: those are made and used with `cryptography`, as Alpine's
+`abuild-sign` uses OpenSSL.
 """
 
 import asyncio
+import hashlib
 from dataclasses import dataclass
 
 import pysequoia
 import structlog
+from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +34,8 @@ from megooarti.secrets_box import SecretUnreadable, seal, unseal
 log = structlog.get_logger(__name__)
 
 OPENPGP = "openpgp"
+RSA = "rsa"
+RSA_ALGORITHM = "rsa4096"
 # What an administrator may ask for when generating a key, and what it is made with.
 GENERATED = {"ed25519": pysequoia.CipherSuite.Cv25519, "rsa4096": pysequoia.CipherSuite.RSA4k}
 DEFAULT_ALGORITHM = "ed25519"
@@ -180,6 +188,67 @@ def signs(repository: Repository) -> str | None:
     return format.signs
 
 
+def generate_rsa() -> Material:
+    """A new RSA key of 4096 bits, as apk's keys are."""
+    private = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    return _rsa_material(private)
+
+
+def read_rsa(private_key: str) -> Material:
+    """An administrator's RSA key, PEM, checked: private, unprotected, and RSA."""
+    try:
+        private = serialization.load_pem_private_key(private_key.encode(), password=None)
+    except TypeError:
+        raise KeyUnusable("The key is protected by a passphrase. Export it without one.") from None
+    except (ValueError, UnsupportedAlgorithm):
+        raise KeyUnusable("This is not a PEM private key.") from None
+    if not isinstance(private, rsa.RSAPrivateKey):
+        raise KeyUnusable("apk signs with RSA keys only; this is another kind.")
+    if private.key_size < 2048:
+        raise KeyUnusable("The key has fewer than 2048 bits, which apk refuses.")
+    return _rsa_material(private)
+
+
+def _rsa_material(private: rsa.RSAPrivateKey) -> Material:
+    public = private.public_key()
+    der = public.public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    pem = public.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    secret = private.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    return Material(
+        f"rsa{private.key_size}",
+        hashlib.sha256(der).hexdigest().upper(),
+        pem.decode(),
+        secret.decode(),
+    )
+
+
+class RsaSigner:
+    """Signs with one repository's RSA key, as `abuild-sign` does: PKCS#1 v1.5, SHA-1."""
+
+    def __init__(self, private_key: str) -> None:
+        self._key = serialization.load_pem_private_key(private_key.encode(), password=None)
+
+    def sign(self, data: bytes) -> bytes:
+        return self._key.sign(data, padding.PKCS1v15(), hashes.SHA1())
+
+
+def _made(kind: str, user_id: str, algorithm: str | None) -> Material:
+    """A new key of a kind: OpenPGP of the algorithm asked for, or RSA 4096."""
+    if kind == RSA:
+        if algorithm not in (None, RSA_ALGORITHM):
+            raise KeyUnusable("An apk repository's key is RSA of 4096 bits (rsa4096).")
+        return generate_rsa()
+    return generate_openpgp(user_id, algorithm or DEFAULT_ALGORITHM)
+
+
 def _user_id(repository: Repository) -> str:
     return f"MegooArti {repository.name}"
 
@@ -237,7 +306,7 @@ async def key_of(db: AsyncSession, settings: Settings, repository: Repository) -
     held = await _stored(db, repository)
     if held is not None:
         return held
-    material = generate_openpgp(_user_id(repository))
+    material = await asyncio.to_thread(_made, kind, _user_id(repository), None)
     await db.execute(
         insert(SigningKey)
         .values(
@@ -255,14 +324,17 @@ async def key_of(db: AsyncSession, settings: Settings, repository: Repository) -
 
 
 async def generate(
-    db: AsyncSession, settings: Settings, repository: Repository, algorithm: str
+    db: AsyncSession, settings: Settings, repository: Repository, algorithm: str | None
 ) -> SigningKey:
-    """A new key in place of the repository's. The caller commits."""
+    """A new key in place of the repository's. The caller commits.
+
+    Raises KeyUnusable for an algorithm the repository's kind of key cannot have.
+    """
     kind = signs(repository)
     if kind is None:
         raise _signs_nothing()
     # An RSA key takes a second or more to make: not on the loop that serves everyone.
-    material = await asyncio.to_thread(generate_openpgp, _user_id(repository), algorithm)
+    material = await asyncio.to_thread(_made, kind, _user_id(repository), algorithm)
     return await _keep(db, settings, repository, material, kind)
 
 
@@ -273,14 +345,14 @@ async def import_key(
     kind = signs(repository)
     if kind is None:
         raise _signs_nothing()
-    material = read_openpgp(private_key)
+    material = read_rsa(private_key) if kind == RSA else read_openpgp(private_key)
     return await _keep(db, settings, repository, material, kind)
 
 
-def signer(settings: Settings, key: SigningKey) -> Signer:
-    """What signs with a stored key."""
+def signer(settings: Settings, key: SigningKey) -> Signer | RsaSigner:
+    """What signs with a stored key: a Signer of OpenPGP, or an RsaSigner."""
     try:
-        return Signer(unseal(settings, key.private_key))
+        private = unseal(settings, key.private_key)
     except SecretUnreadable:
         log.error("signing_key_unreadable", repository_id=str(key.repository_id))
         raise ApiError(
@@ -289,3 +361,4 @@ def signer(settings: Settings, key: SigningKey) -> Signer:
             "This repository's signing key cannot be read with the installation's secret key. "
             "An administrator must generate or import another.",
         ) from None
+    return RsaSigner(private) if key.kind == RSA else Signer(private)

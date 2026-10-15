@@ -2,6 +2,8 @@
 
 import pysequoia
 import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from sqlalchemy import select
 
 from megooarti.errors import ApiError
@@ -321,3 +323,114 @@ def test_a_detached_signature_none_of_the_keys_made_is_refused():
         signing.verify_detached(repomd.replace(b"primary", b"primarx"), signature, rocky)
     with pytest.raises(signing.Unverified):
         signing.verify_detached(repomd, b"not a signature", rocky)
+
+
+# --- RSA keys, for apk ----------------------------------------------------------------
+
+APK_KEYS = "/api/v1/repositories/apk-hosted/signing-key"
+
+
+def test_an_rsa_key_signs_what_its_public_key_verifies():
+    key = signing.generate_rsa()
+
+    signature = signing.RsaSigner(key.private_key).sign(b"an index")
+
+    public = serialization.load_pem_public_key(key.public_key.encode())
+    public.verify(signature, b"an index", padding.PKCS1v15(), hashes.SHA1())
+    assert key.algorithm == "rsa4096" and len(key.fingerprint) == 64
+    assert key.public_key.startswith("-----BEGIN PUBLIC KEY-----")
+
+
+def test_an_administrators_rsa_key_is_taken_as_abuild_keygen_makes_one():
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    traditional = private.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    ).decode()
+
+    material = signing.read_rsa(traditional)
+
+    assert material.algorithm == "rsa2048"
+
+
+@pytest.mark.parametrize(
+    ("make", "said"),
+    [
+        (lambda: "not a key", "not a PEM private key"),
+        (
+            lambda: (
+                rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                .private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.BestAvailableEncryption(b"secret"),
+                )
+                .decode()
+            ),
+            "passphrase",
+        ),
+        (
+            lambda: (
+                ec.generate_private_key(ec.SECP256R1())
+                .private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+                .decode()
+            ),
+            "RSA keys only",
+        ),
+        (
+            lambda: (
+                rsa.generate_private_key(public_exponent=65537, key_size=1024)
+                .private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+                .decode()
+            ),
+            "fewer than 2048 bits",
+        ),
+    ],
+)
+def test_an_rsa_key_the_server_cannot_sign_with_is_refused(make, said):
+    with pytest.raises(signing.KeyUnusable, match=said):
+        signing.read_rsa(make())
+
+
+async def test_an_apk_repository_has_an_rsa_key_and_never_an_openpgp_one(admin_client):
+    await admin_client.post(
+        "/api/v1/repositories", json={"name": "apk-hosted", "format": "apk", "type": "hosted"}
+    )
+
+    shown = (await admin_client.get(APK_KEYS)).json()
+    generated = await admin_client.post(f"{APK_KEYS}/generate", json={})
+    openpgp = await admin_client.post(f"{APK_KEYS}/generate", json={"algorithm": "ed25519"})
+    imported = await admin_client.put(
+        APK_KEYS, json={"private_key": (DATA / "plain-rsa.asc").read_text(encoding="utf-8")}
+    )
+
+    assert (shown["kind"], shown["algorithm"]) == ("rsa", "rsa4096")
+    assert (generated.status_code, generated.json()["algorithm"]) == (200, "rsa4096")
+    assert generated.json()["fingerprint"] != shown["fingerprint"]
+    assert (openpgp.status_code, openpgp.json()["error"]["details"][0]["field"]) == (
+        422,
+        "body.algorithm",
+    )
+    assert (imported.status_code, imported.json()["error"]["details"][0]["field"]) == (
+        422,
+        "body.private_key",
+    )
+
+
+async def test_an_openpgp_key_is_ed25519_unless_another_is_asked_for(admin_client, signs):
+    await admin_client.post(
+        "/api/v1/repositories", json={"name": "files", "format": "raw", "type": "hosted"}
+    )
+
+    generated = await admin_client.post(f"{KEYS}/generate", json={})
+
+    assert generated.json()["algorithm"] == "ed25519"

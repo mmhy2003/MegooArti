@@ -304,7 +304,7 @@ async def rebuild_index(
 
 
 class SigningKeyOut(BaseModel):
-    kind: str  # openpgp
+    kind: str  # openpgp, or rsa for apk
     algorithm: str
     fingerprint: str
     public_key: str  # what clients install; the private key is never shown
@@ -312,12 +312,13 @@ class SigningKeyOut(BaseModel):
 
 
 class SigningKeyImport(BaseModel):
-    # An ASCII-armoured private key without a passphrase.
+    # A private key without a passphrase: ASCII-armoured OpenPGP, or PEM RSA for apk.
     private_key: str = Field(min_length=1, max_length=65536)
 
 
 class SigningKeyGenerate(BaseModel):
-    algorithm: Literal["ed25519", "rsa4096"] = signing.DEFAULT_ALGORITHM
+    # What an OpenPGP key is made with (ed25519 unless said); an apk key is rsa4096.
+    algorithm: Literal["ed25519", "rsa4096"] | None = None
 
 
 def _shown(key: SigningKey) -> SigningKeyOut:
@@ -380,7 +381,11 @@ async def generate_signing_key(
 ) -> SigningKeyOut:
     """Sign with a new key from now on. Every client must install it."""
     repository = await _load(db, name)
-    key = await signing.generate(db, request.app.state.settings, repository, body.algorithm)
+    try:
+        key = await signing.generate(db, request.app.state.settings, repository, body.algorithm)
+    except signing.KeyUnusable as error:
+        details = [{"field": "body.algorithm", "message": str(error)}]
+        raise ApiError(422, "validation_error", "The request is not valid.", details) from None
     shown = _shown(key)
     await db.commit()
     log.info(

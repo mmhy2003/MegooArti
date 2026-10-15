@@ -1753,13 +1753,19 @@
       "SigningKeyGenerate": {
         "properties": {
           "algorithm": {
-            "default": "ed25519",
-            "enum": [
-              "ed25519",
-              "rsa4096"
+            "anyOf": [
+              {
+                "enum": [
+                  "ed25519",
+                  "rsa4096"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Algorithm",
-            "type": "string"
+            "title": "Algorithm"
           }
         },
         "title": "SigningKeyGenerate",
