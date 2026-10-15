@@ -131,7 +131,8 @@ def _members(opened: bytes) -> dict[str, bytes]:
     """The files of a tar that may lack its end, as a signature and a control part do."""
     found = {}
     try:
-        with tarfile.open(fileobj=io.BytesIO(opened + b"\0" * 1024)) as tar:
+        # `r:`, as it is: unpacked again, a few bytes could be gigabytes.
+        with tarfile.open(fileobj=io.BytesIO(opened + b"\0" * 1024), mode="r:") as tar:
             for member in tar.getmembers():
                 if member.isfile():
                     found[member.name] = tar.extractfile(member).read()

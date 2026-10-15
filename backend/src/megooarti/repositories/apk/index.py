@@ -164,7 +164,8 @@ def _stream(data: bytes, most: int) -> tuple[bytes, bytes, bytes]:
 
 def _files(opened: bytes) -> dict[str, bytes]:
     try:
-        with tarfile.open(fileobj=io.BytesIO(opened + b"\0" * 1024)) as tar:
+        # `r:`, as it is: unpacked again, a few bytes could be gigabytes.
+        with tarfile.open(fileobj=io.BytesIO(opened + b"\0" * 1024), mode="r:") as tar:
             return {
                 member.name: tar.extractfile(member).read()
                 for member in tar.getmembers()

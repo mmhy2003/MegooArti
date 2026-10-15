@@ -149,3 +149,10 @@ async def test_a_control_part_one_byte_over_the_bound_is_refused_however_it_arri
 
     with pytest.raises(packages.InvalidPackage, match="larger than"):
         await packages.read(pieces(package, size=1))
+
+
+async def test_a_control_part_packed_again_inside_is_not_unpacked_further():
+    inner = gzip.compress(tar_of({".PKGINFO": pkginfo().encode()}, end=True), mtime=0)
+
+    with pytest.raises(packages.InvalidPackage, match="not a tar archive"):
+        await read(gzip.compress(inner, mtime=0) + gzip.compress(tar_of({}, end=True), mtime=0))

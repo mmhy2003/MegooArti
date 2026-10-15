@@ -14,6 +14,16 @@ from megooarti.repositories.apk import index, packages
 from tests.repositories.apk.packages import DATA, HELLO, REAL, TOOL, make_apk, pieces, pkginfo
 
 
+def tarfile_of(files: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name, data in files.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            tar.addfile(member, io.BytesIO(data))
+    return buffer.getvalue()
+
+
 def streams(data: bytes) -> list[tuple[bytes, bytes]]:
     """A file's gzip streams, each as it is packed and as it unpacks."""
     found, at = [], 0
@@ -165,3 +175,11 @@ def test_an_index_abuild_signed_is_checked_with_its_key_and_no_other():
         signing.verify_rsa(read.packed + b"x", read.signature, builder)
     with pytest.raises(signing.Unverified):
         signing.verify_rsa(read.packed, read.signature, builder, sha256=True)
+
+
+def test_an_index_whose_tar_is_packed_again_inside_is_not_unpacked_further():
+    """A few hundred bytes would otherwise unpack to hundreds of megabytes, unchecked."""
+    inner = gzip.compress(tarfile_of({"APKINDEX": b"C:Q1a\nP:a\nV:1-r0\n\n" * 1000}), mtime=0)
+
+    with pytest.raises(index.InvalidIndex, match="not a tar archive"):
+        index.read(gzip.compress(inner, mtime=0))

@@ -219,11 +219,11 @@ def test_apk_installs_a_public_package_through_a_proxy_of_its_mirror(published, 
 
 ADMIN = "admin:'a brand new password'"  # what the `administrator` fixture made it
 # The guide's commands, as an administrator types them, against the stack: a proxy of
-# Alpine's mirror given Alpine's keys, as an Alpine machine has them.
+# Alpine's mirror given Alpine's keys, for every architecture, as an Alpine machine has them.
 GUIDE = f"""
 set -e
 apk add -q jq curl > /dev/null
-keys=$(cat /etc/apk/keys/*.rsa.pub)
+keys=$(cat /usr/share/apk/keys/*.rsa.pub)
 jq -n --arg keys "$keys" '{{
   name: "apk-alpine-keyed", format: "apk", type: "proxy",
   proxy: {{remote_url: "{MIRROR}", auto_block: false}},

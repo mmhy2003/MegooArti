@@ -96,11 +96,12 @@ echo "https://repo.example.com/repository/apk-alpine/v3.24/main" > /etc/apk/repo
 A group puts your own repositories and the mirror behind one address, and signs every
 index it serves with a key of its own: a machine needs that one key, and nothing else.
 The group checks for it what apk would have checked, so a proxy can be a member only if
-it has its remote's public keys. Alpine's are on every Alpine machine; on one that has
-jq and curl:
+it has its remote's public keys. Alpine's, for every architecture, are on every Alpine
+machine in `/usr/share/apk/keys` (`/etc/apk/keys` has only those of the machine's own
+architecture, and any other key it was given); on one that has jq and curl:
 
 ```bash
-keys=$(cat /etc/apk/keys/*.rsa.pub)
+keys=$(cat /usr/share/apk/keys/*.rsa.pub)
 jq -n --arg keys "$keys" '{
   name: "apk-alpine", format: "apk", type: "proxy",
   proxy: {remote_url: "https://dl-cdn.alpinelinux.org/alpine"},

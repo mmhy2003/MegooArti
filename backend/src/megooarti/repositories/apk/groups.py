@@ -46,6 +46,8 @@ PACKED_MOST = 256 * 1024 * 1024
 RETRY = timedelta(minutes=1)
 # The mark of a revision written while a member was left out: no digest ends so.
 _INCOMPLETE = "~"
+# What the group's one empty index is kept as: a directory no path can be.
+_EMPTY = "/"
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,21 @@ async def _write(
     return replace(written, revision=revision)
 
 
+async def _filled(
+    members: list[RepositoryContext], candidates: list[uuid.UUID], directory: str
+) -> bool:
+    """Whether a member may list packages in a directory: a proxy whose remote has its
+    index, or a hosted member that holds packages there."""
+    for member in members:
+        if member.repository.id not in candidates:
+            continue
+        if member.repository.type != "hosted":
+            return True
+        if apk.holds_packages(await apk.hosted_indexes(member), directory):
+            return True
+    return False
+
+
 async def _directory_index(
     context: RepositoryContext, request: Request, directory: str
 ) -> derived.Written:
@@ -203,6 +220,10 @@ async def _directory_index(
             tokens.append(token)
     if not candidates:
         raise _not_found("No repository of this group has an index in this directory.")
+    if not await _filled(members, candidates, directory):
+        # One empty index for every such directory: whoever may read the group
+        # cannot have one kept, and signed, for every name they think of.
+        directory = _EMPTY
     key = await signing.key_of(context.db, context.settings, context.repository)
     said = "\n".join([key.fingerprint, directory, *tokens])
     revision = hashlib.sha256(said.encode()).hexdigest()

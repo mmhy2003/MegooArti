@@ -6,7 +6,7 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from megooarti.repositories import signing
+from megooarti.repositories import derived, signing
 from megooarti.repositories.apk import groups as apk_groups
 from megooarti.repositories.apk import index
 from tests.accounts import error_code
@@ -306,3 +306,16 @@ async def test_keys_apk_cannot_check_with_are_refused(admin_client, keys, said):
     detail = refused.json()["error"]["details"][0]
     assert detail["field"] == "format_config.remote_keys"
     assert said in detail["message"]
+
+
+async def test_directories_no_member_has_packages_in_share_one_empty_index(client, db, root):
+    """Whoever may read the group cannot fill its memory with an index for every name."""
+    await create(db)
+    group = await a_group(db, "apk-hosted")
+
+    first = await group_index(client, root, "a/x86_64")
+    second = await group_index(client, root, "b/aarch64")
+
+    assert first.text == second.text == ""
+    kept = [of for of in derived._kept if isinstance(of, tuple) and of[0] == group.id]
+    assert len(kept) == 1

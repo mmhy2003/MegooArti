@@ -23,6 +23,14 @@ Task 5 writes these into the spec's section 4, as "Settled while building plan 1
 | U5 | A hosted member's directory without packages adds nothing where another member has the directory, as in a YUM group (S5); a group with a hosted member serves an empty index for a directory no member has packages in. | A machine can be set up before anything is uploaded. |
 | U6 | An apk group writes as YUM's do: behind the requests, one writing of a directory at a time (S10), the last whole index kept only while a member it had cannot be checked (S11), and why a member was left out said once its checks are done, and committed (S12). | The lessons of plans 12b and 12d. |
 
+**Changed after the whole-branch review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first, and the spec's section 4 records what they settle as U7 to U9.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `index._files` and `packages._members` open their tar with `mode="r:"`. | C1: a nested compressed tar was unpacked without a bound, before the signature was checked. |
+| F2 | `docs/formats/apk.md` and `test_apk_client.py`'s `GUIDE`: Alpine's keys from `/usr/share/apk/keys`. | I2: the machine's own keys left other architectures' directories without the mirror. |
+| F3 | `groups._filled`, and `_EMPTY`: a directory no member may list packages in is written as the group's one empty index. | I3: an index kept and signed for every name asked. |
+
 ## Global Constraints
 
 - **A client trusts the group's key and nothing else**: nothing a proxy member gave is signed by the group unless one of its remote's keys signed it first.

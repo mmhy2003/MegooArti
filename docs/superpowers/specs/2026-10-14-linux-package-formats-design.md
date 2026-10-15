@@ -230,6 +230,14 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | U5 | A hosted member's directory without packages adds nothing where another member has the directory, as in a YUM group (S5); a group with a hosted member serves an empty index for a directory no member has packages in. | A machine can be set up before anything is uploaded. |
 | U6 | An apk group writes as YUM's do: behind the requests, one writing of a directory at a time (S10), the last whole index kept only while a member it had cannot be checked (S11), and why a member was left out said once the writing is done, and committed (S12). | The lessons of plans 12b and 12d. |
 
+### Settled by the review of plan 12f
+
+| # | What | Why |
+| --- | --- | --- |
+| U7 | The tar inside an index's or a package's stream is read as it is (`r:`): a tar packed again within it is refused as not a tar. | `tarfile` would otherwise unpack it again, without a bound: a mirror's 651-byte index became 200 MiB before its signature was checked, and a package's control part could do as much. |
+| U8 | The guide gives an apk proxy Alpine's keys from `/usr/share/apk/keys`, which holds those of every architecture. | `/etc/apk/keys` holds the machine's own architecture's keys alone, and any other key it trusts: a group made from it left Alpine's mirror out of every other architecture's directories. |
+| U9 | Directories in which no member may list packages (no proxy's remote has their index, and no hosted member holds packages there) share one empty index of the group. | Whoever may read a group could have an index kept, and signed, for every name they thought of. |
+
 ## 5. APT
 
 ### 5.1 Layout
