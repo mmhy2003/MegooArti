@@ -173,6 +173,18 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | R11 | A directory that had no packages keeps the files its empty `repomd.xml` named once its first package comes. | R4's machine, set up before the first upload, was given `404` for them. |
 | R12 | A hosted repository's metadata is written whole after each change, and the first request after it waits: 30,000 small packages take about 16 seconds to write and 4 more to read, a repository of 5,200 packages with a million files about 7. The guide says so. Writing only what changed (each package's part kept, each directory on its own) is left until a repository needs it. | Measured by the review on the reference laptop. dnf waits 30 seconds for a server that sends nothing. |
 
+### Settled while building plan 12d
+
+| # | What | Why |
+| --- | --- | --- |
+| S1 | A directory one member of a group has is that member's: its `repomd.xml`, signed again with the group's key, and every file it names sent on from that member. Only a directory several members have gets metadata of the group's own. | dnf checks every file against the `repomd.xml` it was given, and a YUM `repomd.xml` says nothing of whose repository it is that could change under a client (unlike APT's `Release`, Q10). Writing Fedora's metadata again would cost seconds and memory for nothing. |
+| S2 | A group merges its members' `primary.xml`, `filelists.xml` and `other.xml` by their `<package>` elements, copied as each member wrote them, without parsing a file whole, and packs what it writes with zstd. | Fedora 44's release and its updates: 1.3 GB of `filelists.xml`, merged in 17 seconds on the reference laptop with 245 MB at most in memory, 120 MB packed. Packed with gzip it would take most of a minute. dnf 5 on Fedora 44 and dnf 4 on Rocky Linux 10 read zstd. |
+| S3 | A merged directory's `repomd.xml` names the three files the group wrote, and of every other kind (package groups, updates, modules) the file of the first member that has it, as that member wrote its `<data>`. The members' `*.sqlite` and zchunk forms of the three are not named. Its revision and timestamps are the newest of its members' files' timestamps. | 6.4. dnf reads the XML. Rocky's `repomd.xml` gives its release (`10.2`) as its revision, not a time; the newest timestamp makes the same bytes in any process. |
+| S4 | Rocky Linux's mirrors sign their `repomd.xml` (`repomd.xml.asc`), Fedora's do not (in place of 6.4's "Fedora's and Rocky's mirrors do not"). A proxy given `remote_keys` must have a `repomd.xml.asc` that one of them made, or it is left out: a signature taken away is no reason to trust a remote less checked. | A group that skipped the check whenever the signature was missing would let whoever could change the mirror's answers skip it too. |
+| S5 | A hosted member's directory that holds no packages adds nothing where another member has the directory. A group whose members have no packages in a directory serves that directory's empty metadata. | A hosted repository at depth 0 always has a `repodata/`: beside a mirror, it would turn the mirror's own into a merge for nothing. |
+| S6 | What a group checks of a member, whatever the format, is in one module (`repositories/checks.py`): a proxy's `remote_keys` as a setting, leaving a member out, and the members as contexts of the writing's own session. APT's groups use it. `signing.verify_detached` checks a detached signature. | One way to leave a member out, and to say why. |
+| S7 | Fedora 44 and Rocky Linux 10 have no modules: section 11's risk of a group that passes on one member's `modules` concerns older distributions only (Rocky Linux 8 and 9's AppStream). The guide says that modules are the first member's. | Fedora dropped modularity in Fedora 39, and RHEL 10 has none. |
+
 ## 5. APT
 
 ### 5.1 Layout
@@ -300,7 +312,7 @@ For each directory, the group merges the members' `APKINDEX` (the same name, ver
 | A Python library for OpenPGP that signs as apt and dnf verify. | Settled for apt (P1) and dnf (R9): `pysequoia`. |
 | `zstd` packages need `zstandard` (Python 3.13 has no `zstd` of its own). | A dependency, added in plan 12a. |
 | Merging a proxy's whole index (Debian's `Packages` is tens of megabytes) costs memory and time on the first request after a change. | Measured in plan 12b (Q2): Debian's `main` for amd64, 69,908 packages, merged and packed in 2.4 seconds, 13 MB kept; a suite one member has is not merged at all (Q1). |
-| A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Plan 12d's tests with Rocky's AppStream; the guide says what a group of modular repositories does. |
+| A YUM group passes on one member's `modules`: modular packages of the other members may be filtered by dnf. | Settled for Fedora 44 and Rocky Linux 10, which have none (S7); the guide says that a group passes on its first member's. |
 | Keys sealed with the secret key are lost with it. | The backup guide already says to keep the secret key; it will name signing keys too. |
 
 ## 12. Plans
