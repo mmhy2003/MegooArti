@@ -238,6 +238,18 @@ What the server derives from the packages, it does not store (as Maven's metadat
 | U8 | The guide gives an apk proxy Alpine's keys from `/usr/share/apk/keys`, which holds those of every architecture. | `/etc/apk/keys` holds the machine's own architecture's keys alone, and any other key it trusts: a group made from it left Alpine's mirror out of every other architecture's directories. |
 | U9 | Directories in which no member may list packages (no proxy's remote has their index, and no hosted member holds packages there) share one empty index of the group. | Whoever may read a group could have an index kept, and signed, for every name they thought of. |
 
+### Settled while building plan 12g
+
+| # | What | Why |
+| --- | --- | --- |
+| V1 | How a machine is set up is the format's to say (`Format.setup`, nothing unless a format says), and the browsing API gives it with the repository (`GET /api/v1/content/<name>`: `setup`, as `usage` is for a component), with the address the base URL gives. A part a person fills in is written `<so>`; the account is the shell's `$MEGOOARTI_USER` and `$MEGOOARTI_TOKEN`. | 8: whoever may read a repository needs it, and not only an administrator. A token is never written into a page. |
+| V2 | APT's: the key to `/etc/apt/keyrings/<name>.asc` (not for a proxy, whose `signed-by` is the distribution's keyring), the `deb` line with the hosted repository's suite (`<suite>` for a group or a proxy), and the account in `/etc/apt/auth.conf.d/<name>.conf`, whose `machine` is the host for HTTPS and `http://<host>` for plain HTTP. YUM's: the key to `/etc/pki/rpm-gpg/<name>.asc` and a `.repo` file with `repo_gpgcheck` and `gpgcheck` as 6.2 to 6.4 have them (a proxy `0` and `1`, a group `1` and `1`), `<directory>` after `baseurl=` where `repodata_depth` is not 0. apk's: the key to `/etc/apk/keys/` under its own name, and the address with the account in it, then `<directory>`. | apt sends credentials over plain HTTP only to a `machine` that says `http://`. |
+| V3 | The set-up commands are on the repository's browse page; the signing key, a group's members left out, the suite and the depth are on its settings page. | The first is for whoever uses the repository, the others for whoever keeps it. |
+| V4 | The suite and the depth are fields only while a repository is made, checked there as the server checks them; afterwards they are facts, and are sent back unchanged with every save. A proxy's `remote_keys` are sent with every save, empty or not. | A repository's `format_config` is replaced whole: keys that were not sent would be none. |
+| V5 | The public key is saved from what the API showed (a `data:` link), under the name its client needs: `<name>.asc`, or `megooarti-<name>.rsa.pub` for apk. | What is saved is what is shown, with no further request, and apk finds a key by its file's name. |
+| V6 | A new key is OpenPGP of the algorithm chosen on the page (Ed25519 unless RSA 4096 is), or RSA 4096 for apk, which is asked no algorithm. The private key to import is pasted into the page; the dialog only asks, and says that every machine must install the new public key. A key that is imported is kept nowhere in the page once the server has it. | A4 and A2. A dialog that asks is not a form. |
+| V7 | A member a check left out is a member whose last error begins `Left out of the group <group>: `, as `checks.leave_out` writes it; the page shows the rest of it. It is listed until the proxy next reaches its remote, or fails in another way. | The member's last error is where 4.5 keeps the reason: there is nothing else to read. Only a proxy is checked, so only a proxy is listed. |
+
 ## 5. APT
 
 ### 5.1 Layout

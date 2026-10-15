@@ -17,6 +17,8 @@ curl -u ci --upload-file megooarti-hello_1.0_all.deb https://repo.example.com/re
 
 On each machine that installs from it, as root: the repository's public key, the
 repository itself, and the account apt signs in with.
+The repository's page in the web UI gives these commands with its own address, under
+"Set up a machine".
 
 ```bash
 curl -fsS -u ci -o /etc/apt/keyrings/megooarti.asc \
@@ -150,7 +152,8 @@ EOF
   `private_key` replaces it, for whoever holds `admin:repositories:write`. From then on
   the indexes are signed with the new key only: every machine must fetch the new
   `public.key`. The private key is kept sealed with the installation's secret key, and
-  is never shown.
+  is never shown. The repository's settings page in the web UI shows the key, with
+  its public key to download, and replaces it after asking.
 - **Deleting** a package (`DELETE` on its address under `pool/`) takes it out of the
   indexes at once.
 - **A proxy**'s remote is a mirror's root. What is under `dists/` is checked again with

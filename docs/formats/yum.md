@@ -24,6 +24,8 @@ On each machine that installs from it, as root: the repository's public key, and
 repository itself, with the account dnf signs in with. `repo_gpgcheck=1` has dnf check
 the repository's signature of its metadata; `gpgcheck` is for the packages' own, and is
 `1` only if you sign them.
+The repository's page in the web UI gives these commands with its own address, under
+"Set up a machine".
 
 ```bash
 curl -fsS -u ci -o /etc/pki/rpm-gpg/megooarti.asc \
@@ -104,7 +106,9 @@ would lead dnf past MegooArti.
   `private_key` replaces it, for whoever holds `admin:repositories:write`. From then on
   the metadata is signed with the new key only: every machine must fetch the new
   `public.key`. The private key is kept sealed with the installation's secret key, and
-  is never shown. MegooArti signs the metadata, not the packages: sign those with
+  is never shown; the repository's settings page in the web UI shows the key, with its
+  public key to download, and replaces it after asking. MegooArti signs the metadata,
+  not the packages: sign those with
   `rpmsign` before uploading them if machines are to check them (`gpgcheck=1`).
 - **Deleting** a package (`DELETE` on its address) takes it out of the metadata at
   once.

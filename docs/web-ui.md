@@ -10,7 +10,9 @@ repositories, blob stores and the installation's own settings.
   type and four checksums (each with a button that copies it), who stored it and when,
   and a download link. Every folder and file has an address of its own, so a link to
   one can be shared. A group lists its members. A proxy shows what has been fetched
-  through it so far.
+  through it so far. An APT, YUM or apk repository also says how a machine is set up
+  to use it: its key, its address and the account it signs in with, as commands to
+  copy, with what is yours to fill in between angle brackets.
 - **A component's page** says what a package version is, lists its files, and gives
   what to paste into a build or a shell to use it (for Maven, the dependency for
   Maven and for Gradle), each with a copy button.
@@ -19,12 +21,14 @@ repositories, blob stores and the installation's own settings.
   file's checksum: paste an MD5, SHA-1, SHA-256 or SHA-512, and its length says which
   it is. A search is in the address, so it can be shared and gone back to. Search
   looks in hosted and proxy repositories: what a group serves is found in its members.
-- **Upload** is offered for a hosted Raw, Maven, npm or PyPI repository to whoever
-  may add to it, from the repository ("Upload here") and from the navigation. The
-  form has the fields the format needs. Files are chosen, or dropped onto a file
-  field. It shows how much has been sent, and can be stopped. What the server refuses
-  about a field is said at that field, which then has the keyboard; anything else is
-  said above the button. A Docker image is pushed with a container client.
+- **Upload** is offered for a hosted Raw, Maven, npm, PyPI, APT, YUM or apk
+  repository to whoever may add to it, from the repository ("Upload here") and
+  from the navigation. The form has the fields the format needs: none for APT,
+  whose packages say where they go, and a directory for YUM and apk. Files are
+  chosen, or dropped onto a file field. It shows how much has been sent, and can be
+  stopped. What the server refuses about a field is said at that field, which then
+  has the keyboard; anything else is said above the button. A Docker image is
+  pushed with a container client.
 - **Delete** is offered to whoever may delete in the repository. A file or one
   version is deleted after a question. A folder is deleted, with everything under
   it, only after its name is typed. Each is removed as the format's own client would
@@ -61,13 +65,20 @@ repositories, blob stores and the installation's own settings.
     combination has. A hosted repository has a deployment policy; a proxy has its
     remote, how it signs in there, how long it trusts what it cached, and what it
     does when the remote fails; a group has its members, put in order with buttons;
-    a hosted or proxy Maven repository has a version policy and a layout policy.
-    What cannot change later (name, format, type, blob store, version policy) is
-    shown as it is and not as a field, beside the address the repository's clients
-    use. A proxy's secret is typed and never shown: leave the field empty to keep
-    the one that is stored. A repository's page also shows a proxy's state and last
-    error, has it check everything with its remote again, rebuilds the index, and
-    deletes the repository after you type its name.
+    a hosted or proxy Maven repository has a version policy and a layout policy; a
+    hosted APT repository has its suite, a hosted YUM repository the depth of its
+    metadata, and a proxy of APT, YUM or apk its remote's public keys, which a group
+    checks it with. What cannot change later (name, format, type, blob store,
+    version policy, suite, depth of the metadata) is shown as it is and not as a
+    field, beside the address the repository's clients use. A proxy's secret is
+    typed and never shown: leave the field empty to keep the one that is stored. A
+    repository's page also shows a proxy's state and last error, has it check
+    everything with its remote again, rebuilds the index, and deletes the
+    repository after you type its name. A hosted repository or a group of APT, YUM
+    or apk shows its signing key, with the public key to copy or download, and
+    signs with a new or an imported key after asking: every machine must then
+    install the new public key. A group's page lists the members a check left out,
+    with why.
   - **Blob stores** lists the stores with how many blobs each holds, their size and
     the space left, makes a new one, and deletes one that no repository uses. Its
     files stay on the disk. The store called `default` is always kept: a repository

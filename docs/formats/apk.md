@@ -20,6 +20,8 @@ curl -u ci --upload-file megooarti-hello-1.0-r0.apk \
 On each machine that installs from it, as root: the repository's public key, saved
 under the name apk finds it by, and the repository, with the account apk signs in with.
 apk adds the machine's architecture to the address itself.
+The repository's page in the web UI gives these commands with its own address, under
+"Set up a machine".
 
 ```bash
 wget -q -O /etc/apk/keys/megooarti-apk-hosted.rsa.pub \
@@ -81,7 +83,9 @@ echo "https://repo.example.com/repository/apk-alpine/v3.24/main" > /etc/apk/repo
   key in `private_key` (as `abuild-keygen` makes one, of 2048 to 8192 bits) replaces
   it, for whoever holds `admin:repositories:write`. From then on the indexes are
   signed with the new key only: every machine must fetch it again. The private key is
-  kept sealed with the installation's secret key, and is never shown.
+  kept sealed with the installation's secret key, and is never shown. The
+  repository's settings page in the web UI shows the key, with its public key to
+  download, and replaces it after asking.
 - **Deleting** a package (`DELETE` on its address) takes it out of its directory's
   index at once.
 - **A proxy**'s remote is a mirror's root. Each `APKINDEX.tar.gz` is checked again
