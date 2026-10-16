@@ -67,6 +67,16 @@ dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json
   --store-password-in-clear-text
 ```
 
+A group is one feed of its members': a machine whose one source is the group restores
+the packages you push and nuget.org's alike. Push to a hosted member, not to the group.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "nuget-public", "format": "nuget", "type": "group",
+  "group": {"members": ["nuget-hosted", "nuget-org"]}
+}' http://localhost:8000/api/v1/repositories
+```
+
 - **Credentials.** A push's API key is an API token (`--api-key`, sent as
   `X-NuGet-ApiKey`); so is the password of a source's credentials. A user name and a
   password work for a source too. NuGet's clients refuse a plain-HTTP source unless it
@@ -113,16 +123,21 @@ dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json
   `format_config.symbol_url` names a symbol server to proxy, which a later version
   serves. A search that fails is said to have failed, and does not stop the proxy
   fetching packages.
+- **A group's feed is written from its members'** on each request, in the order they
+  are listed: an id's versions are every member's together, and its registration is
+  the group's own, with the first member's details of a version that several members
+  have (inlined up to 128 versions, then in pages of 64). A search, and autocomplete,
+  ask each member and list an id once, as the first member that found it has it. A
+  package, its `.nuspec` and its symbol package come from the first member that has
+  them. A member that is offline, or whose feed cannot be reached, is passed over.
+  Every address in what a group serves is its own.
 - **NuGet Audit** (the warnings `dotnet restore` gives for a package with a known
-  vulnerability) reads its data from nuget.org, which a proxy does not pass on yet. To
-  keep the warnings when the proxy is a machine's only source, name nuget.org as the
-  audit's source in `nuget.config`:
-
-  ```xml
-  <auditSources>
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-  </auditSources>
-  ```
+  vulnerability, such as `NU1903`) reads its data from a source's `index.json`. A proxy
+  passes on its feed's data, nuget.org's for a proxy of nuget.org, kept and checked
+  again after `metadata_max_age_minutes`; a group passes on its first member's that has
+  any. A hosted repository has none: a machine whose only source is a hosted repository
+  warns `NU1905`, unless `nuget.config` names a source of the data in
+  `<auditSources>`.
 
 ## Clients
 
@@ -131,4 +146,7 @@ with `dotnet pack`, pushed with an API key, pushed again with `--skip-duplicate`
 found with `dotnet package search`, restored into a project, and deleted; and, through
 a proxy of nuget.org, a package restored into a project that runs, found with
 `dotnet package search`, and its newer versions listed by `dotnet list package
---outdated`.
+--outdated`; through a group of the two, a project that restores a pushed package and
+one of nuget.org's and runs, both found with `dotnet package search`, and newer versions
+listed; and through the proxy and through the group, NuGet Audit's warning of a package
+with a known vulnerability.

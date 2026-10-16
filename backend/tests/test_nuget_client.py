@@ -23,6 +23,7 @@ IMAGES = {"10": "mcr.microsoft.com/dotnet/sdk:10.0", "8": "mcr.microsoft.com/dot
 NETWORK = f"{PROJECT}_default"
 HOSTED = "nuget-hosted"
 PROXY = "nuget-org"
+GROUP = "nuget-public"
 # What an account that pushes and restores gets: everything on NuGet repositories.
 USERNAME = "ci"
 PASSWORD = "restores-dotnet-packages"
@@ -60,6 +61,34 @@ cd app
 dotnet add package Newtonsoft.Json --version {JSON_NET}
 cat > Program.cs <<CODE
 System.Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(new {{ through = "proxy" }}));
+CODE
+dotnet run
+"""
+
+# A version of Json.NET with a known vulnerability, of which NuGet Audit warns: NU1903.
+VULNERABLE = "12.0.3"
+# A project that restores it.
+AUDITED = f"""
+set -e
+cd /work
+dotnet new console -n Old -o old --force > /dev/null
+cd old
+dotnet add package Newtonsoft.Json --version {VULNERABLE} > /dev/null
+dotnet restore --force
+"""
+
+# A project that restores a package of the hosted repository's and one of nuget.org's
+# through the group, and runs.
+GROUPED = f"""
+set -e
+cd /work
+dotnet new console -n App -o app --force > /dev/null
+cd app
+dotnet add package "$1" --version {VERSION}
+dotnet add package Newtonsoft.Json --version {JSON_NET}
+cat > Program.cs <<CODE
+var through = Newtonsoft.Json.JsonConvert.SerializeObject(new {{ through = "group" }});
+System.Console.WriteLine(MegooArti.Greeting.Say() + " " + through);
 CODE
 dotnet run
 """
@@ -301,3 +330,71 @@ def test_dotnet_searches_and_finds_newer_versions_through_the_proxy(through, sdk
     requested, resolved, latest = line.split()[-3:]
     assert (requested, resolved) == (JSON_NET, JSON_NET)
     assert latest != JSON_NET
+
+
+@pytest.fixture(scope="module")
+def grouped(work, token, administrator, tmp_path_factory) -> dict[str, Path]:
+    """A group of the hosted repository and the proxy, each SDK's package pushed to the
+    hosted one (again, if it was deleted), and each SDK's own folder whose one source is
+    the group."""
+    group = {"name": GROUP, "format": "nuget", "type": "group"}
+    group["group"] = {"members": [HOSTED, PROXY]}
+    status, _, answer = call("POST", "/repositories", group, administrator)
+    assert status == 201, answer
+    folders = {}
+    for sdk in IMAGES:
+        pushed = dotnet(
+            sdk,
+            work[sdk],
+            f'cd /work && dotnet nuget push "out/$1.{VERSION}.nupkg" --source megooarti '
+            '--api-key "$2" --skip-duplicate',
+            package_id(sdk),
+            token,
+        )
+        assert pushed.returncode == 0, said(pushed)
+        folder = tmp_path_factory.mktemp(f"group{sdk}")
+        written = config(GROUP, GROUP)
+        (folder / "nuget.config").write_text(written, encoding="utf-8", newline="\n")
+        folders[sdk] = folder
+    return folders
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_restores_a_pushed_package_and_one_of_nuget_org_through_a_group(grouped, sdk):
+    restored = dotnet(sdk, grouped[sdk], GROUPED, package_id(sdk))
+
+    assert restored.returncode == 0, said(restored)
+    last = restored.stdout.splitlines()[-1]
+    assert last == f'hello from {package_id(sdk)} {{"through":"group"}}'
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_searches_and_finds_newer_versions_through_a_group(grouped, sdk):
+    found = dotnet(
+        sdk,
+        grouped[sdk],
+        f'cd /work && dotnet package search "$1" --source {GROUP} '
+        f"&& dotnet package search Newtonsoft.Json --source {GROUP}",
+        package_id(sdk),
+    )
+    # Read from the registration the group writes from its members'.
+    outdated = dotnet(sdk, grouped[sdk], "cd /work/app && dotnet list package --outdated")
+
+    assert found.returncode == 0, said(found)
+    assert package_id(sdk) in found.stdout
+    assert "Newtonsoft.Json" in found.stdout
+    assert outdated.returncode == 0, said(outdated)
+    (line,) = [line for line in outdated.stdout.splitlines() if "Newtonsoft.Json" in line]
+    assert line.split()[-1] != JSON_NET
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+@pytest.mark.parametrize("source", ["through", "grouped"], ids=["proxy", "group"])
+def test_nuget_audit_warns_of_a_vulnerable_package_with_the_data_passed_on(request, source, sdk):
+    restored = dotnet(sdk, request.getfixturevalue(source)[sdk], AUDITED)
+
+    assert restored.returncode == 0, said(restored)
+    warned = [line for line in restored.stdout.splitlines() if "NU1903" in line]
+    assert warned, said(restored)
+    assert "Newtonsoft.Json" in warned[0]
+    assert "NU1905" not in restored.stdout  # the source had the data
