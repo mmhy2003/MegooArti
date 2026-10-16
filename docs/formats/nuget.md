@@ -131,6 +131,12 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   package, its `.nuspec` and its symbol package come from the first member that has
   them. A member that is offline, or whose feed cannot be reached, is passed over.
   Every address in what a group serves is its own.
+- **An id is every member's in a group.** A public package with the id of one you push
+  adds its versions beside yours: a floating version (`1.*`) or `dotnet add package`
+  without a version can take a version of nuget.org's. Give your packages a prefix
+  reserved for you on nuget.org, or have machines use the hosted repository and the
+  proxy as two sources, with NuGet's package source mapping
+  (`<packageSourceMapping>` in `nuget.config`) naming the source each id comes from.
 - **NuGet Audit** (the warnings `dotnet restore` gives for a package with a known
   vulnerability, such as `NU1903`) reads its data from a source's `index.json`. A proxy
   passes on its feed's data, nuget.org's for a proxy of nuget.org, kept and checked
