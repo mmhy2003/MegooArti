@@ -27,10 +27,11 @@ from starlette.responses import Response
 
 from megooarti.errors import ApiError
 from megooarti.repositories import forms, service
-from megooarti.repositories.content import ComponentInfo, RepositoryContext
+from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.formats import (
     ComponentKey,
     Format,
+    Serve,
     Usage,
     invalid_upload,
     managed_by_format,
@@ -41,19 +42,19 @@ from megooarti.repositories.formats import (
 from megooarti.repositories.models import Repository
 from megooarti.repositories.nuget import (
     documents,
+    feeds,
+    grouped,
     packages,
     paths,
     proxied,
     queries,
+    records,
     responses,
     versions,
 )
 from megooarti.repositories.nuget.documents import Published
 from megooarti.storage.backends import StagedBlob
 
-# Where what a package said of itself is kept, among a file's attributes and among its
-# version's component's.
-_DECLARED = "nuget"
 _PACKAGE = "application/octet-stream"
 _NUSPEC = "application/xml"
 _PLAIN_HTTP = (
@@ -74,20 +75,6 @@ def _not_allowed(allowed: str) -> ApiError:
     return ApiError(
         405, "method_not_allowed", f"This address accepts {allowed}.", headers={"Allow": allowed}
     )
-
-
-def _nuspec_of(attributes: dict[str, Any] | None) -> packages.Nuspec | None:
-    said = (attributes or {}).get(_DECLARED)
-    return packages.Nuspec.from_json(said) if isinstance(said, dict) else None
-
-
-def _published(held: Sequence[ComponentInfo]) -> list[Published]:
-    """The versions held that a package's `.nuspec` describes, with when each was pushed."""
-    return [
-        Published(nuspec, one.created)
-        for one in held
-        if (nuspec := _nuspec_of(one.attributes)) is not None
-    ]
 
 
 # --- Pushing ------------------------------------------------------------------------
@@ -156,7 +143,7 @@ async def _keep_package(
 ) -> bool:
     """A package and its `.nuspec`, each at its path. Returns whether the version is new."""
     nuspec = await _spelled(context, package.nuspec)
-    said = {_DECLARED: nuspec.as_json()}
+    said = {records.DECLARED: nuspec.as_json()}
     _, created = await context.store(
         paths.package_path(nuspec.id, nuspec.version),
         staged,
@@ -185,7 +172,7 @@ async def _keep_symbols(
         paths.symbols_path(nuspec.id, nuspec.version),
         staged,
         content_type=_PACKAGE,
-        attributes={_DECLARED: nuspec.as_json()},
+        attributes={records.DECLARED: nuspec.as_json()},
     )
     return created
 
@@ -226,7 +213,7 @@ async def _delete_version(context: RepositoryContext, package_id: str, version: 
 async def _held(context: RepositoryContext, package_id: str) -> list[Published]:
     """Every version of an id this repository holds. Raises 404 for none."""
     spelling = await context.spelling("", package_id)
-    held = [] if spelling is None else _published(await context.components("", spelling))
+    held = [] if spelling is None else records.published(await context.components("", spelling))
     if not held:
         raise _not_found(f"This repository has no package {package_id}.")
     return held
@@ -244,7 +231,7 @@ async def _registration(context: RepositoryContext, request: Request, package_id
         return await responses.respond_json(
             context, request, documents.registration_pages(base, package_id, listed)
         )
-    held = _published(await context.components("", spelling))
+    held = records.published(await context.components("", spelling))
     if not held:
         # Its last version went between the two reads.
         raise _not_found(f"This repository has no package {package_id}.")
@@ -262,7 +249,7 @@ async def _registration_page(
         raise _not_found(f"This repository has no such page of {parsed.id}.")
     held = [
         one
-        for one in _published(await context.components("", spelling))
+        for one in records.published(await context.components("", spelling))
         if one.nuspec.version.lower() in set(wanted)
     ]
     base = await responses.base(context, request)
@@ -271,24 +258,9 @@ async def _registration_page(
 
 
 async def _search(context: RepositoryContext, request: Request) -> Response:
-    query = queries.parse(request.query_params)
-    names, total = await context.package_page(
-        "",
-        query.words,
-        exact=query.exact_id,
-        containing=query.id_contains,
-        ranked_by=" ".join(query.words),
-        stable_only=not query.prerelease,
-        limit=query.take,
-        offset=query.skip,
-    )
-    held = await context.components_of("", names)
-    found = queries.shown(query, names, {name: _published(infos) for name, infos in held.items()})
-    return await responses.respond_json(
-        context,
-        request,
-        documents.search_result(await responses.base(context, request), found, total),
-    )
+    base = await responses.base(context, request)
+    found, total = await feeds.hosted_search(context, queries.parse(request.query_params), base)
+    return await responses.respond_json(context, request, {"totalHits": total, "data": found})
 
 
 async def _autocomplete(context: RepositoryContext, request: Request) -> Response:
@@ -297,7 +269,7 @@ async def _autocomplete(context: RepositoryContext, request: Request) -> Respons
     prerelease = arguments.get("prerelease", "").lower() == "true"
     if "id" in arguments:
         spelling = await context.spelling("", arguments["id"])
-        held = [] if spelling is None else _published(await context.components("", spelling))
+        held = [] if spelling is None else records.published(await context.components("", spelling))
         shown = versions.ordered(
             [one.nuspec.version for one in held if prerelease or not one.nuspec.is_prerelease]
         )
@@ -455,12 +427,12 @@ async def describe_fetched(
             return {}
     except packages.InvalidPackage:
         return {}
-    return {_DECLARED: nuspec.as_json()}
+    return {records.DECLARED: nuspec.as_json()}
 
 
 class NuGetFormat(Format):
     name = "nuget"
-    types = frozenset({"hosted", "proxy"})
+    types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
 
     def validate_config(
@@ -477,9 +449,11 @@ class NuGetFormat(Format):
         return await describe_fetched(context, path, staged)
 
     def is_metadata(self, path: str) -> bool:
-        """An id's versions, its registration and the remote's service index change as
-        packages are published; packages and their `.nuspec` do not."""
+        """An id's versions, its registration, NuGet Audit's data and the remote's service
+        index change as packages are published; packages and their `.nuspec` do not."""
         if path == proxied.REMOTE_INDEX or path.startswith(paths.REGISTRATION):
+            return True
+        if path.startswith(paths.VULNERABILITIES):
             return True
         return path.startswith(paths.PACKAGES) and path.endswith("/index.json")
 
@@ -487,6 +461,11 @@ class NuGetFormat(Format):
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
         return await proxied.handle_proxy(context, request, path)
+
+    async def handle_group(
+        self, context: RepositoryContext, request: Request, path: str, serve: Serve
+    ) -> Response:
+        return await grouped.handle_group(context, request, path, serve)
 
     def default_deployment_policy(self, config: dict[str, Any]) -> str:
         """A version is pushed once, as nuget.org takes it: a second push is `409`."""
@@ -496,7 +475,7 @@ class NuGetFormat(Format):
         self, path: str, attributes: dict[str, Any] | None = None
     ) -> ComponentKey | None:
         """A package's files belong to its id and version: as its `.nuspec` said, or its path."""
-        nuspec = _nuspec_of(attributes)
+        nuspec = records.nuspec_of(attributes)
         if nuspec is not None:
             return ComponentKey("", nuspec.id, nuspec.version.lower())
         parsed = paths.classify(path)
@@ -506,7 +485,7 @@ class NuGetFormat(Format):
 
     def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
         """Its id and version, and the words of its `.nuspec` that NuGet's search reads."""
-        nuspec = _nuspec_of(attributes)
+        nuspec = records.nuspec_of(attributes)
         words = [super().search_text(key, attributes)]
         if nuspec is not None:
             words += [nuspec.title, nuspec.description, nuspec.summary, nuspec.tags, nuspec.authors]

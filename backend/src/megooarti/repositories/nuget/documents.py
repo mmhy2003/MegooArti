@@ -28,11 +28,17 @@ class Published:
 
 
 def service_index(
-    base: str, *, publish: bool = True, search: bool = True, autocomplete: bool = True
+    base: str,
+    *,
+    publish: bool = True,
+    search: bool = True,
+    autocomplete: bool = True,
+    vulnerabilities: bool = False,
 ) -> dict[str, Any]:
     """`index.json`: where a client finds each of the protocol's resources.
 
-    A proxy offers no place to push to, and searches only where its remote does.
+    A proxy offers no place to push to, and searches only where its remote does; it
+    offers NuGet Audit's data where its remote does, and a group where a member does.
     """
     resources = [
         (paths.PACKAGES, ["PackageBaseAddress/3.0.0"]),
@@ -58,6 +64,7 @@ def service_index(
                 "SearchQueryService/3.5.0",
             ],
         ),
+        (paths.VULNERABILITY_INDEX, ["VulnerabilityInfo/6.7.0"]),
         (
             paths.AUTOCOMPLETE,
             [
@@ -73,6 +80,7 @@ def service_index(
         paths.SYMBOL_PUBLISH: not publish,
         paths.SEARCH: not search,
         paths.AUTOCOMPLETE: not autocomplete,
+        paths.VULNERABILITY_INDEX: not vulnerabilities,
     }
     return {
         "version": "3.0.0",
@@ -152,7 +160,8 @@ def _catalog_entry(base: str, held: Published) -> dict[str, Any]:
     return entry
 
 
-def _item(base: str, held: Published) -> dict[str, Any]:
+def item(base: str, held: Published) -> dict[str, Any]:
+    """A version as a registration lists it: its details, and where its package is."""
     return {
         "@id": _leaf(base, held.nuspec),
         "@type": "Package",
@@ -181,14 +190,14 @@ def _bounds(listed: Sequence[str]) -> list[tuple[str, str, int]]:
 
 
 def _page(
-    base: str, index: str, address: str, held: Sequence[Published], lower: str, upper: str
+    index: str, address: str, items: Sequence[dict[str, Any]], lower: str, upper: str
 ) -> dict[str, Any]:
-    """A page, with its versions' items, `held` being exactly its versions."""
+    """A page, with its versions' items, `items` being exactly its versions'."""
     return {
         "@id": address,
         "@type": "catalog:CatalogPage",
-        "count": len(held),
-        "items": [_item(base, one) for one in held],
+        "count": len(items),
+        "items": list(items),
         "lower": lower,
         "upper": upper,
         "parent": index,
@@ -213,7 +222,8 @@ def registration(base: str, held: Sequence[Published]) -> dict[str, Any]:
     for start in range(0, len(ordered), PAGE):
         page = ordered[start : start + PAGE]
         lower, upper = page[0].nuspec.version.lower(), page[-1].nuspec.version.lower()
-        pages.append(_page(base, index, f"{index}#page/{lower}/{upper}", page, lower, upper))
+        items = [item(base, one) for one in page]
+        pages.append(_page(index, f"{index}#page/{lower}/{upper}", items, lower, upper))
     return _root(index, pages)
 
 
@@ -252,7 +262,7 @@ def registration_page(
     `held` is exactly the page's versions."""
     index = _registration(base, package_id)
     address = f"{base}{paths.page_path(package_id, lower, upper)}"
-    return _page(base, index, address, _ordered(held), lower, upper)
+    return _page(index, address, [item(base, one) for one in _ordered(held)], lower, upper)
 
 
 def leaf(base: str, held: Published) -> dict[str, Any]:
@@ -265,6 +275,78 @@ def leaf(base: str, held: Published) -> dict[str, Any]:
         "packageContent": _content(base, held.nuspec),
         "published": held.published.isoformat(),
         "registration": _registration(base, held.nuspec.id),
+    }
+
+
+# --- What a group writes of its members' registrations ----------------------------------
+
+
+def version_of(written: dict[str, Any]) -> str | None:
+    """The version a registration's item is of, normalized in lower case; None if the
+    item has none NuGet takes."""
+    entry = written.get("catalogEntry")
+    said = entry.get("version") if isinstance(entry, dict) else None
+    normalized = versions.normalize(said) if isinstance(said, str) else None
+    return None if normalized is None else normalized.lower()
+
+
+def merged_items(members: Sequence[Sequence[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Every version's item of members' registrations, the first member's for a version
+    several have, the oldest version first. An item without a version is left out."""
+    chosen: dict[str, dict[str, Any]] = {}
+    for items in members:
+        for written in items:
+            version = version_of(written)
+            if version is not None:
+                chosen.setdefault(version, written)
+    return [chosen[version] for version in versions.ordered(list(chosen))]
+
+
+def merged_registration(
+    base: str, package_id: str, items: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    """A group's `v3/registration/<id>/index.json` from its items (`merged_items`): them
+    inlined in pages of 64 if there are at most `INLINED_MOST`, else its pages by their
+    bounds, each at its own address."""
+    listed = [version for written in items if (version := version_of(written))]
+    if len(listed) > INLINED_MOST:
+        return registration_pages(base, package_id, listed)
+    index = _registration(base, package_id)
+    pages = []
+    for start in range(0, len(items), PAGE):
+        page = items[start : start + PAGE]
+        lower, upper = listed[start], listed[start + len(page) - 1]
+        pages.append(_page(index, f"{index}#page/{lower}/{upper}", page, lower, upper))
+    return _root(index, pages)
+
+
+def merged_page(
+    base: str, package_id: str, items: Sequence[dict[str, Any]], lower: str, upper: str
+) -> dict[str, Any] | None:
+    """A page of a group's registration with more than `INLINED_MOST` versions, or None
+    if it has no page with these bounds."""
+    listed = [version for written in items if (version := version_of(written))]
+    wanted = page_of(listed, lower, upper)
+    if wanted is None or len(listed) <= INLINED_MOST:
+        return None
+    start = listed.index(wanted[0])
+    index = _registration(base, package_id)
+    address = f"{base}{paths.page_path(package_id, lower, upper)}"
+    return _page(index, address, items[start : start + len(wanted)], lower, upper)
+
+
+def merged_leaf(base: str, package_id: str, written: dict[str, Any]) -> dict[str, Any]:
+    """A group's `v3/registration/<id>/<version>.json`, from its item."""
+    entry = written.get("catalogEntry")
+    entry = entry if isinstance(entry, dict) else {}
+    return {
+        "@id": written.get("@id", ""),
+        "@type": ["Package", "http://schema.nuget.org/catalog#Permalink"],
+        "catalogEntry": entry.get("@id", ""),
+        "listed": entry.get("listed", True),
+        "packageContent": written.get("packageContent", ""),
+        "published": entry.get("published", ""),
+        "registration": _registration(base, package_id),
     }
 
 

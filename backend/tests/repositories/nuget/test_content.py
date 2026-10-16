@@ -117,16 +117,6 @@ async def test_a_hosted_repository_refuses_redeploy_unless_told_otherwise(client
     assert made.json()["hosted"] == {"deployment_policy": "disable_redeploy"}
 
 
-async def test_a_proxy_or_a_group_is_not_made_yet(client, root):
-    for kind in ("proxy", "group"):
-        answer = await client.post(
-            "/api/v1/repositories",
-            json={"name": f"nuget-{kind}", "format": "nuget", "type": kind},
-            headers=root,
-        )
-        assert answer.status_code == 422, answer.text
-
-
 async def test_a_refused_upload_leaves_no_file_of_a_package_it_stored_before(
     client, hosted, root, settings
 ):

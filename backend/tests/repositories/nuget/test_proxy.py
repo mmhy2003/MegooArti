@@ -19,7 +19,7 @@ PACKAGE = nupkg("Newtonsoft.Json", "13.0.3", description="Json.NET is a JSON fra
 FLAT = "nuget/v3-flatcontainer/newtonsoft.json"
 
 
-def service_index(*, search: bool = True) -> bytes:
+def service_index(*, search: bool = True, vulnerabilities: bool = False) -> bytes:
     """The remote's service index, as nuget.org's lays it out: search on another host."""
     resources = [
         {"@id": f"{REMOTE}/v3-flatcontainer/", "@type": "PackageBaseAddress/3.0.0"},
@@ -31,6 +31,10 @@ def service_index(*, search: bool = True) -> bytes:
             {"@id": f"{SEARCH}/query", "@type": "SearchQueryService/3.5.0"},
             {"@id": f"{SEARCH}/autocomplete", "@type": "SearchAutocompleteService/3.5.0"},
         ]
+    if vulnerabilities:
+        resources.append(
+            {"@id": f"{REMOTE}/v3/vulnerabilities/index.json", "@type": "VulnerabilityInfo/6.7.0"}
+        )
     return json.dumps({"version": "3.0.0", "resources": resources}).encode()
 
 
@@ -254,6 +258,8 @@ async def test_a_search_is_passed_on_as_it_came_every_time_with_the_proxys_addre
         ("v3/registration/newtonsoft.json/page/1.0.0/12.0.3.json", True),
         ("v3/package/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg", False),
         ("v3/package/newtonsoft.json/13.0.3/newtonsoft.json.nuspec", False),
+        ("v3/vulnerabilities/index.json", True),
+        ("v3/vulnerabilities/update.json", True),
     ],
 )
 def test_an_ids_versions_and_its_registration_are_metadata_and_a_package_is_not(path, metadata):
@@ -335,3 +341,78 @@ async def test_a_failed_search_leaves_the_proxy_to_restore(client, root, remote)
     assert searched.status_code == 502
     # Recorded, and not counted towards leaving the feed alone.
     assert fetched.status_code == 200
+
+
+AUDIT = {
+    "system.text.json": [
+        {"severity": 2, "url": "https://github.com/advisories/GHSA-1", "versions": "[8.0.0, 8.0.4]"}
+    ]
+}
+
+
+def audit_feed(remote) -> None:
+    """NuGet Audit's data on the feed, gzipped whatever is asked, as nuget.org's is."""
+    remote.files["nuget/v3/index.json"] = service_index(vulnerabilities=True)
+    listed = [
+        {
+            "@name": "base",
+            "@id": f"{REMOTE}/v3-vulnerabilities/2026.10.01/vulnerability.base.json",
+            "@updated": "2026-10-01T00:00:00Z",
+            "comment": "The base data for vulnerability update periodically",
+        },
+        {
+            "@name": "update",
+            "@id": f"{REMOTE}/v3-vulnerabilities/2026.10.01/2026.10.15/vulnerability.update.json",
+            "@updated": "2026-10-15T00:00:00Z",
+            "comment": "The patch data for the vulnerability information",
+        },
+    ]
+    for path, document in [
+        ("nuget/v3/vulnerabilities/index.json", listed),
+        ("nuget/v3-vulnerabilities/2026.10.01/vulnerability.base.json", AUDIT),
+        ("nuget/v3-vulnerabilities/2026.10.01/2026.10.15/vulnerability.update.json", {}),
+    ]:
+        remote.files[path] = gzip.compress(json.dumps(document).encode())
+        remote.encodings[path] = "gzip"
+
+
+async def test_nuget_audits_data_is_passed_on_with_the_proxys_addresses_and_kept(
+    client, root, remote
+):
+    audit_feed(remote)
+
+    resources = (await client.get(f"{PROXY}/index.json", headers=root)).json()["resources"]
+    listed = await client.get(f"{PROXY}/v3/vulnerabilities/index.json", headers=root)
+    fetched = await client.get(f"{PROXY}/v3/vulnerabilities/base.json", headers=root)
+    remote.down = True
+    kept = await client.get(f"{PROXY}/v3/vulnerabilities/base.json", headers=root)
+
+    offered = {item["@type"]: item["@id"] for item in resources}
+    assert offered["VulnerabilityInfo/6.7.0"] == f"{BASE}v3/vulnerabilities/index.json"
+    assert [(item["@name"], item["@id"], item["@updated"]) for item in listed.json()] == [
+        ("base", f"{BASE}v3/vulnerabilities/base.json", "2026-10-01T00:00:00Z"),
+        ("update", f"{BASE}v3/vulnerabilities/update.json", "2026-10-15T00:00:00Z"),
+    ]
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json() == AUDIT
+    assert kept.json() == AUDIT
+
+
+async def test_a_proxy_offers_audit_data_only_where_its_remote_does(client, root, remote):
+    resources = (await client.get(f"{PROXY}/index.json", headers=root)).json()["resources"]
+    listed = await client.get(f"{PROXY}/v3/vulnerabilities/index.json", headers=root)
+
+    assert "VulnerabilityInfo/6.7.0" not in {item["@type"] for item in resources}
+    assert listed.status_code == 404
+
+
+@pytest.mark.parametrize("name", ["other", "index.json/x", "..", "base.json.json"])
+async def test_an_audit_file_the_feeds_index_does_not_name_is_not_asked_of_it(
+    client, root, remote, name
+):
+    audit_feed(remote)
+
+    answer = await client.get(f"{PROXY}/v3/vulnerabilities/{name}.json", headers=root)
+
+    assert answer.status_code == 404
+    assert not [seen for seen in remote.requests if "v3-vulnerabilities" in seen["path"]]

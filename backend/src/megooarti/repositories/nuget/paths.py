@@ -13,6 +13,9 @@ PACKAGES = "v3/package/"
 REGISTRATION = "v3/registration/"
 SEARCH = "v3/search"
 AUTOCOMPLETE = "v3/autocomplete"
+# NuGet Audit's data: an index of files, each by its name, as nuget.org serves it.
+VULNERABILITIES = "v3/vulnerabilities/"
+VULNERABILITY_INDEX = f"{VULNERABILITIES}index.json"
 PUBLISH = "api/v2/package"
 SYMBOL_PUBLISH = "api/v2/symbolpackage"
 

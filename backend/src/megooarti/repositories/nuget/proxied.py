@@ -31,6 +31,8 @@ REMOTE_INDEX = ".remote/index.json"
 INDEX_MOST = 1024 * 1024
 REGISTRATION_MOST = 32 * 1024 * 1024
 SEARCH_MOST = 8 * 1024 * 1024
+# NuGet Audit's files: nuget.org's base file is some megabytes once inflated.
+VULNERABILITIES_MOST = 64 * 1024 * 1024
 
 
 def _not_found() -> ApiError:
@@ -108,9 +110,11 @@ async def _parsed(context: RepositoryContext, path: str, data: bytes) -> Any:
         raise await proxy.refuse(context, path, "it sent a document that is not JSON") from None
 
 
-async def _registration(
-    context: RepositoryContext, request: Request, path: str, relative: str
-) -> Response:
+async def registration_document(
+    context: RepositoryContext, path: str, relative: str, base: str
+) -> Any:
+    """A registration's document as the feed sent it, kept, with its addresses made those
+    under `base`: the proxy's, or a group's in front of it."""
     found = await resources(context)
     data = await proxy.document(
         context,
@@ -119,18 +123,71 @@ async def _registration(
         limit=REGISTRATION_MOST,
         content_type=responses.JSON,
     )
-    base = await responses.base(context, request)
-    document = remotes.rewrite(await _parsed(context, path, data), _replacements(found, base))
-    return await responses.respond_json(context, request, document)
+    return remotes.rewrite(await _parsed(context, path, data), _replacements(found, base))
 
 
-async def _passed_on(context: RepositoryContext, request: Request, path: str) -> Response:
-    """A search or an autocomplete, passed on as it came, its answer not kept."""
+def _items(document: Any) -> list[Any]:
+    items = document.get("items") if isinstance(document, dict) else None
+    return items if isinstance(items, list) else []
+
+
+async def items_of(context: RepositoryContext, package_id: str, base: str) -> list[Any]:
+    """Every version's item of an id's registration on the feed, its pages fetched where
+    the feed lists them by their addresses, with the addresses under `base`. Raises 404
+    or 502 as the feed's registration does."""
+    relative = f"{package_id}/index.json"
+    if not _a_registration_path(relative):
+        raise _not_found()
+    index = await registration_document(
+        context, f"{paths.REGISTRATION}{relative}", quote(relative, safe="/"), base
+    )
+    found: list[Any] = []
+    prefix = f"{base}{paths.REGISTRATION}"
+    for page in _items(index):
+        if not isinstance(page, dict):
+            continue
+        if "items" in page:
+            found += _items(page)
+            continue
+        address = page.get("@id")
+        if not isinstance(address, str) or not address.startswith(prefix):
+            continue  # a page elsewhere than the feed's registration: not asked for
+        page_relative = address[len(prefix) :]
+        if not _a_registration_path(page_relative):
+            continue
+        document = await registration_document(
+            context,
+            f"{paths.REGISTRATION}{page_relative}",
+            quote(page_relative, safe="/"),
+            base,
+        )
+        found += _items(document)
+    return found
+
+
+async def versions_of(context: RepositoryContext, package_id: str) -> list[str]:
+    """An id's versions on the feed, kept as metadata. Raises 404 or 502 as the feed does."""
+    relative = f"{package_id}/index.json"
+    if not _a_package_path(relative):
+        raise _not_found()
+    path = f"{paths.PACKAGES}{relative}"
+    found = await resources(context)
+    escaped = quote(relative, safe="/")
+    await proxy.ensure_cached(context, path, source=Source(f"{found.packages}{escaped}"))
+    data = await context.read(path, limit=REGISTRATION_MOST)
+    document = await _parsed(context, path, data or b"{}")
+    listed = document.get("versions") if isinstance(document, dict) else None
+    return [one for one in listed if isinstance(one, str)] if isinstance(listed, list) else []
+
+
+async def passed_on(context: RepositoryContext, path: str, query: str, base: str) -> Any:
+    """A search or an autocomplete, passed on with `query`, its answer not kept, with its
+    addresses under `base`. Raises 404 where the feed has no such service, 502 where it
+    cannot be asked."""
     found = await resources(context)
     address = found.search if path == paths.SEARCH else found.autocomplete
     if not address:
         raise _not_found()
-    query = request.url.query
     source = Source(
         f"{address}?{query}" if query else address, remember_missing=False, blocks=False
     )
@@ -139,11 +196,64 @@ async def _passed_on(context: RepositoryContext, request: Request, path: str) ->
         raise _not_found()
     if not isinstance(answer, Answer):
         raise answer.error
-    base = await responses.base(context, request)
-    document = remotes.rewrite(
-        await _parsed(context, path, answer.body), _replacements(found, base)
+    return remotes.rewrite(await _parsed(context, path, answer.body), _replacements(found, base))
+
+
+# --- NuGet Audit's data -------------------------------------------------------------
+
+
+async def _vulnerability_entries(context: RepositoryContext) -> list[dict[str, Any]]:
+    """The feed's index of its vulnerability files, kept: each with its `@name` and its
+    address on the feed. Raises 404 where the feed has none."""
+    found = await resources(context)
+    if not found.vulnerabilities:
+        raise _not_found()
+    data = await proxy.document(
+        context,
+        paths.VULNERABILITY_INDEX,
+        Source(found.vulnerabilities, gzipped=True),
+        limit=INDEX_MOST,
+        content_type=responses.JSON,
     )
-    return await responses.respond_json(context, request, document)
+    listed = await _parsed(context, paths.VULNERABILITY_INDEX, data)
+    return [
+        entry
+        for entry in (listed if isinstance(listed, list) else [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("@name"), str)
+        and _PART.fullmatch(entry["@name"])
+        and isinstance(entry.get("@id"), str)
+    ]
+
+
+async def vulnerability_index(context: RepositoryContext, base: str) -> list[dict[str, Any]]:
+    """NuGet Audit's index, each file at `<base>v3/vulnerabilities/<name>.json`."""
+    return [
+        {**entry, "@id": f"{base}{paths.VULNERABILITIES}{entry['@name']}.json"}
+        for entry in await _vulnerability_entries(context)
+    ]
+
+
+async def _vulnerability_file(context: RepositoryContext, path: str, name: str) -> bytes:
+    """One of NuGet Audit's files, by its name in the feed's index, kept as metadata."""
+    entries = await _vulnerability_entries(context)
+    entry = next((one for one in entries if one["@name"] == name), None)
+    if entry is None:
+        raise _not_found()
+    return await proxy.document(
+        context,
+        path,
+        Source(entry["@id"], gzipped=True),
+        limit=VULNERABILITIES_MOST,
+        content_type=responses.JSON,
+    )
+
+
+def vulnerability_name(path: str) -> str | None:
+    """The name of one of NuGet Audit's files a path is of, or None."""
+    name = path.removeprefix(paths.VULNERABILITIES).removesuffix(".json")
+    shaped = path.startswith(paths.VULNERABILITIES) and path.endswith(".json")
+    return name if shaped and name != "index" and _PART.fullmatch(name) else None
 
 
 async def handle_proxy(context: RepositoryContext, request: Request, path: str) -> Response:
@@ -155,13 +265,15 @@ async def handle_proxy(context: RepositoryContext, request: Request, path: str) 
             "A proxy repository accepts GET and HEAD.",
             headers={"Allow": "GET, HEAD"},
         )
+    base = await responses.base(context, request)
     if path == paths.SERVICE_INDEX:
         found = await resources(context)
         index = documents.service_index(
-            await responses.base(context, request),
+            base,
             publish=False,
             search=bool(found.search),
             autocomplete=bool(found.autocomplete),
+            vulnerabilities=bool(found.vulnerabilities),
         )
         return await responses.respond_json(context, request, index)
     if (relative := _relative(path, paths.PACKAGES, _a_package_path)) is not None:
@@ -169,7 +281,15 @@ async def handle_proxy(context: RepositoryContext, request: Request, path: str) 
         await proxy.ensure_cached(context, path, source=Source(f"{found.packages}{relative}"))
         return await context.respond(path, request)
     if (relative := _relative(path, paths.REGISTRATION, _a_registration_path)) is not None:
-        return await _registration(context, request, path, relative)
+        document = await registration_document(context, path, relative, base)
+        return await responses.respond_json(context, request, document)
     if path in (paths.SEARCH, paths.AUTOCOMPLETE):
-        return await _passed_on(context, request, path)
+        document = await passed_on(context, path, request.url.query, base)
+        return await responses.respond_json(context, request, document)
+    if path == paths.VULNERABILITY_INDEX:
+        listed = await vulnerability_index(context, base)
+        return await responses.respond_json(context, request, listed)
+    if (name := vulnerability_name(path)) is not None:
+        data = await _vulnerability_file(context, path, name)
+        return await responses.respond_data(context, request, data)
     raise _not_found()

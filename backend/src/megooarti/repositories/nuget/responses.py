@@ -19,6 +19,11 @@ async def base(context: RepositoryContext, request: Request) -> str:
 async def respond_json(context: RepositoryContext, request: Request, document: Any) -> Response:
     """A document written for this request, as JSON."""
     data = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
+    return await respond_data(context, request, data)
+
+
+async def respond_data(context: RepositoryContext, request: Request, data: bytes) -> Response:
+    """JSON that is passed on as it is: what a remote sent, kept."""
     _, changed = await context.revision()
     return context.respond_with(
         data,

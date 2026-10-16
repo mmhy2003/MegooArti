@@ -26,6 +26,7 @@ _SEARCH = (
     "SearchQueryService/3.0.0-beta",
     "SearchQueryService",
 )
+_VULNERABILITIES = ("VulnerabilityInfo/6.7.0",)
 _AUTOCOMPLETE = (
     "SearchAutocompleteService/3.5.0",
     "SearchAutocompleteService/3.0.0-rc",
@@ -49,6 +50,8 @@ class Resources:
     registrations: tuple[str, ...]
     search: str = ""
     autocomplete: str = ""
+    # Where NuGet Audit's index of vulnerability files is, "" where the remote has none.
+    vulnerabilities: str = ""
 
 
 def _slashed(address: str) -> str:
@@ -87,6 +90,7 @@ def read_index(data: bytes) -> Resources:
         registrations=tuple(dict.fromkeys(registrations)),
         search=_first(found, _SEARCH),
         autocomplete=_first(found, _AUTOCOMPLETE),
+        vulnerabilities=_first(found, _VULNERABILITIES),
     )
 
 
