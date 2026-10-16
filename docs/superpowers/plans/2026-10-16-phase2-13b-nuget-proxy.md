@@ -25,6 +25,14 @@ Task 4 writes these into the spec's section 4, as "Settled while building plan 1
 | X7 | Over plain HTTP, the setup's `dotnet` command marks the source with `--allow-insecure-connections`, which the .NET SDK 9 and later take, and says that .NET 8 leaves it out (in place of W16). | The .NET SDK 9 has the option; 8 does not. |
 | X8 | A hosted registration with no version left to show is `404`. | Its last version may go between its two reads. |
 
+**Changed after the review.** The task bodies below show the code as the tasks made it. The branch differs from them as follows; each change was made test-first, and the spec's section 4 records what the review settled as X9 to X11.
+
+| # | Change | Reason |
+| --- | --- | --- |
+| F1 | `nuget/proxied.py`: `_a_package_path`, `_a_registration_path`; `_relative` checks a path's shape and escapes it before the feed is asked. | X9: a client's path reached the feed, with its credential, unescaped. |
+| F2 | `proxy.Source.blocks`; `_consult` records a failure of such a source as not blockable; a search and an autocomplete are asked so. In the tests, `FakeRemote.statuses`. | X10: a failed search blocked the proxy. |
+| F3 | `docs/formats/nuget.md`: NuGet Audit's source; the spec's section 6 says a page is asked by the same path (X3). | X11, and a sentence X3 replaced. |
+
 ## Global Constraints
 
 - **A format never touches a table or a file**: what the NuGet proxy needs of the cache is the proxy engine's (`proxy.ensure_cached`, `proxy.document`, `proxy.ask`, `proxy.refuse`) and the context's.

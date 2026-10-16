@@ -111,7 +111,18 @@ dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json
   on of them has the feed's addresses made its own. A search is passed on to the feed
   every time, and not kept. A proxy's `format_config.protocol` is `v3`, the default;
   `format_config.symbol_url` names a symbol server to proxy, which a later version
-  serves.
+  serves. A search that fails is said to have failed, and does not stop the proxy
+  fetching packages.
+- **NuGet Audit** (the warnings `dotnet restore` gives for a package with a known
+  vulnerability) reads its data from nuget.org, which a proxy does not pass on yet. To
+  keep the warnings when the proxy is a machine's only source, name nuget.org as the
+  audit's source in `nuget.config`:
+
+  ```xml
+  <auditSources>
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </auditSources>
+  ```
 
 ## Clients
 
