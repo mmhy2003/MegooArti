@@ -1,9 +1,9 @@
 # MegooArti
 
 An open-source repository and artifact proxy and manager. It keeps Maven, npm, PyPI,
-Docker, APT, YUM, apk and Raw repositories, each of them hosted, a proxy of a remote
-one, or a group of several behind one address, and hosted NuGet repositories, with a
-web UI and a REST API. See the
+Docker, APT, YUM, apk, NuGet and Raw repositories, each of them hosted, a proxy of a
+remote one, or a group of several behind one address, with a web UI and a REST API.
+See the
 [business requirements](docs/BRD.md) for scope and roadmap, and the
 [changelog](CHANGELOG.md) for what this version has and what is known of it.
 
