@@ -130,6 +130,18 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | X10 | A search's or an autocomplete's failure is recorded and does not count towards leaving the feed alone (`proxy.Source.blocks`). | nuget.org searches on another host: its failing blocked the proxy, and every restore of a package not yet kept failed with it. |
 | X11 | NuGet Audit's vulnerability data (`VulnerabilityInfo/6.7.0`) is not passed on yet; the guide says how to keep it, with nuget.org as an audit source. Plan 13c passes it on, beside groups. | A machine whose one source is the proxy gets no audit warnings without it. |
 
+### Settled while building plan 13c
+
+| # | What | Why |
+| --- | --- | --- |
+| Y1 | A group writes its version lists, registrations, searches and autocompletes on each request from what its members have, and keeps none of them (in place of 7.2's caching). Each member keeps what it keeps: a proxy its feed's documents as metadata, a hosted repository nothing (W1). Measured through a group of a hosted repository and a proxy of nuget.org, over AWSSDK.S3 (1,570 versions): its registration took 8 s the first time, while the proxy fetched the feed's 25 pages, and 0.2 to 0.25 s after; its version list 0.04 s. | What a group keeps would change with every member's push, delete and fetch; written on request, it is right after each of them, and costs little once its members have what they keep. |
+| Y2 | A group asks each member for data, not documents (`nuget/feeds.py`), with the group's own address: a hosted member writes its items with it, a proxy rewrites its feed's with it, and a group in a group is asked the same way. | No address of a member's, or of a feed's registration or packages, reaches a client of the group. The catalog's addresses are left as the feed wrote them (X3). |
+| Y3 | A group's registration has every version any member has, a version several have taken from the first (by its normalized version), inlined up to 128 versions and in pages of 64 at their own addresses beyond (W14); a version's leaf is written from its item. A proxy's registration pages that its feed lists by address are fetched, if they are under the feed's registration, and kept. | 7.2 and W14; a page elsewhere is not the feed's to have the proxy ask for. |
+| Y4 | A search or an autocomplete is merged as 7.2 says, each member asked for its first `skip + take` results at most 1,000 at a time; an autocomplete of an id's versions is every member's together, a prerelease only if asked for, the oldest first. | Members, nuget.org among them, take at most 1,000 results at a time, and a group may be asked for up to the 3,000th. |
+| Y5 | A member that is offline, or answers `404`, `502` or `503`, gives nothing to what the group merges, as the group engine passes over it; any other error is the group's. Members are listed once for each request. | As every format's groups do. |
+| Y6 | NuGet Audit's data (`VulnerabilityInfo/6.7.0`; in place of X11): a proxy offers it where its feed does, keeping the feed's index (inflated, at most 1 MiB) and each file it names (at most 64 MiB) as metadata, served at `v3/vulnerabilities/<name>.json`; a name the feed's index does not list is `404`, and the feed is not asked. A group offers the first member's index that has one, with the group's addresses, and each file from the first member that has it. A hosted repository has none. | A machine whose one source is a proxy or a group gets NuGet Audit's warnings (`NU1901` to `NU1904`) without naming nuget.org; nuget.org's files are gzipped whatever is asked, and its base file is some megabytes. |
+| Y7 | A hosted repository's search over an id of 1,600 versions took 0.1 s, its registration's index 0.05 s and a page 0.1 s (measured in the unit tests' database); nuget.org's search for `awssdk` takes 2.4 to 3.5 s through a proxy or a group, its answer being 3.6 MB. | 11's risk of an id with thousands of versions, measured. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
@@ -163,7 +175,7 @@ A group's members are in order. It serves V3 from those that speak V3, and V2 fr
 - **A package, its `.nuspec` or `.snupkg`:** fetched from the first member that has it.
 - **Registration:** written by the group (E5): for an id, every version any member has, a version several members have taken from the first; in pages of 64, with the group's addresses.
 - **Search and autocomplete:** each member is asked for its first `skip + take` results; the answers are merged in member order, the first result for an id kept, and the page asked for is cut from them. `totalHits` is the sum of the members' less the ids dropped, which is what can be known. `skip + take` is at most 3,000 (section 9).
-- **Caching:** a version list and a registration are kept by the members' revisions and the proxies' kept metadata, as the Linux formats' groups are, written behind the requests one at a time (the S10 to S12 of that spec). Search is merged on each request.
+- **Caching:** none of the group's own: a version list, a registration and a search are written on each request from what the members keep (Y1).
 
 ### 7.3 V2
 
@@ -204,7 +216,7 @@ A group's members are in order. It serves V3 from those that speak V3, and V2 fr
 | --- | --- |
 | V2's queries differ from client to client, and from version to version of one client. | The plans record what each client of D7 sends (7.3), and the real-client tests keep them honest; anything else is refused with a message, not answered wrongly. |
 | nuget.org's search and registration are on other hosts than its service index, and change their addresses. | A V3 proxy reads them from the remote's service index (6), as clients do, and never assumes a host. |
-| A popular id has thousands of versions (registration pages, a group's merge). | Pages of 64 beyond 128 versions, each written from its own versions (W14); a version list from the versions alone (W13). A search still reads every version of each id on its page: measured in plan 13c against nuget.org's largest ids. |
+| A popular id has thousands of versions (registration pages, a group's merge). | Pages of 64 beyond 128 versions, each written from its own versions (W14); a version list from the versions alone (W13). A search still reads every version of each id on its page: measured in plan 13c (Y1, Y7). |
 | `nuget.exe` under Mono, and Chocolatey on Linux, are less maintained than their Windows builds. | The tests pin images that work; if one stops being published, the plan says so and the test is replaced by the nearest client that is. |
 | The PowerShell Gallery and the Chocolatey community feed rate-limit, or are slow. | The tests fetch a few small packages, as the Linux formats' tests do of their mirrors. |
 | A portable PDB's checksum is not what the debugger sends. | Plan 13f checks it against `dotnet-symbol` and a PDB built by `dotnet pack`. |
@@ -215,7 +227,7 @@ A group's members are in order. It serves V3 from those that speak V3, and V2 fr
 | --- | --- |
 | 13a | The `nuget` format: reading packages, hosted repositories over V3 (service index, package contents, registration, search, push, delete), `X-NuGet-ApiKey`, the deployment policy's default, its `dotnet` tests and `docs/formats/nuget.md`. |
 | 13b | V3 proxies (6). |
-| 13c | V3 groups (7.2), search merged. |
+| 13c | V3 groups (7.2), search merged, and NuGet Audit's data passed on (Y6). |
 | 13d | V2: served by hosted repositories, and V2 proxies (`protocol`); the `nuget.exe`, Chocolatey and PowerShell tests. |
 | 13e | V2 in groups (7.3). |
 | 13f | The symbol server (8), `symbol_url`, and `dotnet-symbol` in the tests. |
