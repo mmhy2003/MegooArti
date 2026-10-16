@@ -70,6 +70,7 @@ async def test_a_repository_says_how_dotnet_is_given_it_as_a_source(client, host
     view = (await client.get(f"{CONTENT}/nuget-hosted", headers=root)).json()
 
     dotnet, config = view["setup"]
+    assert not dotnet["text"].startswith("#")
     assert dotnet["text"] == (
         'dotnet nuget add source "https://test/repository/nuget-hosted/index.json" '
         "--name nuget-hosted \\\n"
@@ -92,7 +93,11 @@ async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_elem
 
     view = (await client.get(f"http://plain.test{CONTENT}/1nuget", headers=root)).json()
 
-    config = view["setup"][1]["text"]
+    dotnet, config = (usage["text"] for usage in view["setup"])
+    assert dotnet.startswith(
+        "# Over plain HTTP, .NET 9 and later take a source only from a nuget.config that "
+        "allows it: use the nuget.config below.\ndotnet nuget add source"
+    )
     assert (
         'value="http://plain.test/repository/1nuget/index.json" allowInsecureConnections="true"'
         in config
