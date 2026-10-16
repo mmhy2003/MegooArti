@@ -98,6 +98,17 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | W10 | The setup snippets are `dotnet nuget add source`, and a `nuget.config` with `%MEGOOARTI_USER%` and `%MEGOOARTI_TOKEN%`, which NuGet reads from the environment; a source over plain HTTP is marked `allowInsecureConnections="true"`, and a name that is not one an element can have is encoded as NuGet encodes it (`_x0031_`). Chocolatey's and PowerShell's, as setup and as usage, come with plan 13d, as their tests do. | V1 of the Linux formats' spec, and what each client reads. |
 | W11 | Until plans 13b and 13c, a NuGet repository can only be hosted. | Each plan ends with something that works. |
 
+### Settled by the review of plan 13a
+
+| # | What | Why |
+| --- | --- | --- |
+| W12 | The guide adds the repository as a source with its credentials before it pushes, and pushes to the source by name. | `dotnet nuget push` reads the repository's `index.json` first, with the source's credentials, and sends the API key with the push alone: with anonymous access off, a push to a bare address is refused. |
+| W13 | An id's version list is written from its versions alone. | It needs no more, and an id can have thousands. |
+| W14 | A registration inlines its versions when there are at most 128, as nuget.org's does; beyond that its index lists pages of 64 by their bounds, each at an address of its own (`v3/registration/<id>/page/<lower>/<upper>.json`), and written from that page's versions alone (in place of W2). | An id with 5,000 versions made a registration of 24 MB on every request. |
+| W15 | A search leaves out an id with no version left to show. | A version deleted between choosing the page and reading it made the search answer `500`. |
+| W16 | Over plain HTTP, the setup's `dotnet` command says to use the `nuget.config`, which marks the source `allowInsecureConnections`. | .NET 9 and later refuse a plain-HTTP source that is not marked so (NU1302). |
+| W17 | The first push of an id holds a lock on the id while it reads how the repository spells it. | Two first pushes in two spellings made two components, one of which the feed no longer showed. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
@@ -172,7 +183,7 @@ A group's members are in order. It serves V3 from those that speak V3, and V2 fr
 | --- | --- |
 | V2's queries differ from client to client, and from version to version of one client. | The plans record what each client of D7 sends (7.3), and the real-client tests keep them honest; anything else is refused with a message, not answered wrongly. |
 | nuget.org's search and registration are on other hosts than its service index, and change their addresses. | A V3 proxy reads them from the remote's service index (6), as clients do, and never assumes a host. |
-| A popular id has thousands of versions (registration pages, a group's merge). | Pages of 64 (9), kept by revision; measured in plan 13c against nuget.org's largest ids. |
+| A popular id has thousands of versions (registration pages, a group's merge). | Pages of 64 beyond 128 versions, each written from its own versions (W14); a version list from the versions alone (W13). A search still reads every version of each id on its page: measured in plan 13c against nuget.org's largest ids. |
 | `nuget.exe` under Mono, and Chocolatey on Linux, are less maintained than their Windows builds. | The tests pin images that work; if one stops being published, the plan says so and the test is replaced by the nearest client that is. |
 | The PowerShell Gallery and the Chocolatey community feed rate-limit, or are slow. | The tests fetch a few small packages, as the Linux formats' tests do of their mirrors. |
 | A portable PDB's checksum is not what the debugger sends. | Plan 13f checks it against `dotnet-symbol` and a PDB built by `dotnet pack`. |
