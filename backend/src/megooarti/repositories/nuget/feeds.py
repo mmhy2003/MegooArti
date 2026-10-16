@@ -8,6 +8,7 @@ member that does not have something, or cannot be asked, gives nothing to the gr
 """
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlencode
 
@@ -75,20 +76,38 @@ async def items_of(
 
 # --- Search -----------------------------------------------------------------------------
 
+# A group asks a member that is not a group for its first `skip + take` results in at
+# most this many requests.
+ASKED_MOST = 10
+
+
+def _batch(query: queries.Query) -> int:
+    """How many results a group asks a member for at a time: the page asked for, so that
+    no answer is bigger than the member gives a client of its own (nuget.org's results
+    each list every version of their id), or more for a page far down, so that a member
+    is asked at most `ASKED_MOST` times; never more than a member takes at once."""
+    wanted = query.skip + query.take
+    return min(queries.TAKE_MOST, max(query.take, -(-wanted // ASKED_MOST), 1))
+
 
 async def _leading[T](
-    ask: Callable[[dict[str, str]], Awaitable[tuple[list[T], int]]],
+    member: RepositoryContext,
+    ask: Callable[[Mapping[str, str], queries.Query | None], Awaitable[tuple[list[T], int]]],
     arguments: Mapping[str, str],
     query: queries.Query,
+    batch: int,
 ) -> tuple[list[T], int]:
-    """A member's first `skip + take` results, and how many it has: asked for at most
-    `TAKE_MOST` at a time, as a member takes them (nuget.org too)."""
+    """A member's first `skip + take` results, and how many it has. A group is asked once
+    for all of them, as it asks its own members `batch` at a time; any other member is
+    asked `batch` at a time, with arguments it takes."""
     wanted = query.skip + query.take
+    if member.repository.type == "group":
+        return await ask(arguments, replace(query, skip=0, take=wanted))
     found: list[T] = []
     start = 0
     while True:
-        take = min(queries.TAKE_MOST, wanted - start)
-        listed, total = await ask({**arguments, "skip": str(start), "take": str(take)})
+        take = min(batch, wanted - start)
+        listed, total = await ask({**arguments, "skip": str(start), "take": str(take)}, None)
         found += listed
         start += take
         if start >= wanted or len(listed) < take:
@@ -114,14 +133,22 @@ def _merged[T](
 
 
 async def search(
-    context: RepositoryContext, request: Request, arguments: Mapping[str, str], base: str
+    context: RepositoryContext,
+    request: Request,
+    arguments: Mapping[str, str],
+    base: str,
+    *,
+    query: queries.Query | None = None,
+    batch: int | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """The ids a search finds, as V3's search lists them, and how many there are.
 
     A group asks each member for its first `skip + take` results, keeps an id's first,
     and cuts the page asked for from them; of the total, it takes off the ids it dropped.
+    A group in a group is given its `query`, which may ask for more than a client may,
+    and the `batch` the outermost group asks its members for at a time.
     """
-    query = queries.parse(arguments)
+    query = query or queries.parse(arguments)
     kind = context.repository.type
     if kind == "hosted":
         return await hosted_search(context, query, base)
@@ -131,10 +158,17 @@ async def search(
         total = answer.get("totalHits") if isinstance(answer, dict) else None
         found = [one for one in data if isinstance(one, dict)] if isinstance(data, list) else []
         return found, total if isinstance(total, int) else len(found)
+    batch = batch or _batch(query)
     given = await _members(
         context,
         request,
-        lambda one: _leading(lambda page: search(one, request, page, base), arguments, query),
+        lambda one: _leading(
+            one,
+            lambda page, asked: search(one, request, page, base, query=asked, batch=batch),
+            arguments,
+            query,
+            batch,
+        ),
     )
     return _merged(given, lambda one: str(one.get("id", "")).lower(), query)
 
@@ -164,11 +198,16 @@ async def hosted_search(
 
 
 async def completed_ids(
-    context: RepositoryContext, request: Request, arguments: Mapping[str, str]
+    context: RepositoryContext,
+    request: Request,
+    arguments: Mapping[str, str],
+    *,
+    query: queries.Query | None = None,
+    batch: int | None = None,
 ) -> tuple[list[str], int]:
     """The ids that contain what was typed (`q`), as autocomplete lists them, and how
-    many there are; of a group, each id once, in its members' order."""
-    query = queries.parse({**arguments, "q": ""})
+    many there are; of a group, each id once, in its members' order (as `search`)."""
+    query = query or queries.parse({**arguments, "q": ""})
     typed = arguments.get("q", "").strip().lower()
     prerelease = arguments.get("prerelease", "").lower() == "true"
     kind = context.repository.type
@@ -190,10 +229,17 @@ async def completed_ids(
         total = answer.get("totalHits") if isinstance(answer, dict) else None
         found = [one for one in data if isinstance(one, str)] if isinstance(data, list) else []
         return found, total if isinstance(total, int) else len(found)
+    batch = batch or _batch(query)
     given = await _members(
         context,
         request,
-        lambda one: _leading(lambda page: completed_ids(one, request, page), arguments, query),
+        lambda one: _leading(
+            one,
+            lambda page, asked: completed_ids(one, request, page, query=asked, batch=batch),
+            arguments,
+            query,
+            batch,
+        ),
     )
     return _merged(given, str.lower, query)
 

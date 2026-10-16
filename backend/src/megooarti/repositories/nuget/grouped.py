@@ -15,7 +15,7 @@ from megooarti.errors import ApiError
 from megooarti.repositories import group
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.formats import Serve
-from megooarti.repositories.nuget import documents, feeds, paths, responses
+from megooarti.repositories.nuget import documents, feeds, paths, proxied, responses
 
 
 def _not_found(message: str = "No member of this group has it.") -> ApiError:
@@ -83,4 +83,7 @@ async def handle_group(
             raise _not_found()
         return await responses.respond_json(context, request, audit)
     # A package, its `.nuspec`, a file of NuGet Audit's: the first member that has it.
-    return await group.handle_group(context, request, path, serve)
+    # Nothing else is asked of the members: what they would answer has their addresses.
+    if path.startswith(paths.PACKAGES) or proxied.vulnerability_name(path) is not None:
+        return await group.handle_group(context, request, path, serve)
+    raise _not_found()

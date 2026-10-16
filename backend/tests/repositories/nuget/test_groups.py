@@ -247,8 +247,8 @@ async def test_a_search_is_merged_in_the_members_order(client, root, group):
     assert everything["totalHits"] == 2  # one, and two, less the one both have
     assert [item["id"] for item in second["data"]] == ["Newtonsoft.Json"]
     asked = [seen["query"] for seen in group.requests if seen["path"] == "/nuget/query"]
-    # Each member is asked for the results up to the end of the page.
-    assert "skip=0" in asked[-1] and "take=2" in asked[-1]
+    # Each member is asked for the results up to the end of the page, a page at a time.
+    assert asked[-2:] == ["q=&skip=0&take=1", "q=&skip=1&take=1"]
 
 
 async def test_autocomplete_is_merged_in_the_members_order(client, root, group):
@@ -309,12 +309,87 @@ def test_a_groups_items_are_the_first_members_for_a_version_the_oldest_first():
     ("path", "remote_path"),
     [("v3/search", "/nuget/query"), ("v3/autocomplete", "/nuget/autocomplete")],
 )
-async def test_a_page_far_down_is_asked_of_each_member_a_thousand_at_a_time(
+async def test_a_page_far_down_is_asked_of_each_member_a_tenth_at_a_time(
     client, root, group, path, remote_path
 ):
     answer = await get(client, root, path, q="", skip="2990", take="10")
 
     assert answer.status_code == 200, answer.text
     asked = [seen["query"] for seen in group.requests if seen["path"] == remote_path]
-    # The feed takes at most 1,000 at a time, as nuget.org does; it had fewer.
-    assert asked == ["q=&skip=0&take=1000"]
+    # A tenth of the way at a time, the feed having fewer: it is asked once.
+    assert asked == ["q=&skip=0&take=300"]
+
+
+def found_ids(count: int, total: int) -> bytes:
+    data = [{"id": f"Found.Id{number}", "version": "1.0.0"} for number in range(count)]
+    return json.dumps({"totalHits": total, "data": data}).encode()
+
+
+def completed_ids(count: int, total: int) -> bytes:
+    data = [f"Found.Id{number}" for number in range(count)]
+    return json.dumps({"totalHits": total, "data": data}).encode()
+
+
+async def test_a_deeper_page_is_asked_of_each_member_a_page_at_a_time(client, root, group):
+    group.files["nuget/query"] = found_ids(30, 30)
+
+    answer = await get(client, root, "v3/search", q="", skip="25", take="25")
+
+    assert answer.status_code == 200, answer.text
+    asked = [seen["query"] for seen in group.requests if seen["path"] == "/nuget/query"]
+    # No answer is bigger than the page the proxy passes on by itself (nuget.org's
+    # results are large: each lists every version of its id).
+    assert asked == ["q=&skip=0&take=25", "q=&skip=25&take=25"]
+
+
+@pytest.mark.parametrize(
+    ("path", "remote_path", "listed"),
+    [
+        ("v3/search", "/nuget/query", found_ids),
+        ("v3/autocomplete", "/nuget/autocomplete", completed_ids),
+    ],
+)
+async def test_a_group_in_a_group_gives_a_page_far_down_as_the_group_does(
+    client, root, group, path, remote_path, listed
+):
+    made = await client.post(
+        "/api/v1/repositories",
+        json={
+            "name": "nuget-outer",
+            "format": "nuget",
+            "type": "group",
+            "group": {"members": ["nuget-all"]},
+        },
+        headers=root,
+    )
+    assert made.status_code == 201, made.text
+    group.files[remote_path[1:]] = listed(1000, 1500)
+    arguments = {"q": "", "skip": "1000", "take": "10"}
+
+    inner = await get(client, root, path, **arguments)
+    inner_asked = [seen["query"] for seen in group.requests if seen["path"] == remote_path]
+    group.requests.clear()
+    outer = await client.get(f"/repository/nuget-outer/{path}", params=arguments, headers=root)
+    outer_asked = [seen["query"] for seen in group.requests if seen["path"] == remote_path]
+
+    assert inner.status_code == outer.status_code == 200, outer.text
+    assert inner.json()["data"]
+    assert outer.json() == inner.json()
+    assert outer_asked == inner_asked
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "v3/registration/megooarti.hello/3.0.json",
+        "v3/registration/MegooArti.Hello/index.json",
+        "v3/registration/megooarti.hello/page/3.0/3.0.json",
+        "v3/something/else.json",
+    ],
+    ids=["leaf", "capitals", "page", "elsewhere"],
+)
+async def test_what_a_group_does_not_write_is_not_asked_of_its_members(client, root, group, path):
+    answer = await get(client, root, path)
+
+    assert answer.status_code == 404
+    assert not [seen for seen in group.requests if "registration" in seen["path"]]
