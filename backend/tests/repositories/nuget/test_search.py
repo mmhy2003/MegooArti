@@ -128,3 +128,14 @@ async def test_the_versions_of_the_names_of_a_page_are_read_together(db, hosted,
         "MegooArti.Hello": ["1.0.0", "2.0.0-beta"],
         "Hello": ["3.0.0"],
     }
+
+
+def test_a_name_with_nothing_to_show_is_left_out_of_a_search():
+    from megooarti.repositories.nuget import documents, queries
+
+    query = queries.parse({"q": "hello"})
+
+    found = queries.shown(query, ["Gone", "Also.Gone"], {"Also.Gone": []})
+
+    assert found == []
+    assert documents.search_result(BASE, found, 2) == {"totalHits": 2, "data": []}

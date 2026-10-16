@@ -258,6 +258,8 @@ def search_result(base: str, found: Sequence[Sequence[Published]], total: int) -
     """`v3/search`: each id found, with its versions, the newest's details in front."""
     data = []
     for held in found:
+        if not held:
+            continue
         ordered = _ordered(held)
         newest = ordered[-1].nuspec
         index = _registration(base, newest.id)

@@ -74,9 +74,11 @@ def shown(
 ) -> list[list[Published]]:
     """The versions of each of a page's ids that may be shown, in the page's order.
 
-    A prerelease is shown only if the query asks for them.
+    A prerelease is shown only if the query asks for them. An id with nothing to show
+    (its versions were deleted meanwhile, or none says what it is) is left out.
     """
-    return [
+    page = (
         [one for one in held.get(name, ()) if query.prerelease or not one.nuspec.is_prerelease]
         for name in names
-    ]
+    )
+    return [versions for versions in page if versions]
