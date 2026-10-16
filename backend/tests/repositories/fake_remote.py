@@ -51,6 +51,8 @@ class FakeRemote:
         self.content_encoding: str | None = None
         # A Content-Encoding for one path only, as nuget.org gzips its registrations alone.
         self.encodings: dict[str, str] = {}
+        # A status for one path only: one of a remote's services failing alone.
+        self.statuses: dict[str, int] = {}
         self.app = Starlette(routes=[Route("/{path:path}", self._serve, methods=["GET"])])
 
     def client(self) -> httpx.AsyncClient:
@@ -73,8 +75,9 @@ class FakeRemote:
         )
         if self.delay:
             await asyncio.sleep(self.delay)
-        if self.status is not None:
-            return Response(status_code=self.status)
+        status = self.statuses.get(request.url.path.lstrip("/"), self.status)
+        if status is not None:
+            return Response(status_code=status)
         if self.redirect_to and request.url.hostname != urlsplit(self.redirect_to).hostname:
             return RedirectResponse(self.redirect_to + request.url.path, status_code=302)
         content = self.files.get(request.url.path.lstrip("/"))

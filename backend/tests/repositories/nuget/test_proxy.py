@@ -290,3 +290,48 @@ async def test_a_proxys_settings_are_its_protocol_and_a_symbol_server(client, ro
     for refused, field in ((v2, "protocol"), (wrong, "symbol_url"), (unknown, "suite")):
         assert refused.status_code == 422
         assert refused.json()["error"]["details"][0]["field"] == f"format_config.{field}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "v3/package/newtonsoft.json/%252e%252e/%252e%252e/secret",
+        "v3/package/newtonsoft.json/x%3Fq=1",
+        "v3/package/Newtonsoft.Json/index.json",
+        "v3/package/newtonsoft.json/13.0.3/a/b",
+        "v3/package/newtonsoft.json/not-a-version/file",
+        "v3/registration/a%3Fb=.json",
+        "v3/registration/newtonsoft.json/page/%252e%252e/x.json",
+    ],
+    ids=["dots", "query", "capitals", "deeper", "version", "registration", "page"],
+)
+async def test_a_path_that_no_feed_serves_is_not_asked_of_it(client, root, remote, path):
+    answer = await client.get(f"{PROXY}/{path}", headers=root)
+
+    assert answer.status_code == 404
+    # The feed is asked for its service index, and for nothing a client named.
+    assert {seen["path"] for seen in remote.requests} <= {"/nuget/v3/index.json"}
+
+
+async def test_a_name_in_a_feeds_path_is_sent_to_it_escaped(client, root, remote):
+    remote.files[f"{FLAT}/13.0.3/icon+x"] = b"an icon"
+
+    answer = await client.get(f"{PROXY}/v3/package/newtonsoft.json/13.0.3/icon%2Bx", headers=root)
+
+    assert answer.content == b"an icon"
+    (asked,) = [seen for seen in remote.requests if seen["path"].endswith("x")]
+    assert asked["raw_path"] == f"/{FLAT}/13.0.3/icon%2Bx"
+    assert asked["query"] == ""
+
+
+async def test_a_failed_search_leaves_the_proxy_to_restore(client, root, remote):
+    remote.statuses["query"] = 503  # the feed's search, on its own host, fails
+
+    searched = await client.get(f"{PROXY}/v3/search", params={"q": "json"}, headers=root)
+    fetched = await client.get(
+        f"{PROXY}/v3/package/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg", headers=root
+    )
+
+    assert searched.status_code == 502
+    # Recorded, and not counted towards leaving the feed alone.
+    assert fetched.status_code == 200

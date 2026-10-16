@@ -5,6 +5,7 @@ Every exit that the client should remember (a cached file, a remembered miss, a
 recorded failure) is committed here, because several of them end in an error response.
 """
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -53,6 +54,10 @@ class Source:
     # Whether the remote may send the document gzipped whatever it is asked for, as
     # nuget.org sends its registrations: it is then inflated. For `ask` and `document`.
     gzipped: bool = False
+    # Whether a failure counts towards leaving the remote alone. Not for a service of
+    # its that is asked apart from its files, such as a search on another host: its
+    # failing must not stop the files being fetched. The failure is recorded all the same.
+    blocks: bool = True
 
 
 @dataclass(frozen=True)
@@ -204,6 +209,8 @@ async def _consult(
             await proxy_state.remember_missing(db, repository, path, now)
         await db.commit()
         return Absent()
+    if isinstance(outcome, remote.Failed) and not source.blocks:
+        outcome = dataclasses.replace(outcome, blockable=False)
     reason = await _fail(context, path, outcome)
     return Unavailable(_unavailable(reason), getattr(outcome, "status", None))
 
