@@ -20,10 +20,12 @@ SYMBOL_PUBLISH = "api/v2/symbolpackage"
 @dataclass(frozen=True)
 class NuGetPath:
     # service-index, versions, package, nuspec, symbols, registration, leaf, search,
-    # autocomplete, publish, symbol-publish, delete, other
+    # autocomplete, publish, symbol-publish, delete, page, other
     kind: str
     id: str = ""  # lower case
     version: str = ""  # normalized, lower case
+    lower: str = ""  # a registration page's first version, normalized, lower case
+    upper: str = ""  # and its last
 
 
 def _version(text: str) -> str | None:
@@ -47,6 +49,11 @@ def symbols_path(package_id: str, version: str) -> str:
     """Where a package's symbol package is kept, beside it."""
     lower, at = package_id.lower(), version.lower()
     return f"{PACKAGES}{lower}/{at}/{lower}.{at}.snupkg"
+
+
+def page_path(package_id: str, lower: str, upper: str) -> str:
+    """Where a registration page of an id with many versions is served."""
+    return f"{REGISTRATION}{package_id.lower()}/page/{lower.lower()}/{upper.lower()}.json"
 
 
 def classify(path: str) -> NuGetPath:
@@ -88,4 +95,15 @@ def classify(path: str) -> NuGetPath:
         version = _version(parts[3].removesuffix(".json"))
         if parts[3].endswith(".json") and version == parts[3].removesuffix(".json"):
             return NuGetPath("leaf", package_id, version)
+    if path.startswith(REGISTRATION) and len(parts) == 6 and parts[3] == "page":
+        package_id = parts[2]
+        lower, upper = _version(parts[4]), _version(parts[5].removesuffix(".json"))
+        if (
+            versions.is_id(package_id)
+            and package_id == package_id.lower()
+            and parts[5].endswith(".json")
+            and lower == parts[4]
+            and upper == parts[5].removesuffix(".json")
+        ):
+            return NuGetPath("page", package_id, lower=lower, upper=upper)
     return NuGetPath("other")

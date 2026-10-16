@@ -14,6 +14,9 @@ from megooarti.repositories.nuget.packages import Nuspec
 
 # Versions in a page of a registration, as nuget.org's.
 PAGE = 64
+# An id with more versions than this has its pages listed by their bounds, each at an
+# address of its own; with this many or fewer they are inlined, as nuget.org's are.
+INLINED_MOST = 128
 
 
 @dataclass(frozen=True)
@@ -153,31 +156,89 @@ def _ordered(held: Sequence[Published]) -> list[Published]:
     )
 
 
-def registration(base: str, held: Sequence[Published]) -> dict[str, Any]:
-    """`v3/registration/<id>/index.json`: an id's versions, inlined in pages of 64."""
-    ordered = _ordered(held)
-    index = _registration(base, ordered[0].nuspec.id)
-    pages = []
-    for start in range(0, len(ordered), PAGE):
-        page = ordered[start : start + PAGE]
-        lower, upper = page[0].nuspec.version.lower(), page[-1].nuspec.version.lower()
-        pages.append(
-            {
-                "@id": f"{index}#page/{lower}/{upper}",
-                "@type": "catalog:CatalogPage",
-                "count": len(page),
-                "items": [_item(base, one) for one in page],
-                "lower": lower,
-                "upper": upper,
-                "parent": index,
-            }
-        )
+def _bounds(listed: Sequence[str]) -> list[tuple[str, str, int]]:
+    """The pages of an id's versions: each one's first, last and number of versions."""
+    ordered = [version.lower() for version in versions.ordered(list(listed))]
+    return [
+        (page[0], page[-1], len(page))
+        for start in range(0, len(ordered), PAGE)
+        if (page := ordered[start : start + PAGE])
+    ]
+
+
+def _page(
+    base: str, index: str, address: str, held: Sequence[Published], lower: str, upper: str
+) -> dict[str, Any]:
+    """A page, with its versions' items, `held` being exactly its versions."""
+    return {
+        "@id": address,
+        "@type": "catalog:CatalogPage",
+        "count": len(held),
+        "items": [_item(base, one) for one in held],
+        "lower": lower,
+        "upper": upper,
+        "parent": index,
+    }
+
+
+def _root(index: str, pages: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "@id": index,
         "@type": ["catalog:CatalogRoot", "PackageRegistration", "catalog:Permalink"],
         "count": len(pages),
         "items": pages,
     }
+
+
+def registration(base: str, held: Sequence[Published]) -> dict[str, Any]:
+    """`v3/registration/<id>/index.json` of an id with at most `INLINED_MOST` versions:
+    its versions, inlined in pages of 64."""
+    ordered = _ordered(held)
+    index = _registration(base, ordered[0].nuspec.id)
+    pages = []
+    for start in range(0, len(ordered), PAGE):
+        page = ordered[start : start + PAGE]
+        lower, upper = page[0].nuspec.version.lower(), page[-1].nuspec.version.lower()
+        pages.append(_page(base, index, f"{index}#page/{lower}/{upper}", page, lower, upper))
+    return _root(index, pages)
+
+
+def registration_pages(base: str, package_id: str, listed: Sequence[str]) -> dict[str, Any]:
+    """`v3/registration/<id>/index.json` of an id with more: its pages by their bounds
+    alone, each served at its own address. `listed` is its versions."""
+    index = _registration(base, package_id)
+    pages = [
+        {
+            "@id": f"{base}{paths.page_path(package_id, lower, upper)}",
+            "@type": "catalog:CatalogPage",
+            "count": count,
+            "lower": lower,
+            "upper": upper,
+        }
+        for lower, upper, count in _bounds(listed)
+    ]
+    return _root(index, pages)
+
+
+def page_of(listed: Sequence[str], lower: str, upper: str) -> list[str] | None:
+    """The versions of the page of an id's `listed` versions that has these bounds,
+    or None if no page has them."""
+    ordered = [version.lower() for version in versions.ordered(list(listed))]
+    for start in range(0, len(ordered), PAGE):
+        page = ordered[start : start + PAGE]
+        if page[0] == lower and page[-1] == upper:
+            return page
+    return None
+
+
+def registration_page(
+    base: str, package_id: str, held: Sequence[Published], lower: str, upper: str
+) -> dict[str, Any]:
+    """`v3/registration/<id>/page/<lower>/<upper>.json`: one page, its versions inlined.
+    `held` is exactly the page's versions."""
+    index = _registration(base, package_id)
+    address = f"{base}{paths.page_path(package_id, lower, upper)}"
+    return _page(base, index, address, _ordered(held), lower, upper)
 
 
 def leaf(base: str, held: Published) -> dict[str, Any]:

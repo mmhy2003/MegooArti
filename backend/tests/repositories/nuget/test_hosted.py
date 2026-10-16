@@ -215,7 +215,9 @@ async def test_a_read_only_repository_takes_no_push(client, db, root):
     assert answer.status_code == 403
 
 
-async def test_a_registration_has_pages_of_64_versions(client, hosted, root):
+async def test_a_registration_of_up_to_128_versions_inlines_them_in_pages_of_64(
+    client, hosted, root
+):
     for minor in range(65):
         assert (await push(client, root, nupkg(version=f"1.{minor}.0"))).status_code == 201
 
@@ -227,6 +229,51 @@ async def test_a_registration_has_pages_of_64_versions(client, hosted, root):
     first, second = registration["items"]
     assert (first["count"], first["lower"], first["upper"]) == (documents.PAGE, "1.0.0", "1.63.0")
     assert (second["count"], second["lower"], second["upper"]) == (1, "1.64.0", "1.64.0")
+    assert [len(page["items"]) for page in registration["items"]] == [64, 1]
+
+
+async def test_a_registration_of_more_versions_lists_its_pages_and_serves_each(
+    client, hosted, root
+):
+    for minor in range(documents.INLINED_MOST + 1):
+        assert (await push(client, root, nupkg(version=f"1.{minor}.0"))).status_code == 201
+    address = f"{URL}/v3/registration/megooarti.hello"
+
+    index = (await client.get(f"{address}/index.json", headers=root)).json()
+
+    assert index["count"] == 3
+    assert all("items" not in page for page in index["items"])
+    assert [(page["count"], page["lower"], page["upper"]) for page in index["items"]] == [
+        (64, "1.0.0", "1.63.0"),
+        (64, "1.64.0", "1.127.0"),
+        (1, "1.128.0", "1.128.0"),
+    ]
+    served = []
+    for page in index["items"]:
+        assert page["@type"] == "catalog:CatalogPage"
+        assert (
+            page["@id"]
+            == f"{BASE}v3/registration/megooarti.hello/page/{page['lower']}/{page['upper']}.json"
+        )
+        fetched = await client.get(page["@id"].replace(BASE, f"{URL}/"), headers=root)
+        assert fetched.status_code == 200
+        body = fetched.json()
+        assert body["@id"] == page["@id"]
+        assert body["parent"] == index["@id"]
+        assert (body["count"], body["lower"], body["upper"]) == (
+            page["count"],
+            page["lower"],
+            page["upper"],
+        )
+        assert len(body["items"]) == page["count"]
+        served += [item["catalogEntry"]["version"] for item in body["items"]]
+    assert served == [f"1.{minor}.0" for minor in range(documents.INLINED_MOST + 1)]
+    unknown = await client.get(f"{address}/page/1.0.0/1.62.0.json", headers=root)
+    assert unknown.status_code == 404
+    elsewhere = await client.get(
+        f"{URL}/v3/registration/nothing.here/page/1.0.0/1.63.0.json", headers=root
+    )
+    assert elsewhere.status_code == 404
 
 
 async def test_a_version_list_is_written_from_the_versions_alone(client, db, hosted, root):

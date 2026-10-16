@@ -239,6 +239,41 @@ async def _held(context: RepositoryContext, package_id: str) -> list[Published]:
     return held
 
 
+async def _registration(context: RepositoryContext, request: Request, package_id: str) -> Response:
+    """An id's registration: its versions inlined if there are few, else its pages by
+    their bounds, written from the version strings alone."""
+    spelling = await context.spelling("", package_id)
+    listed = [] if spelling is None else list(await context.versions("", spelling))
+    if not listed:
+        raise _not_found(f"This repository has no package {package_id}.")
+    base = await _base(context, request)
+    if len(listed) > documents.INLINED_MOST:
+        return await _respond(
+            context, request, documents.registration_pages(base, package_id, listed)
+        )
+    held = _published(await context.components("", spelling))
+    return await _respond(context, request, documents.registration(base, held))
+
+
+async def _registration_page(
+    context: RepositoryContext, request: Request, parsed: paths.NuGetPath
+) -> Response:
+    """One page of an id's registration; only its versions' attributes are used."""
+    spelling = await context.spelling("", parsed.id)
+    listed = [] if spelling is None else list(await context.versions("", spelling))
+    wanted = documents.page_of(listed, parsed.lower, parsed.upper)
+    if wanted is None or len(listed) <= documents.INLINED_MOST:
+        raise _not_found(f"This repository has no such page of {parsed.id}.")
+    held = [
+        one
+        for one in _published(await context.components("", spelling))
+        if one.nuspec.version.lower() in set(wanted)
+    ]
+    base = await _base(context, request)
+    page = documents.registration_page(base, parsed.id, held, parsed.lower, parsed.upper)
+    return await _respond(context, request, page)
+
+
 async def _search(context: RepositoryContext, request: Request) -> Response:
     query = queries.parse(request.query_params)
     names, total = await context.package_page(
@@ -300,10 +335,9 @@ async def _read_request(
             raise _not_found(f"This repository has no package {parsed.id}.")
         return await _respond(context, request, documents.version_list(listed))
     if parsed.kind == "registration":
-        held = await _held(context, parsed.id)
-        return await _respond(
-            context, request, documents.registration(await _base(context, request), held)
-        )
+        return await _registration(context, request, parsed.id)
+    if parsed.kind == "page":
+        return await _registration_page(context, request, parsed)
     if parsed.kind == "leaf":
         held = [
             one

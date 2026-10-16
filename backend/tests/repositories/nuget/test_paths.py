@@ -31,6 +31,14 @@ from megooarti.repositories.nuget.paths import NuGetPath
             "v3/registration/megooarti.hello/1.0.0.json",
             NuGetPath("leaf", "megooarti.hello", "1.0.0"),
         ),
+        (
+            "v3/registration/megooarti.hello/page/1.0.0/1.63.0.json",
+            NuGetPath("page", "megooarti.hello", lower="1.0.0", upper="1.63.0"),
+        ),
+        # Bounds that are not versions, or not as a client is given them.
+        ("v3/registration/megooarti.hello/page/1.0/1.63.0.json", NuGetPath("other")),
+        ("v3/registration/megooarti.hello/page/1.0.0/other.json", NuGetPath("other")),
+        ("v3/registration/MegooArti.Hello/page/1.0.0/1.63.0.json", NuGetPath("other")),
         ("v3/search", NuGetPath("search")),
         ("v3/autocomplete", NuGetPath("autocomplete")),
         ("api/v2/package", NuGetPath("publish")),
