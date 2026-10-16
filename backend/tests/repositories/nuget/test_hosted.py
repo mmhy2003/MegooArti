@@ -317,3 +317,21 @@ async def test_an_api_key_is_taken_by_package_clients_only(client, make_user, ma
     answer = await client.get("/api/v1/me/tokens", headers={"X-NuGet-ApiKey": token})
 
     assert answer.status_code == 401
+
+
+async def test_the_first_push_of_an_id_takes_a_lock_on_the_id(client, hosted, root, monkeypatch):
+    from megooarti.repositories.content import RepositoryContext
+
+    locked = []
+    real = RepositoryContext.lock
+
+    async def recording(self, name):
+        locked.append(name)
+        await real(self, name)
+
+    monkeypatch.setattr(RepositoryContext, "lock", recording)
+
+    pushed = await push(client, root, nupkg("MegooArti.Hello", "1.0.0"))
+
+    assert pushed.status_code == 201
+    assert "id:megooarti.hello" in locked

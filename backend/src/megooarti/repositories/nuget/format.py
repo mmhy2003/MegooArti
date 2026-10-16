@@ -50,6 +50,10 @@ _DECLARED = "nuget"
 _PACKAGE = "application/octet-stream"
 _NUSPEC = "application/xml"
 _JSON = "application/json"
+_PLAIN_HTTP = (
+    "# Over plain HTTP, .NET 9 and later take a source only from a nuget.config that "
+    "allows it: use the nuget.config below."
+)
 
 
 def _invalid(reason: object) -> ApiError:
@@ -86,9 +90,10 @@ def _published(held: Sequence[ComponentInfo]) -> list[Published]:
 def _ranges(context: RepositoryContext, staged: StagedBlob) -> packages.Read:
     """A staged package's bytes by position: it is read from its start each time.
 
-    A package is read three times at the most (its end, its directory, its `.nuspec`),
-    and only those bytes are kept. Each reading closes the file at once: a file that is
-    still open cannot be moved into the store, or removed, on every system.
+    A package is read four times at the most (its end, its directory, a local header and
+    its `.nuspec`'s data), and only those bytes are kept. Each reading closes the file at
+    once: a file that is still open cannot be moved into the store, or removed, on every
+    system.
     """
 
     async def read(start: int, length: int) -> bytes:
@@ -135,6 +140,7 @@ async def _received(context: RepositoryContext, request: Request) -> StagedBlob:
 
 async def _spelled(context: RepositoryContext, nuspec: packages.Nuspec) -> packages.Nuspec:
     """The `.nuspec`'s id as the repository already spells it, if it has the id."""
+    await context.lock(f"id:{nuspec.id.lower()}")
     spelling = await context.spelling("", nuspec.id)
     return nuspec if spelling is None or spelling == nuspec.id else replace(nuspec, id=spelling)
 
@@ -375,7 +381,10 @@ def setup_of(address: str, name: str) -> list[Usage]:
         '  --username "$MEGOOARTI_USER" --password "$MEGOOARTI_TOKEN" '
         "--store-password-in-clear-text"
     )
-    insecure = ' allowInsecureConnections="true"' if source.startswith("http://") else ""
+    plain_http = source.startswith("http://")
+    if plain_http:
+        command = _PLAIN_HTTP + "\n" + command
+    insecure = ' allowInsecureConnections="true"' if plain_http else ""
     escaped = xml.sax.saxutils.quoteattr(source)
     element = _element(name)
     config = (
