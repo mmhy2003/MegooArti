@@ -288,6 +288,17 @@ async def test_a_version_list_is_written_from_the_versions_alone(client, db, hos
     assert listed.json() == {"versions": ["1.0.0", "2.0.0"]}
 
 
+async def test_a_registration_with_nothing_left_to_show_is_not_found(client, db, hosted, root):
+    await push(client, root, nupkg(version="1.0.0"))
+    # As when its last version goes between the two reads a registration makes.
+    await db.execute(update(Component).values(attributes=None))
+    await db.commit()
+
+    answer = await client.get(f"{URL}/v3/registration/megooarti.hello/index.json", headers=root)
+
+    assert answer.status_code == 404
+
+
 @pytest.mark.parametrize(
     "path",
     [

@@ -101,7 +101,7 @@ def _remote_auth(
     return {"type": kind, "username": username if kind == "basic" else "", "secret": str(secret)}
 
 
-def _remote_origin(url: str) -> tuple[str, str, int] | None:
+def remote_origin(url: str) -> tuple[str, str, int] | None:
     """Scheme, host and port of an acceptable remote URL, or None if it is not one."""
     try:
         parts = urlsplit(url)
@@ -121,7 +121,7 @@ def _remote_origin(url: str) -> tuple[str, str, int] | None:
 def _proxy_settings(proxy: dict[str, Any] | None, current: dict[str, Any] | None) -> dict[str, Any]:
     proxy = proxy or {}
     url = str(proxy.get("remote_url") or "").strip()
-    origin = _remote_origin(url)
+    origin = remote_origin(url)
     if origin is None:
         # The message never repeats the URL: it may be the one with a password in it.
         raise _invalid(
@@ -130,7 +130,7 @@ def _proxy_settings(proxy: dict[str, Any] | None, current: dict[str, Any] | None
             "a fragment. Credentials belong in remote_auth.",
         )
     previous = (current or {}).get("remote_url")
-    same_remote = previous is not None and _remote_origin(previous) == origin
+    same_remote = previous is not None and remote_origin(previous) == origin
     negative = proxy.get("negative_cache") or {}
     return {
         "remote_url": url.rstrip("/"),

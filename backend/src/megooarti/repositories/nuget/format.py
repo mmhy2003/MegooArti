@@ -16,7 +16,6 @@ normalized and in lower case, as it is in every address; what its package wrote 
 its `.nuspec`.
 """
 
-import json
 import xml.sax.saxutils
 from collections.abc import Sequence
 from contextlib import aclosing
@@ -27,7 +26,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from megooarti.errors import ApiError
-from megooarti.repositories import forms
+from megooarti.repositories import forms, service
 from megooarti.repositories.content import ComponentInfo, RepositoryContext
 from megooarti.repositories.formats import (
     ComponentKey,
@@ -40,7 +39,15 @@ from megooarti.repositories.formats import (
     register,
 )
 from megooarti.repositories.models import Repository
-from megooarti.repositories.nuget import documents, packages, paths, queries, versions
+from megooarti.repositories.nuget import (
+    documents,
+    packages,
+    paths,
+    proxied,
+    queries,
+    responses,
+    versions,
+)
 from megooarti.repositories.nuget.documents import Published
 from megooarti.storage.backends import StagedBlob
 
@@ -49,10 +56,9 @@ from megooarti.storage.backends import StagedBlob
 _DECLARED = "nuget"
 _PACKAGE = "application/octet-stream"
 _NUSPEC = "application/xml"
-_JSON = "application/json"
 _PLAIN_HTTP = (
-    "# Over plain HTTP, .NET 9 and later take a source only from a nuget.config that "
-    "allows it: use the nuget.config below."
+    "# Over plain HTTP: --allow-insecure-connections is the .NET SDK 9's and later's;"
+    " with .NET 8, leave it out."
 )
 
 
@@ -217,25 +223,6 @@ async def _delete_version(context: RepositoryContext, package_id: str, version: 
 # --- Reading ------------------------------------------------------------------------
 
 
-async def _base(context: RepositoryContext, request: Request) -> str:
-    return f"{await context.public_url(request)}/"
-
-
-async def _respond(context: RepositoryContext, request: Request, document: Any) -> Response:
-    """A document written for this request, as JSON."""
-    data = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
-    _, changed = await context.revision()
-    return context.respond_with(
-        data,
-        request,
-        filename="index.json",
-        content_type=_JSON,
-        last_modified=changed,
-        # Two changes can be made within one second: only the bytes say which a client has.
-        dated=False,
-    )
-
-
 async def _held(context: RepositoryContext, package_id: str) -> list[Published]:
     """Every version of an id this repository holds. Raises 404 for none."""
     spelling = await context.spelling("", package_id)
@@ -252,13 +239,16 @@ async def _registration(context: RepositoryContext, request: Request, package_id
     listed = [] if spelling is None else list(await context.versions("", spelling))
     if not listed:
         raise _not_found(f"This repository has no package {package_id}.")
-    base = await _base(context, request)
+    base = await responses.base(context, request)
     if len(listed) > documents.INLINED_MOST:
-        return await _respond(
+        return await responses.respond_json(
             context, request, documents.registration_pages(base, package_id, listed)
         )
     held = _published(await context.components("", spelling))
-    return await _respond(context, request, documents.registration(base, held))
+    if not held:
+        # Its last version went between the two reads.
+        raise _not_found(f"This repository has no package {package_id}.")
+    return await responses.respond_json(context, request, documents.registration(base, held))
 
 
 async def _registration_page(
@@ -275,9 +265,9 @@ async def _registration_page(
         for one in _published(await context.components("", spelling))
         if one.nuspec.version.lower() in set(wanted)
     ]
-    base = await _base(context, request)
+    base = await responses.base(context, request)
     page = documents.registration_page(base, parsed.id, held, parsed.lower, parsed.upper)
-    return await _respond(context, request, page)
+    return await responses.respond_json(context, request, page)
 
 
 async def _search(context: RepositoryContext, request: Request) -> Response:
@@ -294,8 +284,10 @@ async def _search(context: RepositoryContext, request: Request) -> Response:
     )
     held = await context.components_of("", names)
     found = queries.shown(query, names, {name: _published(infos) for name, infos in held.items()})
-    return await _respond(
-        context, request, documents.search_result(await _base(context, request), found, total)
+    return await responses.respond_json(
+        context,
+        request,
+        documents.search_result(await responses.base(context, request), found, total),
     )
 
 
@@ -309,7 +301,9 @@ async def _autocomplete(context: RepositoryContext, request: Request) -> Respons
         shown = versions.ordered(
             [one.nuspec.version for one in held if prerelease or not one.nuspec.is_prerelease]
         )
-        return await _respond(context, request, documents.autocomplete(shown, len(shown)))
+        return await responses.respond_json(
+            context, request, documents.autocomplete(shown, len(shown))
+        )
     query = queries.parse({**arguments, "q": ""})
     typed = arguments.get("q", "").strip().lower()
     ids, total = await context.package_page(
@@ -321,15 +315,15 @@ async def _autocomplete(context: RepositoryContext, request: Request) -> Respons
         limit=query.take,
         offset=query.skip,
     )
-    return await _respond(context, request, documents.autocomplete(ids, total))
+    return await responses.respond_json(context, request, documents.autocomplete(ids, total))
 
 
 async def _read_request(
     context: RepositoryContext, request: Request, path: str, parsed: paths.NuGetPath
 ) -> Response:
     if parsed.kind == "service-index":
-        return await _respond(
-            context, request, documents.service_index(await _base(context, request))
+        return await responses.respond_json(
+            context, request, documents.service_index(await responses.base(context, request))
         )
     if parsed.kind in ("package", "nuspec", "symbols"):
         return await context.respond(path, request)
@@ -339,7 +333,7 @@ async def _read_request(
         listed = [] if spelling is None else list(await context.versions("", spelling))
         if not listed:
             raise _not_found(f"This repository has no package {parsed.id}.")
-        return await _respond(context, request, documents.version_list(listed))
+        return await responses.respond_json(context, request, documents.version_list(listed))
     if parsed.kind == "registration":
         return await _registration(context, request, parsed.id)
     if parsed.kind == "page":
@@ -352,8 +346,8 @@ async def _read_request(
         ]
         if not held:
             raise _not_found(f"This repository has no {parsed.id} {parsed.version}.")
-        return await _respond(
-            context, request, documents.leaf(await _base(context, request), held[0])
+        return await responses.respond_json(
+            context, request, documents.leaf(await responses.base(context, request), held[0])
         )
     if parsed.kind == "search":
         return await _search(context, request)
@@ -383,7 +377,8 @@ def setup_of(address: str, name: str) -> list[Usage]:
     )
     plain_http = source.startswith("http://")
     if plain_http:
-        command = _PLAIN_HTTP + "\n" + command
+        # NuGet refuses a plain-HTTP source that is not marked so (NU1302).
+        command = f"{_PLAIN_HTTP}\n{command} \\\n  --allow-insecure-connections"
     insecure = ' allowInsecureConnections="true"' if plain_http else ""
     escaped = xml.sax.saxutils.quoteattr(source)
     element = _element(name)
@@ -404,10 +399,94 @@ def setup_of(address: str, name: str) -> list[Usage]:
     return [Usage("dotnet", "shell", command), Usage("nuget.config", "xml", config)]
 
 
+# The protocols a proxy may speak to its remote. V2 comes with a later version.
+PROTOCOLS = ("v3",)
+
+
+def _invalid_setting(field: str, message: str) -> ApiError:
+    details = [{"field": field, "message": message}]
+    return ApiError(422, "validation_error", "The request is not valid.", details)
+
+
+def proxy_settings(config: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
+    """A proxy's protocol, fixed once it is made, and the symbol server it may proxy."""
+    unknown = sorted(set(config) - {"protocol", "symbol_url"})
+    if unknown:
+        raise _invalid_setting(f"format_config.{unknown[0]}", "This is not a setting of NuGet.")
+    stored = "v3" if current is None else current.get("protocol", "v3")
+    protocol = config.get("protocol", stored)
+    if protocol not in PROTOCOLS:
+        raise _invalid_setting(
+            "format_config.protocol",
+            "A NuGet proxy speaks v3 to its remote: a V2 feed is not proxied yet.",
+        )
+    if current is not None and protocol != stored:
+        raise _invalid_setting(
+            "format_config.protocol", "The protocol cannot change once the proxy is made."
+        )
+    settings: dict[str, Any] = {"protocol": protocol}
+    symbol_url = config.get("symbol_url")
+    if symbol_url:
+        if not isinstance(symbol_url, str) or service.remote_origin(symbol_url.strip()) is None:
+            raise _invalid_setting(
+                "format_config.symbol_url",
+                "Give an http or https address with a host, and without credentials, a "
+                "query or a fragment.",
+            )
+        settings["symbol_url"] = symbol_url.strip().rstrip("/")
+    return settings
+
+
+async def describe_fetched(
+    context: RepositoryContext, path: str, staged: StagedBlob
+) -> dict[str, Any]:
+    """A package or a `.nuspec` a proxy fetched, read as a pushed one is: what its
+    `.nuspec` says. Nothing for what cannot be read: it is the remote's."""
+    kind = paths.classify(path).kind
+    try:
+        if kind == "package":
+            nuspec = (await packages.read(_ranges(context, staged), staged.size)).nuspec
+        elif kind == "nuspec":
+            spec = await context.read_staged(staged, limit=packages.NUSPEC_MOST)
+            if spec is None:
+                return {}
+            nuspec = packages.parse_nuspec(spec)
+        else:
+            return {}
+    except packages.InvalidPackage:
+        return {}
+    return {_DECLARED: nuspec.as_json()}
+
+
 class NuGetFormat(Format):
     name = "nuget"
-    types = frozenset({"hosted"})
+    types = frozenset({"hosted", "proxy"})
     derives_indexes = True
+
+    def validate_config(
+        self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """A proxy's settings; a hosted repository has none."""
+        if repository_type == "proxy":
+            return proxy_settings(config, current)
+        return super().validate_config(repository_type, config, current)
+
+    async def describe_fetched(
+        self, context: RepositoryContext, path: str, staged: StagedBlob
+    ) -> dict[str, Any]:
+        return await describe_fetched(context, path, staged)
+
+    def is_metadata(self, path: str) -> bool:
+        """An id's versions, its registration and the remote's service index change as
+        packages are published; packages and their `.nuspec` do not."""
+        if path == proxied.REMOTE_INDEX or path.startswith(paths.REGISTRATION):
+            return True
+        return path.startswith(paths.PACKAGES) and path.endswith("/index.json")
+
+    async def handle_proxy(
+        self, context: RepositoryContext, request: Request, path: str
+    ) -> Response:
+        return await proxied.handle_proxy(context, request, path)
 
     def default_deployment_policy(self, config: dict[str, Any]) -> str:
         """A version is pushed once, as nuget.org takes it: a second push is `409`."""

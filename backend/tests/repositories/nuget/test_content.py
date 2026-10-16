@@ -95,9 +95,10 @@ async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_elem
 
     dotnet, config = (usage["text"] for usage in view["setup"])
     assert dotnet.startswith(
-        "# Over plain HTTP, .NET 9 and later take a source only from a nuget.config that "
-        "allows it: use the nuget.config below.\ndotnet nuget add source"
+        "# Over plain HTTP: --allow-insecure-connections is the .NET SDK 9's and later's;"
+        " with .NET 8, leave it out.\ndotnet nuget add source"
     )
+    assert dotnet.endswith("--store-password-in-clear-text \\\n  --allow-insecure-connections")
     assert (
         'value="http://plain.test/repository/1nuget/index.json" allowInsecureConnections="true"'
         in config

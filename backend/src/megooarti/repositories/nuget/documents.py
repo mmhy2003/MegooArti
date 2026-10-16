@@ -27,8 +27,13 @@ class Published:
     published: datetime
 
 
-def service_index(base: str) -> dict[str, Any]:
-    """`index.json`: where a client finds each of the protocol's resources."""
+def service_index(
+    base: str, *, publish: bool = True, search: bool = True, autocomplete: bool = True
+) -> dict[str, Any]:
+    """`index.json`: where a client finds each of the protocol's resources.
+
+    A proxy offers no place to push to, and searches only where its remote does.
+    """
     resources = [
         (paths.PACKAGES, ["PackageBaseAddress/3.0.0"]),
         (paths.PUBLISH, ["PackagePublish/2.0.0"]),
@@ -63,10 +68,19 @@ def service_index(base: str) -> dict[str, Any]:
             ],
         ),
     ]
+    left_out = {
+        paths.PUBLISH: not publish,
+        paths.SYMBOL_PUBLISH: not publish,
+        paths.SEARCH: not search,
+        paths.AUTOCOMPLETE: not autocomplete,
+    }
     return {
         "version": "3.0.0",
         "resources": [
-            {"@id": f"{base}{path}", "@type": kind} for path, kinds in resources for kind in kinds
+            {"@id": f"{base}{path}", "@type": kind}
+            for path, kinds in resources
+            if not left_out.get(path, False)
+            for kind in kinds
         ],
     }
 
