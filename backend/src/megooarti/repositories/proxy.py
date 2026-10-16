@@ -50,6 +50,9 @@ class Source:
     # Whether a miss is remembered under the path. Not if the same path can be found
     # at another address, as a blob that several images share can.
     remember_missing: bool = True
+    # Whether the remote may send the document gzipped whatever it is asked for, as
+    # nuget.org sends its registrations: it is then inflated. For `ask` and `document`.
+    gzipped: bool = False
 
 
 @dataclass(frozen=True)
@@ -180,7 +183,13 @@ async def _consult(
         )
     else:
         outcome = await remote.fetch(
-            http, url, authorization=credential, limit=limit, accept=source.accept, sign_in=sign_in
+            http,
+            url,
+            authorization=credential,
+            limit=limit,
+            accept=source.accept,
+            sign_in=sign_in,
+            gzipped=source.gzipped,
         )
     now = utcnow()
     if isinstance(outcome, remote.Exists | remote.Document):
@@ -222,6 +231,34 @@ async def probe(
     As `ask` in every other way.
     """
     return await _consult(context, normalise_path(path), source, None)
+
+
+async def document(
+    context: RepositoryContext, path: str, source: Source, *, limit: int, content_type: str
+) -> bytes:
+    """A small document of the remote, kept under `path` as metadata, for a format that
+    reads it: what is kept while it is fresh, else what the remote has now.
+
+    Where the remote cannot be asked, or no longer has it, what is kept is given, as for
+    any cached file; with nothing kept, this raises 404 or 502. This commits.
+    """
+    path = normalise_path(path)
+    asset = await context.get(path)
+    if asset is None or not _fresh(context, asset, path):
+        answer = await ask(context, path, source, limit=limit)
+        if isinstance(answer, Answer):
+            staged = await context.stage_bytes(answer.body)
+            await context.cache(
+                path, staged, content_type=content_type, attributes={}, now=utcnow()
+            )
+            await context.db.commit()
+            return answer.body
+        if asset is None:
+            raise _not_found() if isinstance(answer, Absent) else answer.error
+    kept = await context.read(path, limit=limit)
+    if kept is None:
+        raise _not_found()
+    return kept
 
 
 async def still_current(context: RepositoryContext, path: str) -> None:
@@ -294,11 +331,13 @@ async def _refresh(
 
     if isinstance(outcome, remote.Fetched):
         origin = {"remote_etag": outcome.etag, "remote_last_modified": outcome.last_modified}
+        described = await context.format.describe_fetched(context, path, outcome.staged)
         await context.cache(
             path,
             outcome.staged,
             content_type=context.format.content_type(path, outcome.content_type),
-            attributes={name: value for name, value in origin.items() if value},
+            attributes={**{name: value for name, value in origin.items() if value}, **described},
+            component_attributes=described or None,
             now=now,
         )
         await proxy_state.record_success(db, repository, now)

@@ -49,6 +49,8 @@ class FakeRemote:
         self.delay = 0.0
         self.set_cookie: str | None = None
         self.content_encoding: str | None = None
+        # A Content-Encoding for one path only, as nuget.org gzips its registrations alone.
+        self.encodings: dict[str, str] = {}
         self.app = Starlette(routes=[Route("/{path:path}", self._serve, methods=["GET"])])
 
     def client(self) -> httpx.AsyncClient:
@@ -63,6 +65,7 @@ class FakeRemote:
                 "method": request.method,
                 "host": request.url.hostname,
                 "path": request.url.path,
+                "query": request.url.query,
                 # As it was written in the request, before any escape was decoded.
                 "raw_path": request.scope["raw_path"].decode("ascii"),
                 "headers": dict(request.headers),
@@ -88,6 +91,7 @@ class FakeRemote:
         }
         if self.set_cookie:
             headers["Set-Cookie"] = self.set_cookie
-        if self.content_encoding:
-            headers["Content-Encoding"] = self.content_encoding
+        encoding = self.encodings.get(request.url.path.lstrip("/"), self.content_encoding)
+        if encoding:
+            headers["Content-Encoding"] = encoding
         return Response(b"" if request.method == "HEAD" else content, headers=headers)

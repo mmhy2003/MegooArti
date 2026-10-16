@@ -13,6 +13,7 @@ import re
 import socket
 import time
 import weakref
+import zlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from http.cookiejar import CookieJar
@@ -388,6 +389,16 @@ async def _token(
     return token, min(seconds, _TOKEN_MOST_SECONDS) - _TOKEN_MARGIN_SECONDS
 
 
+def _gunzip(data: bytes, limit: int) -> bytes | None:
+    """A gzipped body inflated, or None if it is longer than `limit` or not gzip."""
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        inflated = inflater.decompress(data, limit + 1)
+    except zlib.error:
+        return None
+    return None if len(inflated) > limit or not inflater.eof else inflated
+
+
 async def _read(response: httpx.Response, limit: int) -> bytes | None:
     """The body, or None if it is longer than `limit`."""
     received = bytearray()
@@ -528,8 +539,13 @@ async def fetch(
     limit: int,
     accept: str | None = None,
     sign_in: SignIn | None = None,
+    gzipped: bool = False,
 ) -> Document | Missing | Failed:
-    """Fetch a small document into memory. One longer than `limit` is a failure."""
+    """Fetch a small document into memory. One longer than `limit` is a failure.
+
+    With `gzipped`, a body the remote sends gzipped whatever it is asked for (as
+    nuget.org sends its registrations) is inflated, to the same `limit`.
+    """
     try:
         response = await _open(
             client,
@@ -545,9 +561,11 @@ async def fetch(
             if response.status_code != 200:
                 return _unexpected(response.status_code)
             encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
-            if encoding != "identity":
+            if encoding not in ("identity", "gzip") or (encoding == "gzip" and not gzipped):
                 return Failed("the remote sent an encoded body", blockable=False)
             body = await _read(response, limit)
+            if body is not None and encoding == "gzip":
+                body = _gunzip(body, limit)
             if body is None:
                 return Failed("the remote sent more than a document may hold", blockable=False)
             return Document(body=body, headers=response.headers)

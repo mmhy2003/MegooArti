@@ -1000,13 +1000,14 @@ class RepositoryContext:
         attributes: dict[str, Any],
         now: datetime,
         references: Collection[str] | None = None,
+        component_attributes: dict[str, Any] | None = None,
     ) -> Asset:
         """Record content a proxy repository fetched from its remote.
 
         No permission or policy check: a reader triggered this, and their `read` on the
         proxy (or on the group in front of it) has already been checked. For that reason
-        it works only on a proxy repository. `references` are as for `store`; what they
-        name need not have been fetched yet.
+        it works only on a proxy repository. `references` and `component_attributes` are
+        as for `store`; what references name need not have been fetched yet.
         """
         if self.repository.type != "proxy":
             await self.backend.discard(staged)
@@ -1020,6 +1021,7 @@ class RepositoryContext:
             created_by=PROXY_CREATOR,
             attributes=attributes,
             verified_at=now,
+            component_attributes=component_attributes,
         )
         await self._refer(asset, references)
         return asset

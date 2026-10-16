@@ -69,6 +69,7 @@ raises.
 | `search_text` | The words a component is found by | namespace, name and version |
 | `delete_asset` | Delete a file as the format's own client would, with what goes with it; refuse one the format keeps itself | removes the file |
 | `upload` | Store what an upload form carries, as the format's own client's upload would | a `directory`, and each `file` in it |
+| `describe_fetched` | What a proxy reads of a file it fetched, kept with it and its component | nothing |
 | `usage` | How a component is used, as text a person copies | nothing |
 | `setup` | How a machine is set up to use a repository, as text a person copies: its key, its address, its credentials | nothing |
 | `download_path` | Where a stored file is fetched | `/repository/<name>/<path>` |

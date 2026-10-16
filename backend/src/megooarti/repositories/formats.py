@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from megooarti.repositories.content import RepositoryContext
     from megooarti.repositories.forms import UploadForm
     from megooarti.repositories.models import Repository
+    from megooarti.storage.backends import StagedBlob
 
 # The dispatcher, as an engine sees it: answer this request from that repository.
 Serve = Callable[["RepositoryContext", Request, str], Awaitable[Response]]
@@ -217,6 +218,18 @@ class Format:
         for path, file in zip(targets, form.files, strict=True):
             await context.store(path, file.staged, content_type=self.content_type(path, None))
         return targets
+
+    async def describe_fetched(
+        self, context: "RepositoryContext", path: str, staged: "StagedBlob"
+    ) -> dict[str, Any]:
+        """What a proxy of this format reads of a file it fetched, before it keeps it.
+
+        Kept as the file's attributes, besides what the engine keeps, and as its
+        component's, so that a cached package is described as an uploaded one is. The
+        file is the remote's: a format that cannot read it gives nothing. The generic
+        format reads nothing.
+        """
+        return {}
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         """How a component is used from a repository, as text to copy. The generic format: none.
