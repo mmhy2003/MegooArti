@@ -18,7 +18,9 @@ the account `dotnet` signs in with. The repository's page in the web UI gives th
 with its own address, under "Set up a machine".
 
 ```bash
-dotnet nuget add source https://repo.example.com/repository/nuget-hosted/index.json   --name megooarti --username ci --password "$MEGOOARTI_TOKEN"   --store-password-in-clear-text
+dotnet nuget add source https://repo.example.com/repository/nuget-hosted/index.json \
+  --name megooarti --username ci --password "$MEGOOARTI_TOKEN" \
+  --store-password-in-clear-text
 ```
 
 Then push to the source by its name, not by its address: `dotnet` reads the
@@ -27,7 +29,8 @@ the API key with the push alone.
 
 ```bash
 dotnet pack -c Release
-dotnet nuget push bin/Release/MegooArti.Hello.1.0.0.nupkg   --source megooarti --api-key "$MEGOOARTI_TOKEN"
+dotnet nuget push bin/Release/MegooArti.Hello.1.0.0.nupkg \
+  --source megooarti --api-key "$MEGOOARTI_TOKEN"
 
 dotnet add package MegooArti.Hello --version 1.0.0
 ```
@@ -50,11 +53,26 @@ puts the values of environment variables in place of `%NAME%`:
 </configuration>
 ```
 
+A proxy caches a feed of V3: nuget.org, or any feed that serves NuGet's V3 protocol.
+Its remote is the feed's service index:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "nuget-org", "format": "nuget", "type": "proxy",
+  "proxy": {"remote_url": "https://api.nuget.org/v3/index.json"}
+}' http://localhost:8000/api/v1/repositories
+
+dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json \
+  --name nuget-org --username ci --password "$MEGOOARTI_TOKEN" \
+  --store-password-in-clear-text
+```
+
 - **Credentials.** A push's API key is an API token (`--api-key`, sent as
   `X-NuGet-ApiKey`); so is the password of a source's credentials. A user name and a
-  password work for a source too. NuGet's clients refuse a plain-HTTP source unless
-  `nuget.config` marks it `allowInsecureConnections="true"` (the `dotnet nuget add
-  source` command cannot, and .NET 8 warns): use HTTPS.
+  password work for a source too. NuGet's clients refuse a plain-HTTP source unless it
+  is marked so: `allowInsecureConnections="true"` on its line of `nuget.config`, or
+  `--allow-insecure-connections` to `dotnet nuget add source` of the .NET SDK 9 and
+  later (.NET 8 only warns). Use HTTPS.
 - **A push** is `dotnet nuget push`, or the web UI or [the API](../api.md#uploading)
   with one or more `file` fields. What is read of a package is its `.nuspec`, at most
   1 MiB, from a zip of at most 10,000 files: the zip is never unpacked. A file that is
@@ -75,17 +93,31 @@ puts the values of environment variables in place of `%NAME%`:
 - **Deleting** a version (`dotnet nuget delete <id> <version>`, which needs the
   `delete` permission, or the web UI) removes it and its every file: its package, its
   `.nuspec` and its symbol package. A package's `.nuspec` cannot be deleted on its own.
-- **The feed is written from the packages** on each request: an id's versions, its
-  registration (inlined up to 128 versions, then in pages of 64) and search. Nothing is stored but the
-  packages, so the feed is right after every push and delete.
+- **A hosted repository's feed is written from its packages** on each request: an id's
+  versions, its registration (inlined up to 128 versions, then in pages of 64) and
+  search. Nothing is stored but the packages, so the feed is right after every push and
+  delete.
 - **Search** (`dotnet package search`, and Visual Studio's Browse tab) finds an id by
   the words of its id, title, description, tags and authors; `packageid:<id>` finds one
   id exactly, and `id:<text>` the ids that contain it. Prereleases are found when they
   are asked for. A search takes at most 1,000 results, and none past the 3,000th.
   MegooArti counts no downloads.
+- **A proxy's remote** is a feed's `index.json`. The proxy reads in it where the feed
+  serves its packages, its registrations and its search (nuget.org searches on another
+  host), and serves an `index.json` of its own, with its own addresses and no place to
+  push to. A package and its `.nuspec` are kept, and read as a pushed one is, so that
+  the web UI and MegooArti's search find them. An id's versions and its registration are
+  checked again with the remote after `metadata_max_age_minutes`; what the proxy passes
+  on of them has the feed's addresses made its own. A search is passed on to the feed
+  every time, and not kept. A proxy's `format_config.protocol` is `v3`, the default;
+  `format_config.symbol_url` names a symbol server to proxy, which a later version
+  serves.
 
 ## Clients
 
 Tested with `dotnet` of the .NET SDKs 10 and 8: a package and its symbol package built
 with `dotnet pack`, pushed with an API key, pushed again with `--skip-duplicate`,
-found with `dotnet package search`, restored into a project, and deleted.
+found with `dotnet package search`, restored into a project, and deleted; and, through
+a proxy of nuget.org, a package restored into a project that runs, found with
+`dotnet package search`, and its newer versions listed by `dotnet list package
+--outdated`.

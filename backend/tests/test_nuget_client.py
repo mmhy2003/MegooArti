@@ -1,8 +1,9 @@
 """dotnet, of the .NET SDKs 10 and 8, against the built image.
 
-Run with `pytest -m docker`. Besides a Docker daemon this needs internet access to pull
-the two images. Each run of dotnet is a new container beside the stack, whose
-`nuget.config` has no source but the stack's: nothing is fetched from nuget.org.
+Run with `pytest -m docker`. Besides a Docker daemon this needs internet access: to pull
+the two images, and for the proxy of nuget.org. Each run of dotnet is a new container
+beside the stack, whose `nuget.config` has no source but one of the stack's: dotnet
+reaches nuget.org only through the proxy.
 """
 
 import base64
@@ -21,27 +22,46 @@ pytestmark = pytest.mark.docker
 IMAGES = {"10": "mcr.microsoft.com/dotnet/sdk:10.0", "8": "mcr.microsoft.com/dotnet/sdk:8.0"}
 NETWORK = f"{PROJECT}_default"
 HOSTED = "nuget-hosted"
-SOURCE = f"http://gateway/repository/{HOSTED}/index.json"
+PROXY = "nuget-org"
 # What an account that pushes and restores gets: everything on NuGet repositories.
 USERNAME = "ci"
 PASSWORD = "restores-dotnet-packages"
 VERSION = "1.0.0"
 
-# The stack as the one source, with the account dotnet signs in with. Plain HTTP, which
-# NuGet allows only to a source marked so.
-CONFIG = f"""<?xml version="1.0" encoding="utf-8"?>
+
+def config(repository: str, name: str = "megooarti") -> str:
+    """A repository of the stack as the one source, with the account dotnet signs in
+    with. Plain HTTP, which NuGet allows only to a source marked so."""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
-    <add key="megooarti" value="{SOURCE}" allowInsecureConnections="true" />
+    <add key="{name}" value="http://gateway/repository/{repository}/index.json"
+         allowInsecureConnections="true" />
   </packageSources>
   <packageSourceCredentials>
-    <megooarti>
+    <{name}>
       <add key="Username" value="{USERNAME}" />
       <add key="ClearTextPassword" value="{PASSWORD}" />
-    </megooarti>
+    </{name}>
   </packageSourceCredentials>
 </configuration>
+"""
+
+
+# The version of nuget.org's Json.NET the proxy's tests restore: not its newest.
+JSON_NET = "13.0.1"
+# A project that restores Json.NET through the proxy, and runs.
+THROUGH_PROXY = f"""
+set -e
+cd /work
+dotnet new console -n App -o app --force > /dev/null
+cd app
+dotnet add package Newtonsoft.Json --version {JSON_NET}
+cat > Program.cs <<CODE
+System.Console.WriteLine(Newtonsoft.Json.JsonConvert.SerializeObject(new {{ through = "proxy" }}));
+CODE
+dotnet run
 """
 
 # Builds `/work/out/<id>.1.0.0.nupkg` and its `.snupkg`: a library that says hello.
@@ -111,11 +131,11 @@ def said(result: subprocess.CompletedProcess[str]) -> str:
     return f"exit {result.returncode}\n{result.stdout[-3000:]}\n{result.stderr[-3000:]}"
 
 
-def fetch(path: str) -> int:
-    """The status of a read of the repository from outside, as `ci`."""
+def fetch(path: str, repository: str = HOSTED) -> int:
+    """The status of a read of a repository from outside, as `ci`."""
     credentials = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
     request = urllib.request.Request(
-        f"http://127.0.0.1:{HTTP_PORT}/repository/{HOSTED}/{path}",
+        f"http://127.0.0.1:{HTTP_PORT}/repository/{repository}/{path}",
         headers={"Authorization": f"Basic {credentials}"},
     )
     try:
@@ -127,14 +147,18 @@ def fetch(path: str) -> int:
 
 @pytest.fixture(scope="module")
 def token(administrator) -> str:
-    """A hosted NuGet repository, the account `ci`, and an API token of it to push with."""
-    status, _, answer = call(
-        "POST",
-        "/repositories",
-        {"name": HOSTED, "format": "nuget", "type": "hosted"},
-        administrator,
-    )
-    assert status == 201, answer
+    """A hosted NuGet repository, a proxy of nuget.org, the account `ci`, and an API token
+    of it to push with."""
+    proxy = {
+        "name": PROXY,
+        "format": "nuget",
+        "type": "proxy",
+        # Not left alone after one failure: the internet may be slow once.
+        "proxy": {"remote_url": "https://api.nuget.org/v3/index.json", "auto_block": False},
+    }
+    for body in ({"name": HOSTED, "format": "nuget", "type": "hosted"}, proxy):
+        status, _, answer = call("POST", "/repositories", body, administrator)
+        assert status == 201, answer
     role = {"name": "nuget-users", "permissions": ["repository:nuget"]}
     user = {
         "username": USERNAME,
@@ -166,7 +190,7 @@ def work(token, tmp_path_factory) -> dict[str, Path]:
     folders = {}
     for sdk in IMAGES:
         folder = tmp_path_factory.mktemp(f"dotnet{sdk}")
-        (folder / "nuget.config").write_text(CONFIG, encoding="utf-8", newline="\n")
+        (folder / "nuget.config").write_text(config(HOSTED), encoding="utf-8", newline="\n")
         packed = dotnet(sdk, folder, PACK, package_id(sdk))
         assert packed.returncode == 0, said(packed)
         folders[sdk] = folder
@@ -238,3 +262,42 @@ def test_dotnet_deletes_a_version(work, token, sdk):
 
     assert deleted.returncode == 0, said(deleted)
     assert fetch(f"v3/package/{lower(sdk)}/index.json") == 404
+
+
+@pytest.fixture(scope="module")
+def through(token, tmp_path_factory) -> dict[str, Path]:
+    """Each SDK's own folder whose one source is the proxy of nuget.org."""
+    folders = {}
+    for sdk in IMAGES:
+        folder = tmp_path_factory.mktemp(f"proxy{sdk}")
+        written = config(PROXY, "nuget-org")
+        (folder / "nuget.config").write_text(written, encoding="utf-8", newline="\n")
+        folders[sdk] = folder
+    return folders
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_restores_a_package_of_nuget_org_through_the_proxy(through, sdk):
+    restored = dotnet(sdk, through[sdk], THROUGH_PROXY)
+
+    assert restored.returncode == 0, said(restored)
+    assert restored.stdout.splitlines()[-1] == '{"through":"proxy"}'
+    folder = f"v3/package/newtonsoft.json/{JSON_NET}"
+    assert fetch(f"{folder}/newtonsoft.json.{JSON_NET}.nupkg", PROXY) == 200  # kept
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_searches_and_finds_newer_versions_through_the_proxy(through, sdk):
+    found = dotnet(
+        sdk, through[sdk], "cd /work && dotnet package search Newtonsoft.Json --source nuget-org"
+    )
+    # Read from the registration the proxy passes on, with its own addresses in it.
+    outdated = dotnet(sdk, through[sdk], "cd /work/app && dotnet list package --outdated")
+
+    assert found.returncode == 0, said(found)
+    assert "Newtonsoft.Json" in found.stdout
+    assert outdated.returncode == 0, said(outdated)
+    (line,) = [line for line in outdated.stdout.splitlines() if "Newtonsoft.Json" in line]
+    requested, resolved, latest = line.split()[-3:]
+    assert (requested, resolved) == (JSON_NET, JSON_NET)
+    assert latest != JSON_NET
