@@ -20,12 +20,23 @@ from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.nuget import documents, paths, proxied, queries, records, versions
 
 
+def speaks(context: RepositoryContext, protocol: str) -> bool:
+    """Whether a repository serves a protocol, `v3` or `v2`: a hosted repository and a
+    group serve both, a proxy the one it speaks to its remote (E3)."""
+    if context.repository.type != "proxy":
+        return True
+    return context.repository.config.get("format_config", {}).get("protocol", "v3") == protocol
+
+
 async def _members[T](
     context: RepositoryContext, request: Request, ask: Callable[[RepositoryContext], Awaitable[T]]
 ) -> list[T]:
-    """What each online member gives, in order; nothing of one that has nothing."""
+    """What each online member that serves V3 gives, in order; nothing of one that has
+    nothing."""
     given = []
     for member in await group.member_contexts(context, request):
+        if not speaks(member, "v3"):
+            continue
         try:
             given.append(await ask(member))
         except ApiError as error:

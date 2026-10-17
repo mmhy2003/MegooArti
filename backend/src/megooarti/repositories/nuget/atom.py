@@ -7,11 +7,13 @@ properties NuGet's clients read, as nuget.org's V2 feed has them.
 """
 
 import base64
+import html
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from xml.sax.saxutils import escape, quoteattr
 
-from megooarti.repositories.nuget import versions
+from megooarti.repositories.nuget import odata, versions
 from megooarti.repositories.nuget.documents import Published
 
 ATOM = "application/atom+xml;type=feed;charset=utf-8"
@@ -25,6 +27,9 @@ _NAMESPACES = (
 )
 _SCHEME = "http://schemas.microsoft.com/ado/2007/08/dataservices/scheme"
 _TYPE = "NuGetGallery.OData.V2FeedPackage"
+# An entry of a feed, as text; the address of the version it is of, by its id.
+ENTRIES = re.compile(r"<entry\b.*?</entry>", re.DOTALL)
+_ENTRY_ID = re.compile(r"<id>[^<]*/(Packages\([^<]*\))</id>")
 
 # Of each id: the normalized versions, in lower case, of its newest stable version and
 # of its newest version, prereleases too ("" for none).
@@ -152,6 +157,25 @@ def _entry(base: str, held: Published, newest: Latest, *, alone: bool = False) -
     )
 
 
+def rendered(base: str, held: Published, newest: Latest) -> str:
+    """A version as an entry of a feed, as text."""
+    return _entry(base, held, newest)
+
+
+def named(entry: str) -> tuple[str, str] | None:
+    """The id and the version an entry's id names, as written; None if it names none."""
+    found = _ENTRY_ID.search(entry)
+    return None if found is None else odata.entry_of(html.unescape(found[1]))
+
+
+def key_of(entry: str) -> str | None:
+    """What an entry is of, an id and a version as NuGet matches them: in lower case, the
+    version normalized. None for an entry of what is not one."""
+    found = named(entry)
+    version = None if found is None else versions.normalize(found[1])
+    return None if version is None else f"{found[0].lower()}/{version.lower()}"  # type: ignore[index]
+
+
 def entry(base: str, held: Published, newest: Latest) -> bytes:
     """`Packages(Id='…',Version='…')`: one version, as an entry of its own."""
     return (_DECLARATION + _entry(base, held, newest, alone=True)).encode()
@@ -168,6 +192,20 @@ def feed(
 ) -> bytes:
     """A page of versions: each with what is newest of its id. `count` is written for
     `$inlinecount=allpages`; `next_address` leads to the next page, if there is one."""
+    entries = [_entry(base, held, newest) for held, newest in found]
+    return feed_of(base, title, entries, updated=updated, count=count, next_address=next_address)
+
+
+def feed_of(
+    base: str,
+    title: str,
+    entries: Sequence[str],
+    *,
+    updated: datetime,
+    count: int | None = None,
+    next_address: str = "",
+) -> bytes:
+    """A page of entries, each as text written with `base`, as `feed` writes them."""
     parts = [
         f"{_DECLARATION}<feed xml:base={quoteattr(base)} {_NAMESPACES}>",
         f"<m:count>{count}</m:count>" if count is not None else "",
@@ -175,7 +213,7 @@ def feed(
         f'<title type="text">{escape(title)}</title>',
         f"<updated>{_atom_time(updated)}</updated>",
         f'<link rel="self" title="{escape(title)}" href="{escape(title)}"/>',
-        *(_entry(base, held, newest) for held, newest in found),
+        *entries,
         f'<link rel="next" href={quoteattr(next_address)}/>' if next_address else "",
         "</feed>",
     ]

@@ -28,7 +28,7 @@ NAMES_MOST = 10_000
 Found = tuple[Published, atom.Latest]
 
 
-def _unsupported(error: odata.UnsupportedQuery) -> ApiError:
+def unsupported(error: odata.UnsupportedQuery) -> ApiError:
     return ApiError(
         400, "unsupported_query", f"This feed does not answer that query: {error}.", None
     )
@@ -163,7 +163,7 @@ def _in_name_order(order: Sequence[tuple[str, bool]]) -> bool:
     )
 
 
-async def _found(
+async def found_of(
     context: RepositoryContext, query: odata.Query
 ) -> tuple[list[Found], bool, int | None]:
     """The page a query asks for, whether there is more, and how many there are if the
@@ -182,7 +182,7 @@ async def _found(
     return found[query.skip : wanted], len(found) > wanted, total
 
 
-def _next(base: str, path: str, request: Request, query: odata.Query) -> str:
+def next_address(base: str, path: str, request: Request, query: odata.Query) -> str:
     """The address of the page after this one: the same query, `$skip` past it."""
     arguments = [
         (name, value) for name, value in request.query_params.multi_items() if name != "$skip"
@@ -197,14 +197,22 @@ async def _respond(
     return await responses.respond(context, request, data, content_type, "feed.xml")
 
 
-async def _entry(context: RepositoryContext, request: Request, query: odata.Query) -> Response:
-    spelling = await context.spelling("", query.id)
+async def entry_of(
+    context: RepositoryContext, package_id: str, version: str, base: str
+) -> bytes | None:
+    """`Packages(Id='…',Version='…')`, `version` normalized in lower case, with the
+    addresses under `base`; None if this repository has no such version."""
+    spelling = await context.spelling("", package_id)
     held = [] if spelling is None else records.published(await context.components("", spelling))
-    chosen = [one for one in held if one.nuspec.version.lower() == query.version]
-    if not chosen:
-        raise ApiError(404, "not_found", f"This repository has no {query.id} {query.version}.")
+    chosen = [one for one in held if one.nuspec.version.lower() == version]
+    return atom.entry(base, chosen[0], atom.latest(held)) if chosen else None
+
+
+async def _entry(context: RepositoryContext, request: Request, query: odata.Query) -> Response:
     base = await responses.base(context, request)
-    document = atom.entry(base, chosen[0], atom.latest(held))
+    document = await entry_of(context, query.id, query.version, base)
+    if document is None:
+        raise ApiError(404, "not_found", f"This repository has no {query.id} {query.version}.")
     return await _respond(context, request, document, atom.ATOM_ENTRY)
 
 
@@ -228,10 +236,10 @@ async def answer(context: RepositoryContext, request: Request, path: str) -> Res
     try:
         query = odata.parse(path, request.query_params)
     except odata.UnsupportedQuery as error:
-        raise _unsupported(error) from None
+        raise unsupported(error) from None
     if query.function == odata.ENTRY:
         return await _entry(context, request, query)
-    page, more, total = await _found(context, query)
+    page, more, total = await found_of(context, query)
     if query.count:
         count = str(total).encode()
         return await responses.respond(context, request, count, "text/plain", "count")
@@ -242,6 +250,6 @@ async def answer(context: RepositoryContext, request: Request, path: str) -> Res
         page,
         updated=datetime.now(UTC),
         count=total if query.inline_count else None,
-        next_address=_next(base, path, request, query) if more else "",
+        next_address=next_address(base, path, request, query) if more else "",
     )
     return await _respond(context, request, document, atom.ATOM)

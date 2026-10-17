@@ -495,7 +495,7 @@ class NuGetFormat(Format):
     async def handle_group(
         self, context: RepositoryContext, request: Request, path: str, serve: Serve
     ) -> Response:
-        return await grouped.handle_group(context, request, path, serve)
+        return await grouped.handle_group(context, request, paths.v2_path(path), serve)
 
     def default_deployment_policy(self, config: dict[str, Any]) -> str:
         """A version is pushed once, as nuget.org takes it: a second push is `409`."""

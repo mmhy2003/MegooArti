@@ -15,7 +15,14 @@ from megooarti.errors import ApiError
 from megooarti.repositories import group
 from megooarti.repositories.content import RepositoryContext
 from megooarti.repositories.formats import Serve
-from megooarti.repositories.nuget import documents, feeds, paths, proxied, responses
+from megooarti.repositories.nuget import (
+    documents,
+    feeds,
+    grouped_v2,
+    paths,
+    proxied,
+    responses,
+)
 
 
 def _not_found(message: str = "No member of this group has it.") -> ApiError:
@@ -60,11 +67,13 @@ async def handle_group(
         # The generic engine says what a group takes.
         return await group.handle_group(context, request, path, serve)
     base = await responses.base(context, request)
+    parsed = paths.classify(path)
+    if parsed.kind == "v2":
+        return await grouped_v2.answer(context, request, path, base)
     if path == paths.SERVICE_INDEX:
         audit = await feeds.vulnerability_index(context, request, base)
         index = documents.service_index(base, publish=False, vulnerabilities=audit is not None)
         return await responses.respond_json(context, request, index)
-    parsed = paths.classify(path)
     if parsed.kind == "versions":
         listed = await feeds.versions_of(context, request, parsed.id)
         if not listed:
@@ -82,8 +91,11 @@ async def handle_group(
         if audit is None:
             raise _not_found()
         return await responses.respond_json(context, request, audit)
-    # A package, its `.nuspec`, a file of NuGet Audit's: the first member that has it.
-    # Nothing else is asked of the members: what they would answer has their addresses.
-    if path.startswith(paths.PACKAGES) or proxied.vulnerability_name(path) is not None:
+    # A package, its `.nuspec`, a file of NuGet Audit's, a package at V2's address: the
+    # first member that has it. Nothing else is asked of the members: what they would
+    # answer has their addresses.
+    if parsed.kind == "download" or path.startswith(paths.PACKAGES):
+        return await group.handle_group(context, request, path, serve)
+    if proxied.vulnerability_name(path) is not None:
         return await group.handle_group(context, request, path, serve)
     raise _not_found()
