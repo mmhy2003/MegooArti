@@ -203,3 +203,58 @@ def test_the_root_an_answer_names_is_made_the_proxys_too():
     assert 'xml:base="https://test/repository/choco"' in rewritten
     assert f'src="{BASE}package/Choco.Thing/1.0.0"' in rewritten
     assert "remote.test/api" not in rewritten
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Packages(Id='%2F..%2F..%2F..%2Fsecret%2Farea',Version='1.0.0')",
+        "Packages(Id='Choco.Thing',Version='..%2F..%2Fsecret')",
+        "Packages(Id='Choco Thing',Version='1.0.0')",
+    ],
+    ids=["id", "version", "space"],
+)
+async def test_an_entry_of_what_is_not_an_id_and_a_version_is_not_asked_of_the_feed(
+    client, root, remote, path
+):
+    answer = await client.get(f"{PROXY}/{path}", headers=root)
+
+    assert answer.status_code == 404
+    assert remote.requests == []
+
+
+async def test_a_package_is_fetched_where_the_feeds_entry_says(client, root, remote):
+    # As a feed that serves its packages elsewhere than package/<id>/<version> says.
+    elsewhere = f"{REMOTE}Choco.Thing/1.0.0"
+    remote.files["api/v2/FindPackagesById()"] = feed(
+        entry("1.0.0").replace(f"{REMOTE}package/Choco.Thing/1.0.0", elsewhere)
+    )
+    remote.files["api/v2/Packages(Id='Choco.Thing',Version='1.0.0')"] = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        + entry("1.0.0").replace(f"{REMOTE}package/Choco.Thing/1.0.0", elsewhere)
+    ).encode()
+    remote.files["api/v2/Choco.Thing/1.0.0"] = PACKAGE
+
+    listed = await client.get(f"{PROXY}/FindPackagesById()?id='Choco.Thing'", headers=root)
+    fetched = await client.get(f"{PROXY}/package/Choco.Thing/1.0.0", headers=root)
+
+    assert f'src="{BASE}package/Choco.Thing/1.0.0"' in listed.text
+    assert fetched.content == PACKAGE
+    assert len(asked(remote, "Choco.Thing/1.0.0")) == 1
+    assert asked(remote, "package/Choco.Thing/1.0.0") == []
+
+
+async def test_a_search_may_be_larger_than_a_kept_answer(client, root, remote, monkeypatch):
+    # The Gallery answers PSResourceGet's $top=6000 with tens of megabytes.
+    monkeypatch.setattr(proxied_v2, "FEED_MOST", 4096)
+    monkeypatch.setattr(proxied_v2, "SEARCH_MOST", 1024 * 1024)
+    large = feed(*(entry(f"1.0.{number}") for number in range(40)))
+    remote.files["api/v2/Search()"] = large
+    remote.files["api/v2/FindPackagesById()"] = large
+
+    searched = await client.get(f"{PROXY}/Search()?searchTerm=''", headers=root)
+    found = await client.get(f"{PROXY}/FindPackagesById()?id='Choco.Thing'", headers=root)
+
+    assert len(large) > 4096
+    assert searched.status_code == 200
+    assert (found.status_code, error_code(found)) == (502, "remote_unavailable")

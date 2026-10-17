@@ -173,10 +173,17 @@ def _function(path: str) -> tuple[str, str, str, bool]:
 
 def is_v2(path: str) -> bool:
     """Whether a path is one of V2's: the root, `$metadata`, or a function of its feed."""
-    if path in ("", "$metadata"):
+    if path in ("", "$metadata") or _ENTRY.fullmatch(path) is not None:
         return True
-    name = path.removesuffix("/$count")
-    return _ENTRY.fullmatch(name) is not None or name.removesuffix("()") in _FUNCTIONS
+    return path.removesuffix("/$count").removesuffix("()") in _FUNCTIONS
+
+
+def entry_of(path: str) -> tuple[str, str] | None:
+    """The id and the version an entry's path names, as written; None for another path."""
+    entry = _ENTRY.fullmatch(path)
+    if entry is None:
+        return None
+    return entry["id"].replace("''", "'"), entry["version"].replace("''", "'")
 
 
 def parse(path: str, arguments: Mapping[str, str]) -> Query:

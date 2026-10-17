@@ -258,3 +258,19 @@ async def test_a_search_ordered_by_id_is_in_the_order_of_ids_however_many_match(
     )
 
     assert versions_of(answer) == [("Aa.Hello", "1.0.0")]
+
+
+async def test_a_search_by_popularity_then_id_is_in_the_order_of_ids(client, hosted, root):
+    # Every download count is 0: choco's order by popularity is an order by id.
+    for number in range(100):
+        await push(client, root, nupkg(f"Hello.N{number:03}", "1.0.0"))
+    await push(client, root, nupkg("Aa.Hello", "1.0.0"))
+
+    answer = await get(
+        client,
+        root,
+        "Search()",
+        **{"$orderby": "DownloadCount desc,Id", "searchTerm": "'hello'", "$top": "1"},
+    )
+
+    assert versions_of(answer) == [("Aa.Hello", "1.0.0")]

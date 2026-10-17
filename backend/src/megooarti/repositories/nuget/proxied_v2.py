@@ -2,8 +2,10 @@
 feed that serves NuGet's V2 protocol (section 6 of the spec).
 
 A client's query is passed on as it came, its path and its query string, and what the
-feed answers has the feed's addresses made the proxy's as it is sent: each entry's,
-its package's, and the next page's. A query's answer is metadata, kept by the whole
+feed answers has the feed's addresses made the proxy's as it is sent: each entry's and
+the next page's. A version's package is the proxy's `package/<id>/<version>`, fetched
+from where the feed's entry of it says, wherever that is. A query's answer is metadata,
+kept by the whole
 query and asked about again after the proxy's metadata age; a search is passed on every
 time and not kept. A package is a cached file, kept where a pushed one would be, and
 read as a pushed one is. The feed's `$metadata` is passed on as it is; the root, which
@@ -11,8 +13,9 @@ names the one collection, is the proxy's own.
 """
 
 import hashlib
+import html
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -20,7 +23,7 @@ from starlette.responses import Response
 from megooarti.errors import ApiError
 from megooarti.repositories import proxy
 from megooarti.repositories.content import RepositoryContext
-from megooarti.repositories.nuget import atom, paths, responses
+from megooarti.repositories.nuget import atom, odata, paths, responses, versions
 from megooarti.repositories.proxy import Absent, Answer, Source
 
 # Where what the feed answered is kept: paths no client asks for.
@@ -30,11 +33,17 @@ ANSWERS = f"{KEPT}v2/"
 SEARCHES = f"{KEPT}v2/search"
 # What is read of the feed's answers, at the most.
 FEED_MOST = 16 * 1024 * 1024
+# A search is not kept: the Gallery answers PSResourceGet's `$top=6000` with tens of MB.
+SEARCH_MOST = 64 * 1024 * 1024
 METADATA_MOST = 1024 * 1024
 # What of a function's path is sent as it is: its parentheses, quotes, `=` and commas.
 _SAFE = "()'=,$/"
 _ADDRESS = re.compile(r'(xml:base|href|src)="([^"]*)"')
 _ID = re.compile(r"<id>([^<]*)</id>")
+_ENTRY = re.compile(r"<entry\b.*?</entry>", re.DOTALL)
+_ENTRY_ID = re.compile(r"<id>[^<]*/(Packages\([^<]*\))</id>")
+_CONTENT = re.compile(r'(<content\b[^>]*\bsrc=")([^"]*)(")')
+_BASE = re.compile(r'xml:base="([^"]*)"')
 
 
 def _not_found() -> ApiError:
@@ -68,7 +77,30 @@ def rewrite(data: bytes, feed: str, base: str) -> bytes:
 
     text = _ADDRESS.sub(lambda found: f'{found[1]}="{swap(found[2])}"', text)
     text = _ID.sub(lambda found: f"<id>{swap(found[1])}</id>", text)
-    return text.encode("utf-8")
+    return _ENTRY.sub(lambda found: _packaged(found[0], target), text).encode("utf-8")
+
+
+def _packaged(entry: str, target: str) -> str:
+    """An entry whose package is at the proxy's `package/<id>/<version>`, as its id says,
+    wherever the feed has it."""
+    named = _ENTRY_ID.search(entry)
+    found = None if named is None else odata.entry_of(html.unescape(named[1]))
+    if found is None:
+        return entry
+    package_id, version = (quote(part, safe="") for part in found)
+    address = f"{target}/package/{package_id}/{version}"
+    return _CONTENT.sub(lambda content: f"{content[1]}{address}{content[3]}", entry, count=1)
+
+
+def _a_feed_path(path: str) -> bool:
+    """Whether a path of V2's is what the feed serves there: a function, or the entry of
+    an id and a version NuGet takes. The feed is asked for nothing else: what is asked of
+    it goes with its credential."""
+    entry = odata.entry_of(path)
+    if entry is None:
+        return True
+    package_id, version = entry
+    return versions.is_id(package_id) and versions.normalize(version) is not None
 
 
 def _content_type(path: str) -> str:
@@ -92,7 +124,7 @@ async def _answer(context: RepositoryContext, request: Request, path: str) -> by
             content_type=_content_type(path),
         )
     answer = await proxy.ask(
-        context, SEARCHES, Source(address, remember_missing=False, blocks=False), limit=FEED_MOST
+        context, SEARCHES, Source(address, remember_missing=False, blocks=False), limit=SEARCH_MOST
     )
     if isinstance(answer, Absent):
         raise _not_found()
@@ -124,7 +156,7 @@ async def handle_proxy(context: RepositoryContext, request: Request, path: str) 
         )
         return await responses.respond(context, request, data, atom.XML, "metadata.xml")
     parsed = paths.classify(path)
-    if parsed.kind == "v2":
+    if parsed.kind == "v2" and _a_feed_path(path):
         data = await _answer(context, request, path)
         content_type = _content_type(path)
         if content_type != "text/plain":
@@ -138,7 +170,27 @@ async def handle_proxy(context: RepositoryContext, request: Request, path: str) 
     if parsed.kind == "download":
         package_id, version = path.split("/")[1:]
         kept = paths.package_path(parsed.id, parsed.version)
-        address = f"{root(context)}package/{quote(package_id, safe='')}/{quote(version, safe='')}"
+        address = await _package_address(context, package_id, version)
         await proxy.ensure_cached(context, kept, source=Source(address))
         return await context.respond(kept, request)
     raise _not_found()
+
+
+async def _package_address(context: RepositoryContext, package_id: str, version: str) -> str:
+    """Where the feed has a version's package: as its entry says, the entry kept as any
+    answer is. Raises 404 if the feed has no such entry, or one without a package."""
+    entry = f"Packages(Id='{package_id}',Version='{version}')"
+    data = await proxy.document(
+        context,
+        kept_path(entry, ""),
+        Source(f"{root(context)}{quote(entry, safe=_SAFE)}"),
+        limit=FEED_MOST,
+        content_type=atom.ATOM_ENTRY,
+    )
+    text = data.decode("utf-8", errors="replace")
+    content = _CONTENT.search(text)
+    if content is None:
+        raise _not_found()
+    declared = _BASE.search(text)
+    base = html.unescape(declared[1]) if declared else root(context)
+    return urljoin(base.rstrip("/") + "/", html.unescape(content[2]))

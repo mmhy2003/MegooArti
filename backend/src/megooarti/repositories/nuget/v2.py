@@ -103,7 +103,7 @@ async def _names(context: RepositoryContext, query: odata.Query) -> AsyncIterato
     searched = queries.parse({"q": query.search_term})
     stable = not query.prerelease or wanted.prerelease is False or wanted.latest
     # Ordered by id, the ids are taken in that order; else as V3's search ranks them.
-    by_id = bool(query.order) and query.order[0][0] == "id"
+    by_id = _leading(query.order) == "id"
     ranked = " ".join(searched.words) or searched.exact_id or wanted.id_starts
     for offset in range(0, NAMES_MOST, _NAMES_AT_ONCE):
         names, _ = await context.package_page(
@@ -150,9 +150,15 @@ def _ordered(found: list[Found], order: Sequence[tuple[str, bool]]) -> list[Foun
     return found
 
 
+def _leading(order: Sequence[tuple[str, bool]]) -> str:
+    """What an order is by first, past the download counts: each is 0, and orders
+    nothing. "" for an order by them alone, which keeps the order of V3's search."""
+    return next((what for what, _ in order if what != "downloads"), "")
+
+
 def _in_name_order(order: Sequence[tuple[str, bool]]) -> bool:
     """Whether an order keeps each id's versions together, in the ids' order."""
-    return all(what in ("id", "downloads") for what, _ in order[:1]) and not any(
+    return _leading(order) in ("", "id") and not any(
         descending for what, descending in order if what == "id"
     )
 
