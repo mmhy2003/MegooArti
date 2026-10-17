@@ -7,6 +7,7 @@ reaches nuget.org only through the proxy.
 """
 
 import subprocess
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -88,6 +89,21 @@ CODE
 dotnet run
 """
 
+# dotnet-symbol, installed through the proxy of nuget.org, fetches the PDB of the SDK's
+# package, `$1`, for its DLL, from the symbol server of the repository `$3`, signed in
+# with the API token `$2`, as it signs in: with no user name.
+DOTNET_SYMBOL = "10.0.750501"
+SYMBOLS = f"""
+set -e
+cd /work
+dotnet tool install --global dotnet-symbol --version {DOTNET_SYMBOL} \\
+  --configfile tools.config > /dev/null
+export PATH="$PATH:/root/.dotnet/tools"
+dotnet-symbol --authenticated-server-path "$2" "http://gateway/repository/$3/symbols/" \\
+  --symbols --output "symbols-$3" lib/bin/Release/*/"$1.dll"
+ls "symbols-$3"
+"""
+
 # Builds `/work/out/<id>.1.0.0.nupkg` and its `.snupkg`: a library that says hello.
 PACK = f"""
 set -e
@@ -149,6 +165,8 @@ def work(token, tmp_path_factory) -> dict[str, Path]:
     for sdk in IMAGES:
         folder = tmp_path_factory.mktemp(f"dotnet{sdk}")
         (folder / "nuget.config").write_text(config(HOSTED), encoding="utf-8", newline="\n")
+        tools = config(PROXY, "nuget-org")
+        (folder / "tools.config").write_text(tools, encoding="utf-8", newline="\n")
         packed = dotnet(sdk, folder, PACK, package_id(sdk))
         assert packed.returncode == 0, said(packed)
         folders[sdk] = folder
@@ -208,6 +226,14 @@ def test_dotnet_finds_the_package_and_restores_it_into_a_project(work, sdk):
 
 
 @pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_symbol_fetches_the_packages_pdb(work, token, sdk):
+    fetched, kept, pushed = symbols_of(sdk, work[sdk], token, HOSTED)
+
+    assert fetched.returncode == 0, said(fetched)
+    assert kept == pushed
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
 def test_dotnet_deletes_a_version(work, token, sdk):
     deleted = dotnet(
         sdk,
@@ -220,6 +246,16 @@ def test_dotnet_deletes_a_version(work, token, sdk):
 
     assert deleted.returncode == 0, said(deleted)
     assert fetch(f"v3/package/{lower(sdk)}/index.json") == 404
+
+
+def symbols_of(sdk: str, work: Path, token: str, repository: str):
+    """The PDB dotnet-symbol fetched of the SDK's package, and the one its symbol package has."""
+    fetched = dotnet(sdk, work, SYMBOLS, package_id(sdk), token, repository)
+    with zipfile.ZipFile(work / "out" / f"{package_id(sdk)}.{VERSION}.snupkg") as packed:
+        (name,) = [entry for entry in packed.namelist() if entry.endswith(".pdb")]
+        pushed = packed.read(name)
+    kept = work / f"symbols-{repository}" / f"{package_id(sdk)}.pdb"
+    return fetched, kept.read_bytes() if kept.exists() else None, pushed
 
 
 @pytest.fixture(scope="module")
@@ -327,3 +363,11 @@ def test_nuget_audit_warns_of_a_vulnerable_package_with_the_data_passed_on(reque
     assert warned, said(restored)
     assert "Newtonsoft.Json" in warned[0]
     assert "NU1905" not in restored.stdout  # the source had the data
+
+
+@pytest.mark.parametrize("sdk", sorted(IMAGES))
+def test_dotnet_symbol_fetches_the_packages_pdb_through_a_group(grouped, work, token, sdk):
+    fetched, kept, pushed = symbols_of(sdk, work[sdk], token, GROUP)
+
+    assert fetched.returncode == 0, said(fetched)
+    assert kept == pushed

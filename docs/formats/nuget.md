@@ -146,6 +146,21 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 - **Symbol packages** (`.snupkg`, made by `dotnet pack` with `--include-symbols
   -p:SymbolPackageFormat=snupkg`) are pushed with their package by `dotnet nuget push`,
   and kept beside it. One pushed before its package is refused with `404`.
+- **A symbol server.** Each portable PDB of a symbol package is kept at the key a
+  debugger asks for it by, under `symbols/`; a symbol package with a Windows PDB, or a
+  `.pdb` that is no PDB, is refused with `400 invalid_package`. A debugger that names
+  the checksum it wants (`SymbolChecksum`) is given the PDB only if it is that one. In
+  Visual Studio, add the repository's address, then `symbols/`, under Tools > Options >
+  Debugging > Symbols; with `dotnet-symbol`, sign in with an API token:
+
+  ```bash
+  dotnet-symbol --authenticated-server-path "$MEGOOARTI_TOKEN" \
+    https://repo.example.com/repository/nuget-hosted/symbols/ --symbols MyApp.dll
+  ```
+
+  A proxy with `format_config.symbol_url` (`https://symbols.nuget.org/download/symbols`
+  for nuget.org's packages) asks that server for what it does not keep, and keeps what
+  it is given; a group asks its members in order.
 - **Deleting** a version (`dotnet nuget delete <id> <version>`, which needs the
   `delete` permission, or the web UI) removes it and its every file: its package, its
   `.nuspec` and its symbol package. A package's `.nuspec` cannot be deleted on its own.
@@ -166,8 +181,7 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   checked again with the remote after `metadata_max_age_minutes`; what the proxy passes
   on of them has the feed's addresses made its own. A search is passed on to the feed
   every time, and not kept. A proxy's `format_config.protocol` is `v3`, the default;
-  `format_config.symbol_url` names a symbol server to proxy, which a later version
-  serves. A search that fails is said to have failed, and does not stop the proxy
+  `format_config.symbol_url` names a symbol server to proxy (see above). A search that fails is said to have failed, and does not stop the proxy
   fetching packages.
 - **V2's feed** answers the queries that `nuget.exe`, `choco` and PSResourceGet send:
   `FindPackagesById()`, `Packages(Id='…',Version='…')`, `Packages()` and `Search()`,
@@ -224,8 +238,9 @@ a proxy of nuget.org, a package restored into a project that runs, found with
 `dotnet package search`, and its newer versions listed by `dotnet list package
 --outdated`; through a group of the two, a project that restores a pushed package and
 one of nuget.org's and runs, both found with `dotnet package search`, and newer versions
-listed; and through the proxy and through the group, NuGet Audit's warning of a package
-with a known vulnerability.
+listed; through the proxy and through the group, NuGet Audit's warning of a package
+with a known vulnerability; and with `dotnet-symbol` 10.0, the PDB of a pushed package
+fetched for its DLL from the hosted repository and through the group.
 
 Tested with `nuget.exe` 6.14 under Mono 6.12, over V2 and over V3: a package built
 with `nuget pack`, pushed, installed at a version and at its newest, listed (over V2),
