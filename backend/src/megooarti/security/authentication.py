@@ -221,9 +221,11 @@ async def authenticate_secret(
     credentials are checked here, and so is anything else that takes a name and a
     secret, so that the limits on failed attempts are the same everywhere.
 
-    The name `__token__` is nobody's: with it, the token alone says who is asking.
+    The name `__token__` is nobody's, and nor is no name at all: with either, the token
+    alone says who is asking.
     """
-    if users.normalise_username(username) == users.TOKEN_USERNAME:
+    # No name says the same, as dotnet-symbol and Azure DevOps's clients send a token.
+    if users.normalise_username(username) in ("", users.TOKEN_USERNAME):
         if secret.startswith(TOKEN_PREFIX):
             return await _authenticate_token(db, request, secret)
         # Not a token at all. A failed attempt, counted against the address.

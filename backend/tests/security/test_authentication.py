@@ -298,7 +298,8 @@ async def test_basic_with_the_token_user_name_is_the_tokens_owner(client, make_u
     await make_user("dana", roles=["admin"])
     token = await make_token(root)
 
-    for name in ("__token__", "__TOKEN__", " __token__ "):
+    # No name at all is as `__token__`, as dotnet-symbol sends a token.
+    for name in ("__token__", "__TOKEN__", " __token__ ", ""):
         response = await client.get(READ, headers=basic(name, token))
         assert response.json() == {"user": "root", "method": "token"}
 
@@ -308,11 +309,12 @@ async def test_the_token_user_name_takes_nothing_but_a_token(client, make_user, 
     token = await make_token(root)
 
     with_password = await client.get(READ, headers=basic("__token__", PASSWORD))
+    nameless = await client.get(READ, headers=basic("", PASSWORD))
     with_unknown = await client.get(READ, headers=basic("__token__", "mga_" + "x" * 43))
     await disable_user(db, "root")
     with_a_disabled_owner = await client.get(READ, headers=basic("__token__", token))
 
-    for response in (with_password, with_unknown, with_a_disabled_owner):
+    for response in (with_password, nameless, with_unknown, with_a_disabled_owner):
         assert (response.status_code, error_code(response)) == (401, "unauthorized")
 
 

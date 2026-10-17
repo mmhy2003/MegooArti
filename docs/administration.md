@@ -15,8 +15,8 @@ Users, roles, your own API tokens and anonymous access are managed in the web UI
   repository. Roles can contain other roles.
 - **Personal API tokens** (`mga_…`) are created under `/api/v1/me/tokens` while signed
   in with a password. Use one as a bearer token, or as the password in HTTP Basic,
-  with your user name or with the name `__token__`, which is how Python's tools send
-  a token. A token can be limited to a list of patterns and can expire.
+  with your user name, with the name `__token__`, which is how Python's tools send
+  a token, or with no name, which is how `dotnet-symbol` sends one. A token can be limited to a list of patterns and can expire.
 - **Anonymous access** is off by default. When turned on under `/api/v1/settings`,
   requests without credentials act as the built-in `anonymous` user. That user starts
   with the built-in `anonymous` role, which allows reading **every** repository. To

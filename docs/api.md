@@ -16,8 +16,8 @@ old one kept for a while.
 ## Who is calling
 
 - **HTTP Basic**, with a user name and a password, or with an API token in the place
-  of the password: `curl -u ci:mga_...`. The name `__token__` stands for whoever the
-  token belongs to.
+  of the password: `curl -u ci:mga_...`. The name `__token__`, or no name, stands for
+  whoever the token belongs to.
 - **A bearer token**: `Authorization: Bearer mga_...`.
 - **A session**, as the web UI has: `POST /api/v1/auth/login` with a user name and a
   password sets a cookie and answers with a `csrf_token`. A request that uses the
