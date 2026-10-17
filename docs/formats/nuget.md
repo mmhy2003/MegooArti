@@ -180,7 +180,8 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 - **A V2 proxy** passes a query on to its feed as it came, and gives the feed's answer
   with the feed's addresses made its own. An answer is kept by its whole query, and
   asked about again after `metadata_max_age_minutes`; a `Search()` is passed on every
-  time. A package is kept, and read as a pushed one is. The proxy serves no
+  time. A version's package is at the proxy's `package/<id>/<version>`, fetched from
+  where the feed's entry says; it is kept, and read as a pushed one is. The proxy serves no
   `index.json`: clients are given its V2 address. Its protocol cannot change once it
   is made.
 - **A group's feed is written from its members'** on each request, in the order they

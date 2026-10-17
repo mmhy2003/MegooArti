@@ -167,6 +167,15 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | Z10 | The client tests run `nuget.exe` 6.14.0, checked by its SHA-256, under `mono:6.12`; `chocolatey/choco:v2.7.4-linux`; and `mcr.microsoft.com/powershell:7.5-ubuntu-24.04`, whose PSResourceGet is 1.1.0. Through the proxies, they install `chocolatey-compatibility.extension` from the community feed and `Microsoft.PowerShell.SecretManagement` 1.1.2 from the Gallery. `choco install` on Linux puts a package's files in place and runs none of its scripts. What the client tests share is in `tests/nuget_stack.py`. | Section 10's pinned clients; packages small enough to fetch on every run. |
 | Z11 | A group answers no V2 until plan 13e. | Y10: a group answers only what it writes. |
 
+### Settled by the review of plan 13d
+
+| # | What | Why |
+| --- | --- | --- |
+| Z12 | A V2 proxy asks its feed for an entry, `Packages(Id='…',Version='…')`, only if its id is one NuGet takes and its version one; anything else is `404`, and the feed is not asked (X9 for V2). | An id of `/../../secret` reached the feed as a path of the client's choosing, with the feed's credential. |
+| Z13 | Each entry a V2 proxy passes on has its package at the proxy's `package/<id>/<version>`, as the entry's id says; the proxy fetches it from where the feed's entry of it says, the entry kept as any answer is (in place of Z8's `<feed>package/<id>/<version>`). | A feed may serve its packages elsewhere than `package/<id>/<version>`: Nexus at `<id>/<version>`. |
+| Z14 | A V2 proxy reads a search's answer to 64 MiB, a kept answer to 16 MiB. | A search is not kept, and the Gallery answers PSResourceGet's `$top=6000` with tens of megabytes: 49 MB for all its modules. |
+| Z15 | An order by download counts orders nothing, each being 0: the ids of a query of many are taken in the order of what comes after it, by id if that is the id. | Ordered by `DownloadCount desc,Id`, the ids were taken as V3's search ranks them, and a page of the order by id was cut from those read. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
