@@ -24,12 +24,19 @@ async def respond_json(context: RepositoryContext, request: Request, document: A
 
 async def respond_data(context: RepositoryContext, request: Request, data: bytes) -> Response:
     """JSON that is passed on as it is: what a remote sent, kept."""
+    return await respond(context, request, data, JSON, "index.json")
+
+
+async def respond(
+    context: RepositoryContext, request: Request, data: bytes, content_type: str, filename: str
+) -> Response:
+    """A document written for this request, or passed on as a remote sent it."""
     _, changed = await context.revision()
     return context.respond_with(
         data,
         request,
-        filename="index.json",
-        content_type=JSON,
+        filename=filename,
+        content_type=content_type,
         last_modified=changed,
         # Two changes can be made within one second: only the bytes say which a client has.
         dated=False,

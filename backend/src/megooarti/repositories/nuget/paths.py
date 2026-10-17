@@ -6,7 +6,7 @@ version in a path is normalized.
 
 from dataclasses import dataclass
 
-from megooarti.repositories.nuget import versions
+from megooarti.repositories.nuget import odata, versions
 
 SERVICE_INDEX = "index.json"
 PACKAGES = "v3/package/"
@@ -23,7 +23,8 @@ SYMBOL_PUBLISH = "api/v2/symbolpackage"
 @dataclass(frozen=True)
 class NuGetPath:
     # service-index, versions, package, nuspec, symbols, registration, leaf, search,
-    # autocomplete, publish, symbol-publish, delete, page, other
+    # autocomplete, publish, symbol-publish, delete, page, v2 (V2's feed), download (V2's
+    # address of a package), other
     kind: str
     id: str = ""  # lower case
     version: str = ""  # normalized, lower case
@@ -62,6 +63,14 @@ def page_path(package_id: str, lower: str, upper: str) -> str:
 def classify(path: str) -> NuGetPath:
     if path == SERVICE_INDEX:
         return NuGetPath("service-index")
+    if odata.is_v2(path):
+        return NuGetPath("v2")
+    parts = path.split("/")
+    if len(parts) == 3 and parts[0] == "package":
+        version = _version(parts[2])
+        if versions.is_id(parts[1]) and version is not None:
+            return NuGetPath("download", parts[1].lower(), version)
+        return NuGetPath("other")
     if path in (SEARCH, AUTOCOMPLETE):
         return NuGetPath("search" if path == SEARCH else "autocomplete")
     # dotnet pushes to the address the service index gives, with a slash after it.
@@ -110,3 +119,22 @@ def classify(path: str) -> NuGetPath:
         ):
             return NuGetPath("page", package_id, lower=lower, upper=upper)
     return NuGetPath("other")
+
+
+def v2_delete(path: str) -> tuple[str, str] | None:
+    """`<id>/<version>`: where a V2 client deletes a version, under the address it is
+    given, with the version normalized. None for a path that is not one."""
+    parts = path.split("/")
+    if len(parts) != 2 or not versions.is_id(parts[0]):
+        return None
+    version = _version(parts[1])
+    return None if version is None else (parts[0].lower(), version)
+
+
+def v2_path(path: str) -> str:
+    """A path of V2's feed without the slashes a client put before it: PSResourceGet
+    adds one to an address that ends in one. Any other path as it is."""
+    stripped = path.lstrip("/")
+    if stripped != path and classify(stripped).kind in ("v2", "download"):
+        return stripped
+    return path

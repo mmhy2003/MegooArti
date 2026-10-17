@@ -21,10 +21,13 @@ INLINED_MOST = 128
 
 @dataclass(frozen=True)
 class Published:
-    """A version a repository has: what its package says, and when it was pushed."""
+    """A version a repository has: what its package says, when it was pushed, and its
+    package's size and SHA-512 (in hex), for V2's feed: 0 and "" where they are unknown."""
 
     nuspec: Nuspec
     published: datetime
+    size: int = 0
+    sha512: str = ""
 
 
 def service_index(

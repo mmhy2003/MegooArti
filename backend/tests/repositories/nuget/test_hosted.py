@@ -307,7 +307,8 @@ async def test_a_registration_with_nothing_left_to_show_is_not_found(client, db,
         "v3/registration/megooarti.hello/1.0.0.json",
         "v3/package/MegooArti.Hello/index.json",
         "v3/other",
-        "",
+        "Packages(Id='MegooArti.Hello',Version='1.0.0')",
+        "package/MegooArti.Hello/1.0.0",
     ],
 )
 async def test_what_is_not_there_is_not_found(client, hosted, root, path):

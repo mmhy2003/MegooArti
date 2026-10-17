@@ -50,6 +50,7 @@ from megooarti.repositories.nuget import (
     queries,
     records,
     responses,
+    v2,
     versions,
 )
 from megooarti.repositories.nuget.documents import Published
@@ -144,12 +145,13 @@ async def _keep_package(
     """A package and its `.nuspec`, each at its path. Returns whether the version is new."""
     nuspec = await _spelled(context, package.nuspec)
     said = {records.DECLARED: nuspec.as_json()}
+    known = {**said, records.PACKAGE: {"size": staged.size, "sha512": staged.sha512}}
     _, created = await context.store(
         paths.package_path(nuspec.id, nuspec.version),
         staged,
         content_type=_PACKAGE,
         attributes=said,
-        component_attributes=said,
+        component_attributes=known,
     )
     spec = await context.stage_bytes(package.spec)
     await context.store(
@@ -325,6 +327,10 @@ async def _read_request(
         return await _search(context, request)
     if parsed.kind == "autocomplete":
         return await _autocomplete(context, request)
+    if parsed.kind == "v2":
+        return await v2.answer(context, request, path)
+    if parsed.kind == "download":
+        return await v2.download(context, request, parsed)
     raise _not_found()
 
 
@@ -558,6 +564,7 @@ class NuGetFormat(Format):
     async def handle_hosted(
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
+        path = paths.v2_path(path)
         parsed = paths.classify(path)
         if request.method in ("GET", "HEAD"):
             if parsed.kind in ("publish", "symbol-publish", "delete"):
@@ -565,9 +572,14 @@ class NuGetFormat(Format):
             return await _read_request(context, request, path, parsed)
         if request.method == "PUT" and parsed.kind in ("publish", "symbol-publish"):
             return await _push(context, request, symbols=parsed.kind == "symbol-publish")
-        if request.method == "DELETE" and parsed.kind == "delete":
-            if not await _delete_version(context, parsed.id, parsed.version):
-                raise _not_found(f"This repository has no {parsed.id} {parsed.version}.")
+        if request.method == "PUT" and path == "":
+            # A V2 client pushes to the address it is given: the repository's own.
+            return await _push(context, request, symbols=False)
+        deleted = paths.v2_delete(path) if request.method == "DELETE" else None
+        if request.method == "DELETE" and (parsed.kind == "delete" or deleted is not None):
+            package_id, version = (parsed.id, parsed.version) if deleted is None else deleted
+            if not await _delete_version(context, package_id, version):
+                raise _not_found(f"This repository has no {package_id} {version}.")
             return Response(status_code=204)
         if parsed.kind in ("publish", "symbol-publish"):
             raise _not_allowed("PUT")
