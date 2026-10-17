@@ -192,6 +192,13 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   package, its `.nuspec` and its symbol package come from the first member that has
   them. A member that is offline, or whose feed cannot be reached, is passed over.
   Every address in what a group serves is its own.
+- **A group serves V2 too**, at its own address, from its hosted members, its V2
+  proxies and its groups; V3 comes from its hosted members, its V3 proxies and its
+  groups. Chocolatey given a group of a hosted repository and a proxy of the community
+  feed installs what you push and the feed's packages alike. A V2 query is asked of
+  each member, the answers listed in the members' order, an id's version once, as the
+  first member that has it has it; the group writes its own pages, and its own links
+  to the next.
 - **An id is every member's in a group.** A public package with the id of one you push
   adds its versions beside yours: a floating version (`1.*`) or `dotnet add package`
   without a version can take a version of nuget.org's. Give your packages a prefix
@@ -221,8 +228,10 @@ with a known vulnerability.
 Tested with `nuget.exe` 6.14 under Mono 6.12, over V2 and over V3: a package built
 with `nuget pack`, pushed, installed at a version and at its newest, listed (over V2),
 and deleted. With Chocolatey's `choco` 2.7.4 of its Linux image, over V2 and over V3: a
-package built with `choco pack`, pushed, found with `choco search` and installed; and,
-through a V2 proxy of the community feed, a package installed. With PowerShell 7.5's
+package built with `choco pack`, pushed, found with `choco search` and installed;
+through a V2 proxy of the community feed, a package installed; and through a group of
+the two, a pushed package found and installed, and one of the community feed's
+installed. With PowerShell 7.5's
 PSResourceGet 1.1, over V2 and over V3: a module published, found by a range of
 versions, installed and imported; and, through a V2 proxy of the PowerShell Gallery, a
 module installed.

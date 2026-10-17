@@ -1,5 +1,5 @@
 """Chocolatey's `choco`, of its Linux image, against the built image: over V2 and over V3,
-and through a V2 proxy of the Chocolatey community feed.
+through a V2 proxy of the Chocolatey community feed, and through a group of both.
 
 Run with `pytest -m docker`. Besides a Docker daemon this needs internet access: to pull
 the image, and for the proxy of the community feed. Each run of `choco` is a new
@@ -19,6 +19,7 @@ pytestmark = pytest.mark.docker
 IMAGE = "chocolatey/choco:v2.7.4-linux"
 HOSTED = "nuget-hosted"
 COMMUNITY = "choco-community"
+GROUP = "choco-public"
 PACKAGE = "megooarti-choco"
 # A package of the community feed with nothing to run: Chocolatey's own extension.
 FROM_COMMUNITY = "chocolatey-compatibility.extension"
@@ -43,11 +44,17 @@ NUSPEC = f"""<?xml version="1.0" encoding="utf-8"?>
 @pytest.fixture(scope="module")
 def work(administrator, tmp_path_factory) -> tuple[Path, str]:
     """The folder `choco` works in, with the package's `.nuspec`; and the token to push
-    with. A hosted repository, and a V2 proxy of the community feed."""
+    with. A hosted repository, a V2 proxy of the community feed, and a group of both."""
     token = prepare(
         administrator,
         hosted(HOSTED),
         proxy(COMMUNITY, "https://community.chocolatey.org/api/v2/", protocol="v2"),
+        {
+            "name": GROUP,
+            "format": "nuget",
+            "type": "group",
+            "group": {"members": [HOSTED, COMMUNITY]},
+        },
     )
     folder = tmp_path_factory.mktemp("choco")
     (folder / f"{PACKAGE}.nuspec").write_text(NUSPEC, encoding="utf-8", newline="\n")
@@ -101,3 +108,22 @@ def test_choco_installs_from_a_proxy_of_the_community_feed(work, administrator):
     status, _, components = call("GET", f"/content/{COMMUNITY}/components", None, administrator)
     assert status == 200, components
     assert [item["name"] for item in components["items"]] == [FROM_COMMUNITY]
+
+
+def test_choco_finds_and_installs_through_a_group_of_both(work):
+    _, token = work
+    # Pushed to the hosted member; found and installed, with a package of the community
+    # feed's, through the group.
+    script = (
+        f"choco pack {PACKAGE}.nuspec --version 3.0.0 --outputdirectory out && "
+        f'choco push out/{PACKAGE}.3.0.0.nupkg --source "$1" --api-key "$2" --force && '
+        f"choco search {PACKAGE} --exact && "
+        f"choco install {PACKAGE} --version 3.0.0 --yes && "
+        f"choco install {FROM_COMMUNITY} --yes"
+    )
+
+    done = choco(work, f"{ADDRESS}/{GROUP}/", script, f"{ADDRESS}/{HOSTED}/", token)
+
+    assert done.returncode == 0, said(done)
+    assert f"{PACKAGE} 3.0.0" in done.stdout
+    assert done.stdout.count("Chocolatey installed 1/1 packages.") == 2
