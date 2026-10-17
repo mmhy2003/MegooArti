@@ -18,7 +18,15 @@ from starlette.responses import Response
 from megooarti.errors import ApiError
 from megooarti.repositories import group
 from megooarti.repositories.content import RepositoryContext
-from megooarti.repositories.nuget import atom, feeds, odata, proxied_v2, responses, v2
+from megooarti.repositories.nuget import (
+    atom,
+    feeds,
+    odata,
+    proxied_v2,
+    responses,
+    v2,
+    versions,
+)
 
 # An entry as text, and its key: its id and its version as NuGet matches them.
 Keyed = tuple[str, str]
@@ -88,7 +96,33 @@ async def merged(
                 continue
             seen.add(key)
             entries.append((key, written))
+    if query.filter.latest or query.filter.absolute_latest:
+        newest = _newest(entries)
+        dropped += len(entries) - len(newest)
+        entries = newest
     return entries[:wanted], max(total - dropped, len(entries))
+
+
+def _newest(entries: list[Keyed]) -> list[Keyed]:
+    """Of each id, its newest entry alone, where the id's first was: what each member
+    says is newest is newest of what it has, and the group's is the newest of those."""
+    best: dict[str, Keyed] = {}
+    for key, written in entries:
+        package_id, version = key.split("/", 1)
+        kept = best.get(package_id)
+        if kept is None or _later(version, kept[0].split("/", 1)[1]):
+            best[package_id] = (key, written)
+    placed: list[Keyed] = []
+    for key, _ in entries:
+        package_id = key.split("/", 1)[0]
+        if package_id in best:
+            placed.append(best.pop(package_id))
+    return placed
+
+
+def _later(version: str, than: str) -> bool:
+    mine, theirs = versions.parse(version), versions.parse(than)
+    return mine is not None and theirs is not None and mine.sort_key() > theirs.sort_key()
 
 
 async def _entry_of(

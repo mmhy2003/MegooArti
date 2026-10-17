@@ -245,6 +245,13 @@ async def listing(
             if (key := atom.key_of(found)) is not None:
                 entries.append((key, found))
         asked = _next_of(context, raw)
+    if asked is not None and len(entries) < wanted:
+        raise ApiError(
+            400,
+            "unsupported_query",
+            f"This query goes past the {PAGES_MOST} pages a group reads of a feed for it: "
+            "narrow it with a search term or an id, or ask for a page nearer the start.",
+        )
     entries = entries[:wanted]
     return entries, total if counted and total is not None else len(entries)
 

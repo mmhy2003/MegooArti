@@ -254,3 +254,29 @@ async def test_a_query_no_client_sends_is_refused_by_the_group(client, root, gro
 
     assert (answer.status_code, error_code(answer)) == (400, "unsupported_query")
     assert group.requests == []
+
+
+async def test_the_newest_of_an_id_is_the_groups_newest_once(client, root, group):
+    # choco install without a version: the newest of the id among every member's.
+    group.files["api/v2/Packages()"] = feed(entry("MegooArti.Hello", "3.0.0"), count=1)
+    query = {"$filter": "(tolower(Id) eq 'megooarti.hello') and IsLatestVersion"}
+
+    answer = await get(client, root, "Packages()", **query)
+    counted = await get(client, root, "Packages()/$count", **query)
+
+    assert [(one[0], one[1]) for one in entries(answer)] == [("MegooArti.Hello", "3.0.0")]
+    assert counted.text == "1"
+
+
+async def test_a_query_past_what_the_group_reads_of_a_feed_is_refused(client, root, group):
+    # A feed that pages one entry at a time, past the pages a group follows.
+    group.files["api/v2/Search()"] = feed(
+        entry("Choco.Thing", "1.0.0"),
+        next_page=f"{REMOTE}Search?$skiptoken='more'",
+    )
+    group.files["api/v2/Search"] = group.files["api/v2/Search()"]
+
+    answer = await get(client, root, "Search()", searchTerm="''", **{"$top": "30"})
+
+    assert (answer.status_code, error_code(answer)) == (400, "unsupported_query")
+    assert "narrow" in answer.json()["error"]["message"]
