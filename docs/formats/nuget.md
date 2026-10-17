@@ -198,7 +198,9 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   feed installs what you push and the feed's packages alike. A V2 query is asked of
   each member, the answers listed in the members' order, an id's version once, as the
   first member that has it has it; the group writes its own pages, and its own links
-  to the next.
+  to the next. The newest version of an id is the newest any member has. A group reads
+  ten of a feed's pages for a query at the most: a page past them is refused with a
+  `400` that says to narrow the query.
 - **An id is every member's in a group.** A public package with the id of one you push
   adds its versions beside yours: a floating version (`1.*`) or `dotnet add package`
   without a version can take a version of nuget.org's. Give your packages a prefix

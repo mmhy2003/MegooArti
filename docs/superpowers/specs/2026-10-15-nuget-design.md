@@ -187,6 +187,13 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | G5 | A group's V2 order is its members': each member orders what it gives as the query asks, and the group keeps them in the members' order. | 7.3's merging; a group cannot order a feed's entries it has not read. |
 | G6 | The Chocolatey test installs, through a group of the hosted repository and the V2 proxy of the community feed, a package pushed to the hosted member and one of the community feed's. | Section 10's `choco` through a group. |
 
+### Settled by the review of plan 13e
+
+| # | What | Why |
+| --- | --- | --- |
+| G7 | A V2 query that asks for the newest version (`IsLatestVersion`, `IsAbsoluteLatestVersion`) is answered by a group with each id's newest of its members' newest, once, where the id's first entry was; the others are dropped and counted so. | Each member's newest is newest of what it has: a group of a hosted repository and a feed that both had an id listed it twice, and `choco install` without a version could take the older. |
+| G8 | A query for which a member's feed still has a next page after the ten a group follows (G2), with fewer entries read than the group asks for, is refused with `400 unsupported_query`, which says to narrow it. | Past the tenth page, the feed seemed to end, its count saying otherwise. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
