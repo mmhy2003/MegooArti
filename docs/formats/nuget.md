@@ -1,7 +1,8 @@
 # NuGet repositories
 
 What is true of every repository is in [Repositories](../repositories.md). This is
-what is this format's own: .NET packages, pushed and restored with `dotnet`.
+what is this format's own: .NET packages, pushed and restored with `dotnet` and
+`nuget.exe`; Chocolatey's packages; and PowerShell's modules.
 
 A hosted repository holds the packages you build, and serves them over NuGet's V3
 protocol, as nuget.org does. Its address for a client is the repository's own, then
@@ -53,6 +54,39 @@ puts the values of environment variables in place of `%NAME%`:
 </configuration>
 ```
 
+The same repository serves NuGet's V2 protocol too, at its own address with nothing
+after it (`https://repo.example.com/repository/nuget-hosted/`), for clients that speak
+V2: `nuget.exe`, Chocolatey's `choco` and PowerShell's PSResourceGet, which speak V3
+as well. A V2 client pushes to that address, and deletes under it.
+
+```bash
+# nuget.exe, here under Mono: the source with its credentials, then a push to it by name.
+mono nuget.exe sources add -Name megooarti \
+  -Source https://repo.example.com/repository/nuget-hosted/ \
+  -Username ci -Password "$MEGOOARTI_TOKEN" -StorePasswordInClearText
+mono nuget.exe push MegooArti.Hello.1.0.0.nupkg -Source megooarti -ApiKey "$MEGOOARTI_TOKEN"
+mono nuget.exe install MegooArti.Hello -Version 1.0.0 -Source megooarti
+
+# Chocolatey: --force pushes over plain HTTP, which choco otherwise refuses.
+choco source add --name=megooarti \
+  --source="https://repo.example.com/repository/nuget-hosted/" \
+  --user="$MEGOOARTI_USER" --password="$MEGOOARTI_TOKEN"
+choco push hello.1.0.0.nupkg --source="https://repo.example.com/repository/nuget-hosted/" \
+  --api-key="$MEGOOARTI_TOKEN"
+choco install hello --version 1.0.0
+```
+
+```powershell
+# PSResourceGet: V2's address without its slash, as it adds one, and told it is V2.
+# Or the repository's index.json, which it knows for V3 by itself.
+Register-PSResourceRepository -Name megooarti -Trusted `
+  -Uri https://repo.example.com/repository/nuget-hosted -ApiVersion v2
+$credential = Get-Credential -UserName ci   # an API token as the password
+Publish-PSResource -Path ./MegooArti.Hello -Repository megooarti -ApiKey $env:MEGOOARTI_TOKEN `
+  -Credential $credential
+Install-PSResource MegooArti.Hello -Repository megooarti -Credential $credential
+```
+
 A proxy caches a feed of V3: nuget.org, or any feed that serves NuGet's V3 protocol.
 Its remote is the feed's service index:
 
@@ -65,6 +99,18 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json \
   --name nuget-org --username ci --password "$MEGOOARTI_TOKEN" \
   --store-password-in-clear-text
+```
+
+A proxy of a V2 feed, the Chocolatey community feed or the PowerShell Gallery, speaks
+V2 to it and serves V2 alone: its `format_config.protocol` is `v2`, and its remote is
+the feed's address. Give clients the proxy's own address, as for V2 above.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "choco-community", "format": "nuget", "type": "proxy",
+  "format_config": {"protocol": "v2"},
+  "proxy": {"remote_url": "https://community.chocolatey.org/api/v2/"}
+}' http://localhost:8000/api/v1/repositories
 ```
 
 A group is one feed of its members': a machine whose one source is the group restores
@@ -123,6 +169,20 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   `format_config.symbol_url` names a symbol server to proxy, which a later version
   serves. A search that fails is said to have failed, and does not stop the proxy
   fetching packages.
+- **V2's feed** answers the queries that `nuget.exe`, `choco` and PSResourceGet send:
+  `FindPackagesById()`, `Packages(Id='…',Version='…')`, `Packages()` and `Search()`,
+  with a `$filter` of an id, a version or a range of versions, the newest version,
+  prereleases, the start of an id, words of an id or of its tags, and `and` between
+  them; `$orderby`, `$skip`, `$top`, `$inlinecount` and `/$count`. A page has at most
+  100 versions, and a link to the next. Another query is refused with
+  `400 unsupported_query`, which names what is not answered. A package is at
+  `package/<id>/<version>`. MegooArti counts no downloads: each count is 0.
+- **A V2 proxy** passes a query on to its feed as it came, and gives the feed's answer
+  with the feed's addresses made its own. An answer is kept by its whole query, and
+  asked about again after `metadata_max_age_minutes`; a `Search()` is passed on every
+  time. A package is kept, and read as a pushed one is. The proxy serves no
+  `index.json`: clients are given its V2 address. Its protocol cannot change once it
+  is made.
 - **A group's feed is written from its members'** on each request, in the order they
   are listed: an id's versions are every member's together, and its registration is
   the group's own, with the first member's details of a version that several members
@@ -156,3 +216,12 @@ a proxy of nuget.org, a package restored into a project that runs, found with
 one of nuget.org's and runs, both found with `dotnet package search`, and newer versions
 listed; and through the proxy and through the group, NuGet Audit's warning of a package
 with a known vulnerability.
+
+Tested with `nuget.exe` 6.14 under Mono 6.12, over V2 and over V3: a package built
+with `nuget pack`, pushed, installed at a version and at its newest, listed (over V2),
+and deleted. With Chocolatey's `choco` 2.7.4 of its Linux image, over V2 and over V3: a
+package built with `choco pack`, pushed, found with `choco search` and installed; and,
+through a V2 proxy of the community feed, a package installed. With PowerShell 7.5's
+PSResourceGet 1.1, over V2 and over V3: a module published, found by a range of
+versions, installed and imported; and, through a V2 proxy of the PowerShell Gallery, a
+module installed.

@@ -6,27 +6,22 @@ beside the stack, whose `nuget.config` has no source but one of the stack's: dot
 reaches nuget.org only through the proxy.
 """
 
-import base64
 import subprocess
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import pytest
 
-from tests.containers import HTTP_PORT, PROJECT, call
+from tests import nuget_stack
+from tests.containers import call
+from tests.nuget_stack import PASSWORD, USERNAME, hosted, prepare, proxy, said
 
 pytestmark = pytest.mark.docker
 
 # The two SDKs, by the version each was tested with.
 IMAGES = {"10": "mcr.microsoft.com/dotnet/sdk:10.0", "8": "mcr.microsoft.com/dotnet/sdk:8.0"}
-NETWORK = f"{PROJECT}_default"
 HOSTED = "nuget-hosted"
 PROXY = "nuget-org"
 GROUP = "nuget-public"
-# What an account that pushes and restores gets: everything on NuGet repositories.
-USERNAME = "ci"
-PASSWORD = "restores-dotnet-packages"
 VERSION = "1.0.0"
 
 
@@ -122,94 +117,28 @@ dotnet run
 """
 
 
-def dotnet(sdk: str, work: Path, script: str, *arguments: str):
+def dotnet(sdk: str, work: Path, script: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     """Run a shell script in an SDK's image, beside the stack, in `work` (as /work)."""
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        "--network",
-        NETWORK,
-        "--volume",
-        f"{work}:/work",
-        "--env",
-        "DOTNET_CLI_TELEMETRY_OPTOUT=1",
-        "--env",
-        "DOTNET_NOLOGO=1",
-        "--env",
-        "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
+    return nuget_stack.run(
         IMAGES[sdk],
-        "bash",
-        "-c",
-        script,
-        "script",
-        *arguments,
-    ]
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=1800,
-        check=False,
+        work,
+        ["bash", "-c", script, "script", *arguments],
+        environment={"DOTNET_NOLOGO": "1", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1"},
     )
-
-
-def said(result: subprocess.CompletedProcess[str]) -> str:
-    return f"exit {result.returncode}\n{result.stdout[-3000:]}\n{result.stderr[-3000:]}"
 
 
 def fetch(path: str, repository: str = HOSTED) -> int:
     """The status of a read of a repository from outside, as `ci`."""
-    credentials = base64.b64encode(f"{USERNAME}:{PASSWORD}".encode()).decode()
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{HTTP_PORT}/repository/{repository}/{path}",
-        headers={"Authorization": f"Basic {credentials}"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return response.status
-    except urllib.error.HTTPError as error:
-        return error.code
+    return nuget_stack.fetch(path, repository)
 
 
 @pytest.fixture(scope="module")
 def token(administrator) -> str:
     """A hosted NuGet repository, a proxy of nuget.org, the account `ci`, and an API token
     of it to push with."""
-    proxy = {
-        "name": PROXY,
-        "format": "nuget",
-        "type": "proxy",
-        # Not left alone after one failure: the internet may be slow once.
-        "proxy": {"remote_url": "https://api.nuget.org/v3/index.json", "auto_block": False},
-    }
-    for body in ({"name": HOSTED, "format": "nuget", "type": "hosted"}, proxy):
-        status, _, answer = call("POST", "/repositories", body, administrator)
-        assert status == 201, answer
-    role = {"name": "nuget-users", "permissions": ["repository:nuget"]}
-    user = {
-        "username": USERNAME,
-        "display_name": "CI",
-        "password": PASSWORD,
-        "roles": ["nuget-users"],
-        "must_change_password": False,
-    }
-    for path, body in (("/roles", role), ("/users", user)):
-        status, _, answer = call("POST", path, body, administrator)
-        assert status == 201, answer
-    status, headers, session = call(
-        "POST", "/auth/login", {"username": USERNAME, "password": PASSWORD}
+    return prepare(
+        administrator, hosted(HOSTED), proxy(PROXY, "https://api.nuget.org/v3/index.json")
     )
-    assert status == 200, session
-    signed_in = {
-        "Cookie": headers["Set-Cookie"].split(";")[0],
-        "X-CSRF-Token": session["csrf_token"],
-    }
-    status, _, created = call("POST", "/me/tokens", {"name": "pushing"}, signed_in)
-    assert status == 201, created
-    return created["token"]
 
 
 @pytest.fixture(scope="module")

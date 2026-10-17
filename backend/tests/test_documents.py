@@ -379,7 +379,7 @@ CLIENTS = {
     "apt": ["apt"],
     "yum": ["dnf"],
     "apk": ["apk"],
-    "nuget": ["dotnet"],
+    "nuget": ["dotnet", "nuget.exe", "choco", "PSResourceGet"],
 }
 
 
