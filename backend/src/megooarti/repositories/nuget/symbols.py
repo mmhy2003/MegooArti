@@ -81,16 +81,22 @@ def read(name: str, data: bytes) -> Pdb:
     return Pdb(lower, guid, hashlib.sha256(zeroed).hexdigest())
 
 
-def is_path(path: str) -> bool:
-    """Whether a path is one a symbol server serves a portable PDB at."""
+def normalized(path: str) -> str | None:
+    """A path a symbol server serves a portable PDB at, as it is kept: its name and GUID
+    in lower case, then `FFFFFFFF`, whatever case a debugger wrote them in. None for a
+    path that is not one."""
     parts = path.split("/")
-    return (
-        len(parts) == 4
-        and parts[0] == PREFIX.rstrip("/")
-        and parts[1] == parts[3]
-        and _NAME.fullmatch(parts[1]) is not None
-        and _KEY.fullmatch(parts[2]) is not None
-    )
+    if len(parts) != 4 or parts[0] != PREFIX.rstrip("/"):
+        return None
+    name, key = parts[1].lower(), parts[2][:32].lower() + parts[2][32:].upper()
+    if parts[3].lower() != name or not _NAME.fullmatch(name) or not _KEY.fullmatch(key):
+        return None
+    return f"{PREFIX}{name}/{key}/{name}"
+
+
+def is_path(path: str) -> bool:
+    """Whether a path is one a symbol server serves a portable PDB at, in any case."""
+    return normalized(path) is not None
 
 
 def asked(header: str | None) -> set[str] | None:

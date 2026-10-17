@@ -59,6 +59,12 @@ async def keep(
         if symbols.is_path(held.path) and held.path not in paths:
             await context.delete(held.path)
     for pdb, blob in staged:
+        kept = await context.get(pdb.path)
+        if kept is not None and (kept.attributes or {}).get(CHECKSUM) == pdb.checksum:
+            # The same PDB, as another version's symbol package has it: a build packed
+            # twice with two versions. It is kept once, with the version it came with.
+            await context.discard(blob)
+            continue
         await context.store(
             pdb.path,
             blob,
@@ -69,6 +75,7 @@ async def keep(
 
 async def _respond(context: RepositoryContext, request: Request, path: str) -> Response:
     """A PDB this repository keeps, if the checksums the debugger names include its own."""
+    path = symbols.normalized(path) or path
     asset = await context.get(path)
     if asset is None:
         raise _not_found()
@@ -90,11 +97,15 @@ async def serve_proxy(context: RepositoryContext, request: Request, path: str) -
     if not server:
         raise _not_found()
     header = request.headers.get(_HEADER)
+    path = symbols.normalized(path) or path
     source = Source(
         f"{server}/{path.removeprefix(symbols.PREFIX)}",
         headers={_HEADER: header} if header else {},
         # A server that has no file for one checksum may have it for another.
         remember_missing=False,
+        # A symbol server is asked apart from the feed: its failing does not stop the
+        # proxy fetching packages.
+        blocks=False,
     )
     await proxy.ensure_cached(context, path, source=source)
     return await _respond(context, request, path)

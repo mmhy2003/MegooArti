@@ -172,3 +172,42 @@ async def test_a_group_serves_its_members_pdbs_in_order(client, root, pushed, pr
 
     assert answer.content == PDB
     assert proxied.requests == []  # the hosted member had it
+
+
+async def test_a_pdb_two_versions_carry_is_kept_once_and_both_pushes_succeed(client, hosted, root):
+    # Packed twice with another version, as a CI build does: the same binaries, one PDB.
+    for version in ("1.0.0", "1.0.1"):
+        assert (await push(client, root, nupkg(version=version))).status_code == 201
+        pushed = await push(client, root, snupkg(version=version), symbols=True)
+        assert pushed.status_code == 201, pushed.text
+
+    answer = await client.get(f"{URL}/{KEPT.path}", headers={**root, **CHECKSUM})
+
+    assert answer.content == PDB
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        KEPT.path.replace("hello.pdb", "Hello.pdb"),
+        KEPT.path.replace(KEPT.guid, KEPT.guid.upper()),
+        KEPT.path.replace("FFFFFFFF", "ffffffff"),
+    ],
+    ids=["name", "guid", "age"],
+)
+async def test_a_key_is_matched_without_regard_to_case(client, root, pushed, key):
+    for method in ("GET", "HEAD"):
+        answer = await client.request(method, f"{URL}/{key}", headers={**root, **CHECKSUM})
+        assert answer.status_code == 200
+
+
+async def test_a_symbol_server_that_fails_does_not_stop_the_proxys_feed(client, root, proxied):
+    proxied.statuses[f"download/symbols/{KEY}"] = 503
+
+    failed = await client.get(f"/repository/nuget-org/{KEPT.path}", headers={**root, **CHECKSUM})
+    status = await client.get("/api/v1/repositories/nuget-org", headers=root)
+
+    assert failed.status_code == 502
+    # Recorded, and not counted towards leaving the remote alone.
+    assert status.json()["status"]["auto_blocked_until"] is None
+    assert status.json()["status"]["last_error"]

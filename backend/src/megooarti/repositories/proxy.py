@@ -55,8 +55,9 @@ class Source:
     # nuget.org sends its registrations: it is then inflated. For `ask` and `document`.
     gzipped: bool = False
     # Whether a failure counts towards leaving the remote alone. Not for a service of
-    # its that is asked apart from its files, such as a search on another host: its
-    # failing must not stop the files being fetched. The failure is recorded all the same.
+    # its that is asked apart from its files, such as a search or a symbol server on
+    # another host: its failing must not stop the files being fetched. The failure is
+    # recorded all the same.
     blocks: bool = True
     # Headers to send with a download besides those every fetch sends, for a remote that
     # is told what is wanted by one of its own: a symbol server, by `SymbolChecksum`.
@@ -368,6 +369,8 @@ async def _refresh(
         asset.last_verified_at = now
         await db.commit()
     else:
+        if isinstance(outcome, remote.Failed) and source is not None and not source.blocks:
+            outcome = dataclasses.replace(outcome, blockable=False)
         reason = await _fail(context, path, outcome)
         if asset is None:
             raise _unavailable(reason)

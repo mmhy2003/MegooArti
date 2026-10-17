@@ -10,6 +10,8 @@ from megooarti.repositories.nuget import symbols
 from megooarti.repositories.nuget.packages import InvalidPackage
 from tests.repositories.nuget.packages import GUID, portable_pdb
 
+KEPT_PATH = "symbols/hello.pdb/201d67afc77a4cd5a6668a65b7b7382dFFFFFFFF/hello.pdb"
+
 
 def test_a_portable_pdb_is_kept_at_its_key_with_its_checksum():
     data = portable_pdb(stamp=7)
@@ -44,7 +46,8 @@ def test_what_is_not_a_portable_pdb_is_refused_by_name(data, said):
     ("path", "served"),
     [
         ("symbols/hello.pdb/201d67afc77a4cd5a6668a65b7b7382dFFFFFFFF/hello.pdb", True),
-        ("symbols/Hello.pdb/201d67afc77a4cd5a6668a65b7b7382dFFFFFFFF/Hello.pdb", False),
+        # Matched without regard to case, as symbol servers match keys.
+        ("symbols/Hello.pdb/201D67AFC77A4CD5A6668A65B7B7382DFFFFFFFF/Hello.pdb", True),
         ("symbols/hello.pdb/201d67afc77a4cd5a6668a65b7b7382d00000001/hello.pdb", False),
         ("symbols/hello.pdb/201d67afc77a4cd5a6668a65b7b7382dFFFFFFFF/other.pdb", False),
         ("symbols/hello.dll/201d67afc77a4cd5a6668a65b7b7382dFFFFFFFF/hello.dll", False),
@@ -71,3 +74,11 @@ def test_another_guid_is_another_key():
         "00000000000000000000000000000001FFFFFFFF"
         in symbols.read("Hello.pdb", portable_pdb(guid=other)).path
     )
+
+
+def test_a_key_in_another_case_is_the_key():
+    upper = KEPT_PATH.replace("hello.pdb", "Hello.pdb").replace("201d67af", "201D67AF")
+
+    assert symbols.normalized(upper) == KEPT_PATH
+    assert symbols.normalized(KEPT_PATH.replace("FFFFFFFF", "ffffffff")) == KEPT_PATH
+    assert symbols.normalized("symbols/a.pdb/xyz/a.pdb") is None
