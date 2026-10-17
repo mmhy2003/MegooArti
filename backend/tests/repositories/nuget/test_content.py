@@ -55,6 +55,8 @@ async def test_a_version_is_a_component_with_its_files_and_how_to_use_it(client,
         "dotnet": "dotnet add package MegooArti.Hello --version 1.0.0-beta",
         "PackageReference": '<PackageReference Include="MegooArti.Hello" Version="1.0.0-beta" />',
         "Package Manager": "Install-Package MegooArti.Hello -Version 1.0.0-beta",
+        "Chocolatey": "choco install MegooArti.Hello --version 1.0.0-beta",
+        "PowerShell": "Install-PSResource MegooArti.Hello -Version 1.0.0-beta",
     }
 
 
@@ -69,7 +71,7 @@ async def test_megooartis_own_search_finds_a_package_by_its_description(client, 
 async def test_a_repository_says_how_dotnet_is_given_it_as_a_source(client, hosted, root):
     view = (await client.get(f"{CONTENT}/nuget-hosted", headers=root)).json()
 
-    dotnet, config = view["setup"]
+    dotnet, config, chocolatey, powershell = view["setup"]
     assert not dotnet["text"].startswith("#")
     assert dotnet["text"] == (
         'dotnet nuget add source "https://test/repository/nuget-hosted/index.json" '
@@ -84,6 +86,18 @@ async def test_a_repository_says_how_dotnet_is_given_it_as_a_source(client, host
     )
     assert "<nuget-hosted>" in config["text"]
     assert '<add key="ClearTextPassword" value="%MEGOOARTI_TOKEN%" />' in config["text"]
+    # Chocolatey is given V2's address, PowerShell V3's.
+    assert chocolatey["text"] == (
+        'choco source add --name="nuget-hosted" '
+        '--source="https://test/repository/nuget-hosted/" \\\n'
+        '  --user="$MEGOOARTI_USER" --password="$MEGOOARTI_TOKEN"'
+    )
+    assert powershell["language"] == "powershell"
+    assert powershell["text"].startswith(
+        "Register-PSResourceRepository -Name nuget-hosted "
+        '-Uri "https://test/repository/nuget-hosted/index.json" -Trusted\n'
+    )
+    assert "-Credential $credential" in powershell["text"]
 
 
 async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_element(
@@ -93,7 +107,7 @@ async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_elem
 
     view = (await client.get(f"http://plain.test{CONTENT}/1nuget", headers=root)).json()
 
-    dotnet, config = (usage["text"] for usage in view["setup"])
+    dotnet, config, *_ = (usage["text"] for usage in view["setup"])
     assert dotnet.startswith(
         "# Over plain HTTP: --allow-insecure-connections is the .NET SDK 9's and later's;"
         " with .NET 8, leave it out.\ndotnet nuget add source"
@@ -104,6 +118,29 @@ async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_elem
         in config
     )
     assert "<_x0031_nuget>" in config
+
+
+async def test_a_proxy_of_a_v2_feed_is_given_as_a_v2_source(client, root):
+    made = await client.post(
+        "/api/v1/repositories",
+        json={
+            "name": "gallery",
+            "format": "nuget",
+            "type": "proxy",
+            "format_config": {"protocol": "v2"},
+            "proxy": {"remote_url": "https://www.powershellgallery.com/api/v2"},
+        },
+        headers=root,
+    )
+    assert made.status_code == 201, made.text
+
+    view = (await client.get(f"{CONTENT}/gallery", headers=root)).json()
+
+    dotnet, config, chocolatey, powershell = (usage["text"] for usage in view["setup"])
+    assert '"https://test/repository/gallery/" --name gallery' in dotnet
+    assert 'value="https://test/repository/gallery/"' in config
+    assert '--source="https://test/repository/gallery/"' in chocolatey
+    assert '-Uri "https://test/repository/gallery" -ApiVersion v2 -Trusted' in powershell
 
 
 async def test_a_hosted_repository_refuses_redeploy_unless_told_otherwise(client, root):

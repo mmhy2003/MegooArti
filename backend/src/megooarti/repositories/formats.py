@@ -48,7 +48,8 @@ class Usage:
     """One way to use a component, as text for a person to copy."""
 
     label: str  # who it is for: "Maven", "Gradle (Kotlin)", "npm"
-    language: str  # what it is written in, for whoever shows it: xml, kotlin, groovy, shell
+    language: str  # what it is written in, for whoever shows it: xml, kotlin, groovy, shell,
+    # powershell
     text: str
 
 

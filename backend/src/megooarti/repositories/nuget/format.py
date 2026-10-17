@@ -346,9 +346,11 @@ def _element(name: str) -> str:
     return f"_x{ord(first):04X}_{name[1:]}"
 
 
-def setup_of(address: str, name: str) -> list[Usage]:
-    """The repository as a source of `dotnet`, by its command and in `nuget.config`."""
-    source = f"{address}index.json"
+def setup_of(address: str, name: str, *, v3: bool = True) -> list[Usage]:
+    """The repository as a source of `dotnet`, by its command and in `nuget.config`; of
+    Chocolatey; and of PowerShell's PSResourceGet. `v3` is false for a proxy of a V2
+    feed, which serves V2 alone: its sources are then its V2 address."""
+    source = f"{address}index.json" if v3 else address
     command = (
         f'dotnet nuget add source "{source}" --name {name} \\\n'
         '  --username "$MEGOOARTI_USER" --password "$MEGOOARTI_TOKEN" '
@@ -375,7 +377,25 @@ def setup_of(address: str, name: str) -> list[Usage]:
         "  </packageSourceCredentials>\n"
         "</configuration>"
     )
-    return [Usage("dotnet", "shell", command), Usage("nuget.config", "xml", config)]
+    # Chocolatey is given V2's address, to which a push goes straight.
+    chocolatey = (
+        f'choco source add --name="{name}" --source="{address}" \\\n'
+        '  --user="$MEGOOARTI_USER" --password="$MEGOOARTI_TOKEN"'
+    )
+    # PSResourceGet knows V3 by its index.json, and is told V2; it adds a slash itself.
+    uri = f'"{source}"' if v3 else f'"{address.rstrip("/")}" -ApiVersion v2'
+    powershell = (
+        f"Register-PSResourceRepository -Name {name} -Uri {uri} -Trusted\n"
+        "# Your user name, and an API token as the password, with each command:\n"
+        "$credential = Get-Credential -UserName $env:MEGOOARTI_USER\n"
+        f"Find-PSResource -Repository {name} -Credential $credential"
+    )
+    return [
+        Usage("dotnet", "shell", command),
+        Usage("nuget.config", "xml", config),
+        Usage("Chocolatey", "shell", chocolatey),
+        Usage("PowerShell", "powershell", powershell),
+    ]
 
 
 # The protocols a proxy may speak to its remote, and serve: chosen once (D2).
@@ -552,10 +572,18 @@ class NuGetFormat(Format):
                 "shell",
                 f"Install-Package {key.name} -Version {key.version}",
             ),
+            Usage("Chocolatey", "shell", f"choco install {key.name} --version {key.version}"),
+            Usage(
+                "PowerShell",
+                "powershell",
+                f"Install-PSResource {key.name} -Version {key.version}",
+            ),
         ]
 
     def setup(self, address: str, repository: Repository) -> list[Usage]:
-        return setup_of(address, repository.name)
+        protocol = repository.config.get("format_config", {}).get("protocol", "v3")
+        v3 = repository.type != "proxy" or protocol == "v3"
+        return setup_of(address, repository.name, v3=v3)
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         kind = paths.classify(path).kind
