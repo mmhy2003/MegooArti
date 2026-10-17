@@ -285,15 +285,17 @@ async def test_a_proxys_settings_are_its_protocol_and_a_symbol_server(client, ro
         "symbols", {"protocol": "v3", "symbol_url": "https://symbols.nuget.org/download/symbols/"}
     )
     v2 = await made("v2", {"protocol": "v2"})
+    v4 = await made("v4", {"protocol": "v4"})
     wrong = await made("wrong", {"symbol_url": "ftp://symbols.test"})
     unknown = await made("unknown", {"suite": "stable"})
 
     assert plain.json()["format_config"] == {"protocol": "v3"}
+    assert v2.json()["format_config"] == {"protocol": "v2"}
     assert symbols.json()["format_config"] == {
         "protocol": "v3",
         "symbol_url": "https://symbols.nuget.org/download/symbols",
     }
-    for refused, field in ((v2, "protocol"), (wrong, "symbol_url"), (unknown, "suite")):
+    for refused, field in ((v4, "protocol"), (wrong, "symbol_url"), (unknown, "suite")):
         assert refused.status_code == 422
         assert refused.json()["error"]["details"][0]["field"] == f"format_config.{field}"
 

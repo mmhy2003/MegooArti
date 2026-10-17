@@ -47,6 +47,7 @@ from megooarti.repositories.nuget import (
     packages,
     paths,
     proxied,
+    proxied_v2,
     queries,
     records,
     responses,
@@ -377,8 +378,8 @@ def setup_of(address: str, name: str) -> list[Usage]:
     return [Usage("dotnet", "shell", command), Usage("nuget.config", "xml", config)]
 
 
-# The protocols a proxy may speak to its remote. V2 comes with a later version.
-PROTOCOLS = ("v3",)
+# The protocols a proxy may speak to its remote, and serve: chosen once (D2).
+PROTOCOLS = ("v3", "v2")
 
 
 def _invalid_setting(field: str, message: str) -> ApiError:
@@ -395,8 +396,7 @@ def proxy_settings(config: dict[str, Any], current: dict[str, Any] | None) -> di
     protocol = config.get("protocol", stored)
     if protocol not in PROTOCOLS:
         raise _invalid_setting(
-            "format_config.protocol",
-            "A NuGet proxy speaks v3 to its remote: a V2 feed is not proxied yet.",
+            "format_config.protocol", "A NuGet proxy speaks v3 or v2 to its remote."
         )
     if current is not None and protocol != stored:
         raise _invalid_setting(
@@ -455,9 +455,10 @@ class NuGetFormat(Format):
         return await describe_fetched(context, path, staged)
 
     def is_metadata(self, path: str) -> bool:
-        """An id's versions, its registration, NuGet Audit's data and the remote's service
-        index change as packages are published; packages and their `.nuspec` do not."""
-        if path == proxied.REMOTE_INDEX or path.startswith(paths.REGISTRATION):
+        """An id's versions, its registration, NuGet Audit's data, a V2 feed's answers and
+        what the remote says of itself change as packages are published; packages and their
+        `.nuspec` do not."""
+        if path.startswith(proxied_v2.KEPT) or path.startswith(paths.REGISTRATION):
             return True
         if path.startswith(paths.VULNERABILITIES):
             return True
@@ -466,6 +467,9 @@ class NuGetFormat(Format):
     async def handle_proxy(
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
+        path = paths.v2_path(path)
+        if context.repository.config.get("format_config", {}).get("protocol") == "v2":
+            return await proxied_v2.handle_proxy(context, request, path)
         return await proxied.handle_proxy(context, request, path)
 
     async def handle_group(
