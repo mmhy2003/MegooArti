@@ -158,9 +158,12 @@ curl -u admin -H 'Content-Type: application/json' -d '{
     https://repo.example.com/repository/nuget-hosted/symbols/ --symbols MyApp.dll
   ```
 
-  A proxy with `format_config.symbol_url` (`https://symbols.nuget.org/download/symbols`
+  A PDB that two versions' symbol packages both have, as a build packed twice gives,
+  is kept once, with the first version, and goes when that version is deleted. A
+  proxy with `format_config.symbol_url` (`https://symbols.nuget.org/download/symbols`
   for nuget.org's packages) asks that server for what it does not keep, and keeps what
-  it is given; a group asks its members in order.
+  it is given; that server failing does not stop the proxy fetching packages. A group
+  asks its members in order.
 - **Deleting** a version (`dotnet nuget delete <id> <version>`, which needs the
   `delete` permission, or the web UI) removes it and its every file: its package, its
   `.nuspec` and its symbol package. A package's `.nuspec` cannot be deleted on its own.
