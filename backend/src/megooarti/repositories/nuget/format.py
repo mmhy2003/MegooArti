@@ -51,6 +51,7 @@ from megooarti.repositories.nuget import (
     queries,
     records,
     responses,
+    symbol_server,
     v2,
     versions,
 )
@@ -164,19 +165,31 @@ async def _keep_package(
 async def _keep_symbols(
     context: RepositoryContext, staged: StagedBlob, package: packages.Package
 ) -> bool:
-    """A symbol package, beside the package it is of: that must be here."""
+    """A symbol package, beside the package it is of: that must be here. Each of its
+    portable PDBs is kept at its key, as a file of the version (section 8)."""
     nuspec = await _spelled(context, package.nuspec)
     if await context.stat(paths.package_path(nuspec.id, nuspec.version)) is None:
         await context.discard(staged)
         raise _not_found(
             f"This repository has no {nuspec.id} {nuspec.version}: push the package first."
         )
-    _, created = await context.store(
-        paths.symbols_path(nuspec.id, nuspec.version),
-        staged,
-        content_type=_PACKAGE,
-        attributes={records.DECLARED: nuspec.as_json()},
-    )
+    try:
+        pdbs = await symbol_server.staged_pdbs(context, _ranges(context, staged), staged.size)
+    except packages.InvalidPackage as error:
+        await context.discard(staged)
+        raise _invalid(error) from None
+    try:
+        _, created = await context.store(
+            paths.symbols_path(nuspec.id, nuspec.version),
+            staged,
+            content_type=_PACKAGE,
+            attributes={records.DECLARED: nuspec.as_json()},
+        )
+        await symbol_server.keep(context, nuspec, pdbs)
+    except BaseException:
+        for _, blob in pdbs:
+            await context.discard(blob)
+        raise
     return created
 
 
@@ -332,6 +345,8 @@ async def _read_request(
         return await v2.answer(context, request, path)
     if parsed.kind == "download":
         return await v2.download(context, request, parsed)
+    if parsed.kind == "symbol":
+        return await symbol_server.serve(context, request, path)
     raise _not_found()
 
 
@@ -395,7 +410,18 @@ def setup_of(address: str, name: str, *, v3: bool = True) -> list[Usage]:
         Usage("nuget.config", "xml", config),
         Usage("Chocolatey", "shell", chocolatey),
         Usage("PowerShell", "powershell", powershell),
+        Usage("Symbols", "shell", symbols_of(address)),
     ]
+
+
+def symbols_of(address: str) -> str:
+    """The repository as a symbol server: of Visual Studio, and of `dotnet-symbol`."""
+    server = f"{address}symbols/"
+    return (
+        f"# Visual Studio: Tools > Options > Debugging > Symbols, add {server}\n"
+        f'dotnet-symbol --authenticated-server-path "$MEGOOARTI_TOKEN" {server} \\\n'
+        "  --symbols MyApp.dll"
+    )
 
 
 # The protocols a proxy may speak to its remote, and serve: chosen once (D2).
@@ -442,6 +468,8 @@ async def describe_fetched(
     `.nuspec` says. Nothing for what cannot be read: it is the remote's."""
     kind = paths.classify(path).kind
     try:
+        if kind == "symbol":
+            return await symbol_server.checksum_of(context, path, staged)
         if kind == "package":
             nuspec = (await packages.read(_ranges(context, staged), staged.size)).nuspec
         elif kind == "nuspec":
@@ -488,6 +516,8 @@ class NuGetFormat(Format):
         self, context: RepositoryContext, request: Request, path: str
     ) -> Response:
         path = paths.v2_path(path)
+        if paths.classify(path).kind == "symbol":
+            return await symbol_server.serve_proxy(context, request, path)
         if context.repository.config.get("format_config", {}).get("protocol") == "v2":
             return await proxied_v2.handle_proxy(context, request, path)
         return await proxied.handle_proxy(context, request, path)
@@ -545,10 +575,17 @@ class NuGetFormat(Format):
         return stored
 
     async def delete_asset(self, context: RepositoryContext, path: str) -> bool:
-        """A package goes with its version's every file; its `.nuspec` goes with it."""
+        """A package goes with its version's every file; its `.nuspec` goes with it, and
+        a symbol package's PDBs with it."""
         parsed = paths.classify(path)
         if parsed.kind == "package":
             return await _delete_version(context, parsed.id, parsed.version)
+        if parsed.kind == "symbols":
+            spelling = await context.spelling("", parsed.id)
+            held = [] if spelling is None else await context.files("", spelling, parsed.version)
+            for one in held:
+                if paths.classify(one.path).kind == "symbol":
+                    await context.delete(one.path)
         if parsed.kind == "nuspec":
             package = paths.package_path(parsed.id, parsed.version)
             if await context.stat(path) is not None and await context.stat(package) is not None:
@@ -587,7 +624,7 @@ class NuGetFormat(Format):
 
     def content_type(self, path: str, declared: str | None) -> str | None:
         kind = paths.classify(path).kind
-        if kind in ("package", "symbols"):
+        if kind in ("package", "symbols", "symbol"):
             return _PACKAGE
         if kind == "nuspec":
             return _NUSPEC

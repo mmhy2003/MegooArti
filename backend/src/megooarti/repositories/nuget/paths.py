@@ -6,7 +6,7 @@ version in a path is normalized.
 
 from dataclasses import dataclass
 
-from megooarti.repositories.nuget import odata, versions
+from megooarti.repositories.nuget import odata, symbols, versions
 
 SERVICE_INDEX = "index.json"
 PACKAGES = "v3/package/"
@@ -24,7 +24,7 @@ SYMBOL_PUBLISH = "api/v2/symbolpackage"
 class NuGetPath:
     # service-index, versions, package, nuspec, symbols, registration, leaf, search,
     # autocomplete, publish, symbol-publish, delete, page, v2 (V2's feed), download (V2's
-    # address of a package), other
+    # address of a package), symbol (a portable PDB at its key), other
     kind: str
     id: str = ""  # lower case
     version: str = ""  # normalized, lower case
@@ -65,6 +65,8 @@ def classify(path: str) -> NuGetPath:
         return NuGetPath("service-index")
     if odata.is_v2(path):
         return NuGetPath("v2")
+    if symbols.is_path(path):
+        return NuGetPath("symbol")
     parts = path.split("/")
     if len(parts) == 3 and parts[0] == "package":
         version = _version(parts[2])

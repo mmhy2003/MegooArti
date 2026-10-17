@@ -491,9 +491,14 @@ async def download(
     last_modified: str | None = None,
     accept: str | None = None,
     sign_in: SignIn | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> Fetched | NotModified | Missing | Failed:
-    """Fetch a file completely, or learn that it is unchanged, absent or unavailable."""
-    headers = _request_headers(accept, etag, last_modified)
+    """Fetch a file completely, or learn that it is unchanged, absent or unavailable.
+
+    `headers` are sent besides those every fetch sends, for a remote that is told what
+    is wanted by a header of its own (a symbol server, by `SymbolChecksum`).
+    """
+    headers = {**(headers or {}), **_request_headers(accept, etag, last_modified)}
     try:
         response = await _open(
             client, "GET", url, authorization=authorization, headers=headers, sign_in=sign_in

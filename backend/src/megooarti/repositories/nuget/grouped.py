@@ -91,10 +91,10 @@ async def handle_group(
         if audit is None:
             raise _not_found()
         return await responses.respond_json(context, request, audit)
-    # A package, its `.nuspec`, a file of NuGet Audit's, a package at V2's address: the
-    # first member that has it. Nothing else is asked of the members: what they would
-    # answer has their addresses.
-    if parsed.kind == "download" or path.startswith(paths.PACKAGES):
+    # A package, its `.nuspec`, a file of NuGet Audit's, a package at V2's address, a
+    # PDB at its key: the first member that has it. Nothing else is asked of the members:
+    # what they would answer has their addresses.
+    if parsed.kind in ("download", "symbol") or path.startswith(paths.PACKAGES):
         return await group.handle_group(context, request, path, serve)
     if proxied.vulnerability_name(path) is not None:
         return await group.handle_group(context, request, path, serve)

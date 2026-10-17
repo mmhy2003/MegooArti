@@ -46,6 +46,7 @@ async def test_a_version_is_a_component_with_its_files_and_how_to_use_it(client,
 
     assert (component["name"], component["version"]) == ("MegooArti.Hello", "1.0.0-beta")
     assert sorted(file["path"].rpartition("/")[2] for file in detail["files"]) == [
+        "hello.pdb",
         "megooarti.hello.1.0.0-beta.nupkg",
         "megooarti.hello.1.0.0-beta.snupkg",
         "megooarti.hello.nuspec",
@@ -71,7 +72,7 @@ async def test_megooartis_own_search_finds_a_package_by_its_description(client, 
 async def test_a_repository_says_how_dotnet_is_given_it_as_a_source(client, hosted, root):
     view = (await client.get(f"{CONTENT}/nuget-hosted", headers=root)).json()
 
-    dotnet, config, chocolatey, powershell = view["setup"]
+    dotnet, config, chocolatey, powershell, symbols = view["setup"]
     assert not dotnet["text"].startswith("#")
     assert dotnet["text"] == (
         'dotnet nuget add source "https://test/repository/nuget-hosted/index.json" '
@@ -98,6 +99,14 @@ async def test_a_repository_says_how_dotnet_is_given_it_as_a_source(client, host
         '-Uri "https://test/repository/nuget-hosted/index.json" -Trusted\n'
     )
     assert "-Credential $credential" in powershell["text"]
+    # A debugger is given the symbol server under the repository's address.
+    assert symbols["text"] == (
+        "# Visual Studio: Tools > Options > Debugging > Symbols, add "
+        "https://test/repository/nuget-hosted/symbols/\n"
+        'dotnet-symbol --authenticated-server-path "$MEGOOARTI_TOKEN" '
+        "https://test/repository/nuget-hosted/symbols/ \\\n"
+        "  --symbols MyApp.dll"
+    )
 
 
 async def test_a_source_over_plain_http_is_allowed_so_and_a_name_is_made_an_element(
@@ -136,7 +145,7 @@ async def test_a_proxy_of_a_v2_feed_is_given_as_a_v2_source(client, root):
 
     view = (await client.get(f"{CONTENT}/gallery", headers=root)).json()
 
-    dotnet, config, chocolatey, powershell = (usage["text"] for usage in view["setup"])
+    dotnet, config, chocolatey, powershell, _ = (usage["text"] for usage in view["setup"])
     assert '"https://test/repository/gallery/" --name gallery' in dotnet
     assert 'value="https://test/repository/gallery/"' in config
     assert '--source="https://test/repository/gallery/"' in chocolatey

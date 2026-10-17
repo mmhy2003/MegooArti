@@ -58,6 +58,9 @@ class Source:
     # its that is asked apart from its files, such as a search on another host: its
     # failing must not stop the files being fetched. The failure is recorded all the same.
     blocks: bool = True
+    # Headers to send with a download besides those every fetch sends, for a remote that
+    # is told what is wanted by one of its own: a symbol server, by `SymbolChecksum`.
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -326,6 +329,7 @@ async def _refresh(
         last_modified=known.get("remote_last_modified"),
         accept=None if source is None else source.accept,
         sign_in=_sign_in(context, source),
+        headers=None if source is None else source.headers,
     )
     now = utcnow()
 
