@@ -1,6 +1,8 @@
 """NuGet packages made in memory, as `dotnet pack` lays them out, for the tests."""
 
 import io
+import struct
+import uuid
 import zipfile
 from xml.sax.saxutils import escape
 
@@ -66,10 +68,38 @@ def nupkg(
     return written.getvalue()
 
 
-def snupkg(package_id: str = "MegooArti.Hello", version: str = "1.0.0") -> bytes:
-    """A symbol package of a package: its `.nuspec` says `SymbolsPackage`."""
+# A portable PDB's id, as the tests give it: its GUID, then a stamp.
+GUID = uuid.UUID("201d67af-c77a-4cd5-a666-8a65b7b7382d")
+
+
+def portable_pdb(guid: uuid.UUID = GUID, stamp: int = 1, body: bytes = b"debug info") -> bytes:
+    """A portable PDB as a compiler writes one, as far as a symbol server reads it: its
+    metadata root (`BSJB`), and a `#Pdb` stream that begins with its id."""
+    version = b"PDB v1.0\0\0\0\0"  # padded to four bytes
+    header_end = 16 + len(version) + 4 + 16
+    stream = guid.bytes_le + struct.pack("<I", stamp) + body
+    return (
+        b"BSJB"
+        + struct.pack("<HHII", 1, 1, 0, len(version))
+        + version
+        + struct.pack("<HH", 0, 1)
+        + struct.pack("<II", header_end, len(stream))
+        + b"#Pdb\0\0\0\0"
+        + stream
+    )
+
+
+def snupkg(
+    package_id: str = "MegooArti.Hello",
+    version: str = "1.0.0",
+    *,
+    pdbs: dict[str, bytes] | None = None,
+) -> bytes:
+    """A symbol package of a package: its `.nuspec` says `SymbolsPackage`, and it has
+    `lib/net8.0/Hello.pdb`, a portable PDB, unless it is given others."""
     spec = nuspec(package_id, version, package_types='<packageType name="SymbolsPackage"/>')
-    return nupkg(package_id, version, spec=spec, files={"lib/net8.0/Hello.pdb": b"BSJB"})
+    files = pdbs if pdbs is not None else {"lib/net8.0/Hello.pdb": portable_pdb()}
+    return nupkg(package_id, version, spec=spec, files=files)
 
 
 def reader(data: bytes):
