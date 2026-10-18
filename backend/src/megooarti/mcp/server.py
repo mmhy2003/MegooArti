@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import Tool
 
 from megooarti import __version__
-from megooarti.mcp import packages, system, tools  # noqa: F401  (register tools)
+from megooarti.mcp import packages, repositories, system, tools  # noqa: F401  (register tools)
 
 # A session manager is made for each request (see `endpoint`): its start and stop are
 # not news.
