@@ -27,19 +27,20 @@ import { askAgainIfChanged, useSession } from "@/lib/session/session";
 import { NothingHere } from "@/screens/not-found";
 
 // The formats the form knows: each has its fields, and its texts in the messages.
-const UPLOADABLE = ["raw", "maven", "npm", "pypi", "apt", "yum", "apk"] as const;
+const UPLOADABLE = ["raw", "maven", "npm", "pypi", "apt", "yum", "apk", "nuget"] as const;
 type Uploadable = (typeof UPLOADABLE)[number];
 // Those whose files are put in a directory that is chosen. An APT package's place is
 // its pool path, which the package says.
 const IN_A_DIRECTORY = new Set(["raw", "yum", "apk"]);
 // Those that take several files at once, and the files each takes.
-const SEVERAL = new Set(["raw", "pypi", "apt", "yum", "apk"]);
+const SEVERAL = new Set(["raw", "pypi", "apt", "yum", "apk", "nuget"]);
 const ACCEPTED: Partial<Record<string, string>> = {
   npm: ".tgz,.tar.gz",
   pypi: ".whl,.tar.gz,.zip",
   apt: ".deb",
   yum: ".rpm",
   apk: ".apk",
+  nuget: ".nupkg,.snupkg",
 };
 
 function isUploadable(format: string): format is Uploadable {

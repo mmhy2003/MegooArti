@@ -273,7 +273,8 @@
       "pypi": "Wheels and source distributions. Each one's name says its project and version.",
       "apt": "Debian packages. Each is kept in the pool by its name, version and architecture, and the indexes follow by themselves.",
       "yum": "RPM packages, stored under a directory by their own names. The metadata follows by itself.",
-      "apk": "apk packages, stored in the directory of their architecture. The index follows by itself."
+      "apk": "apk packages, stored in the directory of their architecture. The index follows by itself.",
+      "nuget": "NuGet packages and their symbol packages, each stored where its .nuspec says: packages first, a symbol package beside its package."
     },
     "fields": {
       "directory": "Directory",
@@ -308,7 +309,8 @@
         "pypi": ".whl, .tar.gz or .zip.",
         "apt": ".deb files.",
         "yum": ".rpm files.",
-        "apk": ".apk files."
+        "apk": ".apk files.",
+        "nuget": ".nupkg and .snupkg files."
       },
       "directoryOf": {
         "yum": "Where in the repository the packages go: at least as deep as its metadata.",

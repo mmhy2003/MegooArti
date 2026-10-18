@@ -103,6 +103,7 @@ describe("permissions as rows (A2)", () => {
       "docker",
       "maven",
       "npm",
+      "nuget",
       "pypi",
       "raw",
       "yum",

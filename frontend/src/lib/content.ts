@@ -27,7 +27,7 @@ const CONTENT = "content";
 export const FOLDER_AT_ONCE = 100;
 export const RESULTS_AT_ONCE = 50;
 // The formats whose hosted repositories take an upload through the API.
-const UPLOADABLE = new Set(["raw", "maven", "npm", "pypi", "apt", "yum", "apk"]);
+const UPLOADABLE = new Set(["raw", "maven", "npm", "pypi", "apt", "yum", "apk", "nuget"]);
 
 const at = (repository: string) => `/content/${encodeURIComponent(repository)}`;
 

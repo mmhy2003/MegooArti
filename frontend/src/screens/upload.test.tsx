@@ -388,6 +388,23 @@ describe("uploading to APT, YUM and apk", () => {
       ["directory", "v3.24/main/x86_64"],
     ]);
   });
+  test("NuGet takes packages and symbol packages, several at once", async () => {
+    const user = userEvent.setup();
+    const { uploads } = at("nuget", "/upload/nuget-own");
+    const files = await screen.findByLabelText("Files");
+
+    expect(screen.queryByLabelText("Directory")).toBeNull(); // where its .nuspec says
+    expect(files).toHaveAttribute("multiple");
+    expect(files).toHaveAttribute("accept", ".nupkg,.snupkg");
+    expect(files).toHaveAccessibleDescription(".nupkg and .snupkg files.");
+    await user.upload(files, [file("Hello.1.0.0.nupkg"), file("Hello.1.0.0.snupkg")]);
+    await user.click(send());
+
+    expect(uploads[0]?.parts).toEqual([
+      ["file", "file:Hello.1.0.0.nupkg"],
+      ["file", "file:Hello.1.0.0.snupkg"],
+    ]);
+  });
 });
 
 describe("where nothing can be uploaded", () => {
@@ -431,6 +448,7 @@ describe("choosing where to upload", () => {
     repository("debs", "apt"),
     repository("rpms", "yum"),
     repository("alpine", "apk"),
+    repository("nuget-own", "nuget"),
   ];
 
   test("offers the hosted repositories that take one", async () => {
@@ -445,6 +463,7 @@ describe("choosing where to upload", () => {
       "/upload/debs",
       "/upload/rpms",
       "/upload/alpine",
+      "/upload/nuget-own",
     ]);
     await expectAccessible();
   });
