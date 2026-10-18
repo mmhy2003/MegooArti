@@ -5,7 +5,8 @@ import hashlib
 
 import pytest
 
-from megooarti.mcp import packages
+from megooarti.mcp import packages, results
+from megooarti.repositories import service
 from megooarti.repositories.formats import get_format
 from megooarti.security import roles, users
 from megooarti.system.settings_store import set_setting
@@ -128,7 +129,8 @@ async def test_versions_without_a_namespace_that_several_have_ask_for_one(agent,
         unknown = await client.call_tool("package_versions", {"format": "cobol", "name": "app"})
 
     assert refusal(refused).endswith(
-        "- namespace: There are packages named app in more than one: com.acme, org.other."
+        "- namespace: There are packages named app in more than one namespace: com.acme, "
+        'org.other. Give `namespace` ("" for none).'
     )
     assert refusal(unknown).endswith("- format: No such format.")
 
@@ -200,7 +202,7 @@ async def test_details_of_a_version_there_is_not_or_of_nothing_named_are_refused
 
     assert refusal(missing).endswith("not_found: No such component.")
     assert refusal(unnamed).endswith(
-        "- component_id: Give `component_id`, or `name` and `version`."
+        "- component_id: Give `component_id`, or `name` and `version` (without `*`)."
     )
     assert refusal(elsewhere).endswith("not_found: No such repository.")
 
@@ -288,3 +290,168 @@ async def test_versions_past_the_copies_that_are_read_say_they_are_incomplete(
         )
 
     assert said["incomplete"] is True
+
+
+@pytest.fixture
+async def raw(db, client, maven):
+    """`files` (raw, hosted) with `hello.txt` at its root and in `docs/`, and two files
+    with names of 230 characters in `long/`."""
+    await service.create_repository(
+        db,
+        name="files",
+        format="raw",
+        type="hosted",
+        online=True,
+        blob_store="default",
+        hosted=None,
+        proxy=None,
+        group=None,
+        format_config={},
+    )
+    await db.commit()
+    root = basic("root", PASSWORD)
+    for path in ["hello.txt", "docs/hello.txt", f"long/{'a' * 230}", f"long/{'b' * 230}"]:
+        stored = await client.put(f"/repository/files/{path}", content=b"hi", headers=root)
+        assert stored.is_success, stored.text
+
+
+async def test_the_versions_of_a_package_in_no_namespace_are_had_by_asking_for_none(
+    agent, raw, token
+):
+    async with agent(token) as client:
+        refused = await client.call_tool("package_versions", {"format": "raw", "name": "hello.txt"})
+        rooted = structured(
+            await client.call_tool(
+                "package_versions", {"format": "raw", "name": "hello.txt", "namespace": ""}
+            )
+        )
+
+    assert refusal(refused).endswith(
+        '- namespace: There are packages named hello.txt in more than one namespace: "", '
+        'docs. Give `namespace` ("" for none).'
+    )
+    assert rooted["namespace"] == ""
+    assert [one["repositories"] for one in rooted["versions"]["items"]] == [
+        [{"repository": "files", "type": "hosted"}]
+    ]
+
+
+async def test_versions_are_of_one_package_as_it_is_spelled_and_never_of_a_pattern(
+    agent, maven, token, client
+):
+    stem = "/repository/releases/com/acme/App/7.0/App-7.0"
+    assert (
+        await client.put(f"{stem}.jar", content=b"PK App", headers=basic("root", PASSWORD))
+    ).is_success
+
+    async with agent(token) as agent_client:
+        app = structured(
+            await agent_client.call_tool(
+                "package_versions", {"format": "maven", "namespace": "com.acme", "name": "app"}
+            )
+        )
+        pattern = await agent_client.call_tool(
+            "package_versions", {"format": "maven", "namespace": "com.acme", "name": "*"}
+        )
+
+    assert "7.0" not in [one["version"] for one in app["versions"]["items"]]  # App's, not app's
+    assert refusal(pattern).endswith("- name: Give one package's whole name, without `*`.")
+
+
+async def test_details_by_name_find_a_version_among_hundreds_and_ask_which_of_several(
+    agent, maven, token, client
+):
+    root = basic("root", PASSWORD)
+    for minor in range(205):
+        path = f"/repository/releases/{FOLDER}/3.{minor}/app-3.{minor}.jar"
+        assert (await client.put(path, content=b"PK", headers=root)).is_success
+    same = "/repository/releases/org/other/app/1.0/app-1.0.jar"
+    assert (await client.put(same, content=b"PK other 1.0", headers=root)).is_success
+
+    async with agent(token) as agent_client:
+        oldest = structured(
+            await agent_client.call_tool(
+                "package_details",
+                {
+                    "repository": "releases",
+                    "namespace": "com.acme",
+                    "name": "app",
+                    "version": "1.0",
+                },
+            )
+        )
+        which = await agent_client.call_tool(
+            "package_details", {"repository": "releases", "name": "app", "version": "1.0"}
+        )
+
+    assert (oldest["namespace"], oldest["version"]) == ("com.acme", "1.0")
+    assert refusal(which).endswith(
+        "- namespace: There are packages named app in more than one namespace: com.acme, "
+        'org.other. Give `namespace` ("" for none).'
+    )
+
+
+async def test_a_group_is_named_with_its_members_to_search_and_its_versions_are_theirs(
+    agent, maven, token, db
+):
+    await create(db, "maven-public", type="group", group={"members": ["releases", "central"]})
+
+    async with agent(token) as client:
+        searched = await client.call_tool("search_packages", {"repository": "maven-public"})
+        versions = structured(
+            await client.call_tool(
+                "package_versions",
+                {
+                    "format": "maven",
+                    "namespace": "com.acme",
+                    "name": "app",
+                    "repository": "maven-public",
+                },
+            )
+        )
+        details = await client.call_tool(
+            "package_details",
+            {
+                "repository": "maven-public",
+                "namespace": "com.acme",
+                "name": "app",
+                "version": "1.0",
+            },
+        )
+
+    assert refusal(searched).endswith(
+        "not_browsable: A group holds nothing of its own. Search its members: releases, central."
+    )
+    assert [one["version"] for one in versions["versions"]["items"]] == [
+        "2.0-beta-1",
+        "1.10",
+        "1.9",
+        "1.0",
+    ]
+    assert refusal(details).endswith(
+        "not_browsable: A group holds nothing of its own. Look in its members: releases, central."
+    )
+
+
+async def test_browse_pages_on_through_long_names_and_says_when_it_cut_a_page(
+    agent, raw, token, monkeypatch
+):
+    async with agent(token) as client:
+        first = structured(
+            await client.call_tool("browse", {"repository": "files", "path": "long", "limit": 1})
+        )
+        second = structured(
+            await client.call_tool(
+                "browse",
+                {"repository": "files", "path": "long", "limit": 1, "cursor": first["next_cursor"]},
+            )
+        )
+        monkeypatch.setattr(results, "CAP", 1200)
+        cut = structured(
+            await client.call_tool("browse", {"repository": "files", "path": "long", "limit": 2})
+        )
+
+    assert [item["name"][0] for item in first["items"] + second["items"]] == ["a", "b"]
+    assert (first["truncated"], second["next_cursor"]) == (False, None)
+    assert (len(cut["items"]), cut["truncated"]) == (1, True)
+    assert cut["next_cursor"] == first["next_cursor"]

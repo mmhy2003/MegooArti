@@ -139,12 +139,15 @@ def _compare(left: Item, right: Item | None) -> int:
 
 # Qualifiers Maven orders below a release: alpha, beta, milestone, release candidate,
 # and their one-letter forms when a number follows (`1.0-a1`, `1.0-M2`).
-_BEFORE_RELEASE = re.compile(r"(?i)[.-](?:alpha|beta|milestone|rc|cr|[abm](?=\d))")
+_BEFORE_RELEASE = re.compile(
+    r"(?i)(?:[.-]|(?<=\d))(?:alpha|beta|milestone|rc|cr|snapshot|[abm](?=\d))"
+)
 
 
 def is_prerelease(version: str) -> bool:
-    """A snapshot, or a version that Maven orders below its release (`1.0-beta-2`)."""
-    return version.endswith("-SNAPSHOT") or _BEFORE_RELEASE.search(version) is not None
+    """A snapshot, or a version that Maven orders below its release: `1.0-beta-2`,
+    `2.0M1`, `1.0rc1`."""
+    return _BEFORE_RELEASE.search(version) is not None
 
 
 def compare(left: str, right: str) -> int:

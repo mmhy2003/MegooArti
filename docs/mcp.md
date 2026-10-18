@@ -84,13 +84,18 @@ secret), whether it is blocked, and the last error its remote gave; those who ma
 the system's settings and blob stores get what `system_status` says of them.
 
 A proxy's versions are those it has fetched so far, not all its remote has. Docker's
-tags have no order: they are listed from the one pushed or fetched last.
+tags have no order: they are listed from the one pushed or fetched last. Where packages
+of one name are in several namespaces (`react` and `@types/react`, a Maven artifact in two
+groups), `package_versions` and `package_details` ask which: `namespace` names it, and
+`""` names none. A group holds nothing of its own: `search_packages` and
+`package_details` name its members to ask instead, and `package_versions` gives its
+members' versions.
 
 ## What an agent is given
 
 - **A page at a time.** A list gives 50 items, or up to 200 if asked, and a
-  `next_cursor` to ask for the next. No answer is longer than 64 KiB; one that would be
-  is cut, and says so (`truncated`).
+  `next_cursor` to ask for the next. No answer's text is longer than 64 KiB; one that
+  would be is cut, and says so (`truncated`).
 - **Refusals in the API's words.** A tool that is refused answers with the error the
   REST API gives, its code first: `forbidden: You do not have permission to do this.`
 - **Text from elsewhere, marked.** What a remote server or a package's author wrote is

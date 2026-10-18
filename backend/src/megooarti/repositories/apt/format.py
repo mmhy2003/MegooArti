@@ -370,7 +370,10 @@ class AptFormat(Format):
         return ordered_by(versions.compare, texts)
 
     def is_prerelease(self, version: str) -> bool:
-        return "~" in version
+        # In the revision (`1.0-1~bpo12+1`, `25.0.3-1~ubuntu.22.04~jammy`) it is a backport's
+        # or a vendor's build of a release.
+        parts = versions.split(version)
+        return parts is not None and "~" in parts[1]
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if versions.NAME.fullmatch(key.name) is None or versions.split(key.version) is None:

@@ -3,10 +3,11 @@ which an agent reads again on every turn."""
 
 import base64
 import binascii
-from collections.abc import Sequence
+from collections.abc import Callable
 from typing import Annotated
 
 from pydantic import BaseModel, Field
+from pydantic_core import to_json
 
 from megooarti.errors import ApiError
 
@@ -16,10 +17,8 @@ Cursor = Annotated[
     str | None, Field(max_length=200, description="`next_cursor` of the page before; none first.")
 ]
 
-# The most a result says, as JSON.
+# The most a result says: its text, which is its JSON as the SDK writes it, indented.
 CAP = 64 * 1024
-# What a result says besides its items: its own fields, and those of the protocol.
-_ROOM = 4 * 1024
 _OFFSET = "o:"
 
 
@@ -43,14 +42,24 @@ def offset_of(cursor: str | None) -> int:
     return int(number)
 
 
-def fitting(items: Sequence[BaseModel]) -> int:
-    """How many of the items, from the first, fit in a result (at least one)."""
-    used = 0
-    for count, item in enumerate(items):
-        used += len(item.model_dump_json()) + 1
-        if used > CAP - _ROOM and count > 0:
-            return count
-    return len(items)
+def size(result: BaseModel) -> int:
+    """How long a result's text is: its JSON, indented as the SDK writes it for the agent."""
+    return len(to_json(result.model_dump(mode="json"), indent=2))
+
+
+def most_that_fit(count: int, result_of: Callable[[int], BaseModel]) -> int:
+    """How many items, from the first, a result can have within the cap: `result_of(n)` is
+    the result with `n` of them. At least one, so that a list always goes on."""
+    if count == 0 or size(result_of(count)) <= CAP:
+        return count
+    fits, too_many = 1, count
+    while too_many - fits > 1:
+        middle = (fits + too_many) // 2
+        if size(result_of(middle)) <= CAP:
+            fits = middle
+        else:
+            too_many = middle
+    return fits
 
 
 class Page[T](BaseModel):
@@ -61,13 +70,23 @@ class Page[T](BaseModel):
     truncated: bool
 
 
-def page_of[T: BaseModel](items: list[T], total: int, offset: int, limit: int) -> Page[T]:
-    """A page of the items a list gave from `offset`, cut to fit (E5)."""
-    kept = fitting(items)
-    following = offset + kept
-    return Page[T](
-        items=items[:kept],
-        total=total,
-        next_cursor=cursor_at(following) if following < total else None,
-        truncated=kept < min(limit, len(items)),
-    )
+def page_of[T: BaseModel](
+    items: list[T],
+    total: int,
+    offset: int,
+    limit: int,
+    within: Callable[[Page[T]], BaseModel] = lambda page: page,
+) -> Page[T]:
+    """A page of the items a list gave from `offset`, cut so that the result fits (E5).
+    `within` is the result the page is part of, where it is not the result itself."""
+
+    def page(kept: int) -> Page[T]:
+        following = offset + kept
+        return Page[T](
+            items=items[:kept],
+            total=total,
+            next_cursor=cursor_at(following) if following < total else None,
+            truncated=kept < min(limit, len(items)),
+        )
+
+    return page(most_that_fit(len(items), lambda kept: within(page(kept))))

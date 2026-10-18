@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from megooarti.errors import ApiError
-from megooarti.mcp.results import CAP, cursor_at, fitting, offset_of, page_of
+from megooarti.mcp.results import CAP, cursor_at, most_that_fit, offset_of, page_of, size
 
 
 class Item(BaseModel):
@@ -32,14 +32,35 @@ def test_the_last_page_has_no_cursor():
 def test_a_page_too_long_is_cut_and_says_so_and_its_cursor_leads_on_from_the_cut():
     given = page_of(items(5, 20_000), total=5, offset=0, limit=5)
 
-    assert len(given.items) == 3  # 60 KB of text, then the room the rest needs
+    assert len(given.items) == 3
     assert given.truncated is True
     assert offset_of(given.next_cursor) == 3
-    assert len(given.model_dump_json()) <= CAP
+    assert size(given) <= CAP
+
+
+class Wide(BaseModel):
+    """Short fields, many of them: what indenting makes longer by half again, or more."""
+
+    a: int = 1
+    b: int = 2
+    c: int = 3
+    d: int = 4
+    e: int = 5
+    f: int = 6
+
+
+def test_the_cap_is_of_the_text_the_agent_reads_as_the_sdk_indents_it():
+    many = [Wide() for _ in range(1000)]  # some 40 KB as compact JSON, far more indented
+
+    given = page_of(many, total=1000, offset=0, limit=1000)
+
+    assert given.truncated is True
+    assert size(given) <= CAP
+    assert size(page_of(many[: len(given.items) + 1], 1000, 0, 1000)) > CAP or given.truncated
 
 
 def test_one_item_longer_than_a_page_is_still_given():
-    assert fitting(items(2, CAP)) == 1
+    assert most_that_fit(2, lambda kept: Item(text="x" * CAP * kept)) == 1
 
 
 # Not base64; base64 cut short; base64 of "o:q", which names no item.

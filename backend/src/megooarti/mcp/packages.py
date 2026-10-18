@@ -3,13 +3,14 @@ repository's folders (spec 6.1). Each answers as the REST route beside it does."
 
 import uuid
 from datetime import datetime
+from functools import partial
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
-from megooarti.mcp.results import Cursor, Limit, Page, fitting, offset_of, page_of
+from megooarti.mcp.results import Cursor, Limit, Page, most_that_fit, offset_of, page_of
 from megooarti.mcp.tools import caller, database, tool
 from megooarti.pagination import PageParams
 from megooarti.repositories import content_api, search_api, service
@@ -30,6 +31,47 @@ _FILES_MOST = 50
 def _invalid(field: str, message: str) -> ApiError:
     details = [{"field": field, "message": message}]
     return ApiError(422, "validation_error", "The request is not valid.", details)
+
+
+async def _members_of(db: AsyncSession, repository: str) -> list[str] | None:
+    """The members the caller may browse of a group named `repository`; None where it is
+    not a group. Raises as the content route does for one there is not, or not theirs."""
+    if not repository:
+        return None
+    view = await content_api.get_repository(repository, caller().request, caller().principal, db)
+    return view.members if view.type == "group" else None
+
+
+def _not_browsable(members: list[str], doing: str) -> ApiError:
+    return ApiError(
+        409,
+        "not_browsable",
+        f"A group holds nothing of its own. {doing} its members: {', '.join(members)}.",
+    )
+
+
+def _one_package(copies: list["Package"], name: str, namespace: str | None) -> list["Package"]:
+    """The copies of the one package that `name` (and `namespace`) name, as it is spelled
+    where several are spelled alike. Raises 422 where it is not one."""
+    if namespace is not None:
+        copies = [copy for copy in copies if copy.namespace == namespace]
+    namespaces = sorted({copy.namespace for copy in copies})
+    if len(namespaces) > 1:
+        said = ", ".join(one or '""' for one in namespaces[:10])
+        raise _invalid(
+            "namespace",
+            f"There are packages named {name} in more than one namespace: {said}. "
+            'Give `namespace` ("" for none).',
+        )
+    spellings = sorted({copy.name for copy in copies})
+    if len(spellings) > 1:
+        if name not in spellings:
+            said = ", ".join(spellings[:10])
+            raise _invalid(
+                "name", f"There are packages named {name} spelled more than one way: {said}."
+            )
+        copies = [copy for copy in copies if copy.name == name]
+    return copies
 
 
 class Package(BaseModel):
@@ -91,7 +133,7 @@ async def search_packages(
     `*` stands for anything. `namespace`, `name` and `version` match a whole value, also
     with `*`. `checksum` (MD5, SHA-1, SHA-256 or SHA-512, in hexadecimal) finds the package
     a file belongs to. `format` and `repository` narrow where to look. A group holds
-    nothing of its own: its members are searched instead.
+    nothing of its own: name one of its members, or none.
     """
     sums = dict.fromkeys(_CHECKSUMS.values(), "")
     if checksum:
@@ -101,6 +143,9 @@ async def search_packages(
         sums[kind] = checksum
     offset = offset_of(cursor)
     async with database() as db:
+        members = await _members_of(db, repository)
+        if members is not None:
+            raise _not_browsable(members, "Search")
         items, total = await _search(
             db,
             words=words,
@@ -143,7 +188,7 @@ class Versions(BaseModel):
 async def package_versions(
     format: Format,
     name: Text,
-    namespace: Text = "",
+    namespace: Annotated[str | None, Field(max_length=256)] = None,
     repository: RepositoryName = "",
     limit: Limit = 50,
     cursor: Cursor = None,
@@ -152,21 +197,25 @@ async def package_versions(
     with the repositories that have each: hosted ones, where it was pushed, and proxies,
     which keep what they have fetched so far (not all their remote has); and the newest
     release. Give `namespace` where the format has them (a Maven groupId, an npm scope
-    without `@`). `repository` narrows where to look.
+    without `@`), and "" for a package in none. `repository` narrows where to look; a
+    group's are its members'.
     """
     handler = get_format(format)
     if handler is None:
         raise _invalid("format", "No such format.")
+    if "*" in name:
+        raise _invalid("name", "Give one package's whole name, without `*`.")
     copies: list[Package] = []
     async with database() as db:
+        members = await _members_of(db, repository)
         types = {held.name: held.type for held in await service.all_repositories(db)}
         total = None
         while len(copies) < _COPIES_MOST and (total is None or len(copies) < total):
             items, total = await _search(
                 db,
                 format=format,
-                repository=repository,
-                namespace=namespace,
+                repository="" if members is not None else repository,
+                namespace=namespace or "",
                 name=name,
                 limit=200,
                 offset=len(copies),
@@ -174,10 +223,10 @@ async def package_versions(
             if not items:
                 break
             copies += items
+    if members is not None:
+        copies = [copy for copy in copies if copy.repository in members]
+    copies = _one_package(copies, name, namespace)
     namespaces = sorted({copy.namespace for copy in copies})
-    if not namespace and len(namespaces) > 1:
-        said = ", ".join(namespaces[:10])
-        raise _invalid("namespace", f"There are packages named {name} in more than one: {said}.")
     holders: dict[str, list[Holder]] = {}
     last: dict[str, datetime] = {}
     for copy in copies:
@@ -198,15 +247,21 @@ async def package_versions(
         for version in newest_first
     ]
     releases = (one.version for one in every if not one.prerelease)
+    newest_release = None if ordered is None else next(releases, None)
     offset = offset_of(cursor)
-    return Versions(
-        format=format,
-        namespace=namespaces[0] if namespaces else namespace,
-        name=name,
-        versions=page_of(every[offset : offset + limit], len(every), offset, limit),
-        newest_release=None if ordered is None else next(releases, None),
-        incomplete=len(copies) >= _COPIES_MOST,
-    )
+
+    def versions_with(page: Page[Version]) -> Versions:
+        return Versions(
+            format=format,
+            namespace=namespaces[0] if namespaces else namespace or "",
+            name=copies[0].name if copies else name,
+            versions=page,
+            newest_release=newest_release,
+            incomplete=len(copies) >= _COPIES_MOST,
+        )
+
+    shown = page_of(every[offset : offset + limit], len(every), offset, limit, versions_with)
+    return versions_with(shown)
 
 
 class File(BaseModel):
@@ -244,7 +299,7 @@ class PackageDetails(BaseModel):
 async def package_details(
     repository: RepositoryName,
     component_id: uuid.UUID | None = None,
-    namespace: Text = "",
+    namespace: Annotated[str | None, Field(max_length=256)] = None,
     name: Text = "",
     version: Text = "",
 ) -> PackageDetails:
@@ -252,22 +307,30 @@ async def package_details(
     and download addresses, and how a project uses it from there (the dependency to add
     to a pom.xml, a package.json, a requirements.txt or a .csproj; the command to run).
     Give `component_id` as `search_packages` gave it, or `name` and `version`, and
-    `namespace` where the format has them.
+    `namespace` where the format has them ("" for a package in none).
     """
     principal, request = caller().principal, caller().request
     async with database() as db:
+        members = await _members_of(db, repository)
+        if members is not None:
+            raise _not_browsable(members, "Look in")
         if component_id is None:
-            if not name or not version:
-                raise _invalid("component_id", "Give `component_id`, or `name` and `version`.")
-            listed = await content_api.list_components(
-                repository,
-                namespace=namespace or None,
+            if not name or not version or "*" in name + version:
+                raise _invalid(
+                    "component_id", "Give `component_id`, or `name` and `version` (without `*`)."
+                )
+            found, _ = await _search(
+                db,
+                repository=repository,
+                namespace=namespace or "",
                 name=name,
-                params=PageParams(limit=200, offset=0),
-                caller=principal,
-                db=db,
+                version=version,
+                limit=200,
+                offset=0,
             )
-            matching = [one for one in listed["items"] if one.version == version]
+            matching = _one_package(
+                [one for one in found if one.version == version], name, namespace
+            )
             if not matching:
                 raise ApiError(404, "not_found", "No such component.")
             component_id = matching[0].id
@@ -282,20 +345,23 @@ async def package_details(
             for path in paths[:_FILES_MOST]
         ]
     usage = [Usage.model_validate(one, from_attributes=True) for one in detail.usage]
-    kept = max(fitting([*usage, *files]) - len(usage), 0)
-    return PackageDetails(
-        id=detail.id,
-        repository=repository,
-        format="" if held is None else held.format,
-        namespace=detail.namespace,
-        name=detail.name,
-        version=detail.version,
-        created=detail.created,
-        modified=detail.modified,
-        files=files[:kept],
-        usage=usage,
-        truncated=kept < len(paths),
-    )
+
+    def details(kept: int) -> PackageDetails:
+        return PackageDetails(
+            id=detail.id,
+            repository=repository,
+            format="" if held is None else held.format,
+            namespace=detail.namespace,
+            name=detail.name,
+            version=detail.version,
+            created=detail.created,
+            modified=detail.modified,
+            files=files[:kept],
+            usage=usage,
+            truncated=kept < len(paths),
+        )
+
+    return details(most_that_fit(len(files), details))
 
 
 class Ref(BaseModel):
@@ -319,6 +385,14 @@ class Folder(BaseModel):
     path: str
     items: list[Entry]
     next_cursor: str | None  # give it as `cursor` for what follows; null at the end
+    # Whether fewer items were given than asked for, to keep within 64 KiB.
+    truncated: bool
+
+
+# A folder's cursor names the entry it follows, and a path may be 1,024 characters long.
+FolderCursor = Annotated[
+    str | None, Field(max_length=1100, description="`next_cursor` of the page before; none first.")
+]
 
 
 @tool()
@@ -326,22 +400,32 @@ async def browse(
     repository: RepositoryName,
     path: Annotated[str, Field(max_length=1024)] = "",
     limit: Limit = 50,
-    cursor: Cursor = None,
+    cursor: FolderCursor = None,
 ) -> Folder:
     """What is directly in a folder of a repository, as its files are stored; an empty
     `path` is the repository's root. A file that belongs to a package says which. A group
     holds nothing of its own: browse its members."""
     principal = caller().principal
+    cut = False
     async with database() as db:
         while True:
             listing = await content_api.list_folder(
                 repository, path, after=cursor or "", limit=limit, caller=principal, db=db
             )
-            items = [Entry.model_validate(item, from_attributes=True) for item in listing.items]
-            kept = fitting(items)
-            if kept == len(items):
-                break
-            limit = kept  # fewer, so that the listing's own cursor leads on from them
-    return Folder(
-        repository=repository, path=path.strip("/"), items=items, next_cursor=listing.next
-    )
+            found = Folder(
+                repository=repository,
+                path=path.strip("/"),
+                items=[Entry.model_validate(item, from_attributes=True) for item in listing.items],
+                next_cursor=listing.next,
+                truncated=cut,
+            )
+            kept = most_that_fit(len(found.items), partial(_first, found))
+            if kept == len(found.items):
+                return found
+            # Fewer, asked for again, so that the listing's own cursor leads on from them.
+            limit, cut = kept, True
+
+
+def _first(folder: Folder, count: int) -> Folder:
+    """A folder's listing with only its first `count` items."""
+    return folder.model_copy(update={"items": folder.items[:count]})
