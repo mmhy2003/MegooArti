@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 from collections.abc import Sequence
 from contextlib import aclosing
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -287,6 +288,7 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
 
 class AptFormat(Format):
     name = "apt"
+    public_remotes = MappingProxyType({"": "http://deb.debian.org/debian"})
     types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.OPENPGP

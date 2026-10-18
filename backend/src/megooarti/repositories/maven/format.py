@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
+from types import MappingProxyType
 from typing import Any
 from xml.sax.saxutils import escape
 
@@ -392,6 +393,7 @@ def _kind(files: Sequence[str]) -> str:
 
 class MavenFormat(Format):
     name = "maven"
+    public_remotes = MappingProxyType({"": "https://repo1.maven.org/maven2"})
 
     def validate_config(
         self, repository_type: str, config: dict[str, Any], current: dict[str, Any] | None = None

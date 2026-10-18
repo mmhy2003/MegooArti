@@ -6,9 +6,10 @@ they work through the repository context they are handed.
 """
 
 import re
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -127,6 +128,15 @@ class Format:
     # The kind of key a hosted repository of this format signs its indexes with:
     # `openpgp`, or None for a format that signs nothing.
     signs: str | None = None
+    # The public repository a proxy of this format is made with where no remote is given,
+    # by the protocol of its `format_config` ("" for a format without one). None where
+    # there is no one public repository of the format.
+    public_remotes: Mapping[str, str] = MappingProxyType({})
+
+    def public_remote(self, format_config: Mapping[str, Any]) -> str | None:
+        """The public repository a proxy with these settings is made with, if there is one."""
+        protocol = str(format_config.get("protocol", ""))
+        return self.public_remotes.get(protocol, self.public_remotes.get(""))
 
     def validate_name(self, name: str) -> None:
         """Refuse a repository name this format cannot be used under. The generic format: none.

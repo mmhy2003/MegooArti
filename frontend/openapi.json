@@ -502,6 +502,35 @@
         "title": "FolderDeleted",
         "type": "object"
       },
+      "FormatOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "public_remotes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Public Remotes",
+            "type": "object"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "types",
+          "public_remotes"
+        ],
+        "title": "FormatOut",
+        "type": "object"
+      },
       "GroupSettings": {
         "properties": {
           "members": {
@@ -734,6 +763,37 @@
           "offset"
         ],
         "title": "Page[ComponentView]",
+        "type": "object"
+      },
+      "Page_FormatOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FormatOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[FormatOut]",
         "type": "object"
       },
       "Page_RepositoryOut_": {
@@ -3153,6 +3213,63 @@
         "summary": "Upload",
         "tags": [
           "content"
+        ]
+      }
+    },
+    "/api/v1/formats": {
+      "get": {
+        "description": "Every format, in name order.",
+        "operationId": "list_formats_api_v1_formats_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_FormatOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "List Formats",
+        "tags": [
+          "repositories"
         ]
       }
     },

@@ -25,6 +25,7 @@ from megooarti.repositories.apk import format as _apk_format  # noqa: F401  (reg
 from megooarti.repositories.apt import format as _apt_format  # noqa: F401  (registers it)
 from megooarti.repositories.content_api import router as content_api_router
 from megooarti.repositories.docker.routes import router as registry_router  # registers the format
+from megooarti.repositories.formats_api import router as formats_router
 from megooarti.repositories.maven import format as _maven_format  # noqa: F401  (registers it)
 from megooarti.repositories.npm import format as _npm_format  # noqa: F401  (registers it)
 from megooarti.repositories.nuget import format as _nuget_format  # noqa: F401  (registers it)
@@ -153,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(repositories_router, prefix=API_PREFIX)
     app.include_router(content_api_router, prefix=API_PREFIX)
     app.include_router(search_router, prefix=API_PREFIX)
+    app.include_router(formats_router, prefix=API_PREFIX)
     app.include_router(content_router)  # /repository/..., outside the JSON API
     app.include_router(registry_router)  # /v2/..., the container registry API
     app.state.mcp = McpServer()

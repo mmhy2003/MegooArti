@@ -245,6 +245,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/formats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Formats
+         * @description Every format, in name order.
+         */
+        get: operations["list_formats_api_v1_formats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/password": {
         parameters: {
             query?: never;
@@ -870,6 +890,17 @@ export interface components {
             /** Skipped */
             skipped: number;
         };
+        /** FormatOut */
+        FormatOut: {
+            /** Name */
+            name: string;
+            /** Public Remotes */
+            public_remotes: {
+                [key: string]: string;
+            };
+            /** Types */
+            types: string[];
+        };
         /** GroupSettings */
         GroupSettings: {
             /**
@@ -953,6 +984,17 @@ export interface components {
         Page_ComponentView_: {
             /** Items */
             items: components["schemas"]["ComponentView"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[FormatOut] */
+        Page_FormatOut_: {
+            /** Items */
+            items: components["schemas"]["FormatOut"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -2070,6 +2112,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Uploaded"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_formats_api_v1_formats_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_FormatOut_"];
                 };
             };
             /** @description Any error. */

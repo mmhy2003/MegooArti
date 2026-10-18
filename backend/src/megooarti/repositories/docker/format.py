@@ -33,6 +33,7 @@ import json
 import re
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
@@ -747,6 +748,7 @@ async def _grouped_tags(
 
 class DockerFormat(Format):
     name = FORMAT
+    public_remotes = MappingProxyType({"": "https://registry-1.docker.io"})
     served_at = "registry"
     remote_signs_in = True
     unlisted_namespaces = frozenset({names.MANIFESTS})

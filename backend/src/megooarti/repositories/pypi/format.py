@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 from collections.abc import AsyncIterator, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from types import MappingProxyType
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
@@ -424,6 +425,7 @@ def _pep440_key(text: str) -> tuple:
 
 class PypiFormat(Format):
     name = "pypi"
+    public_remotes = MappingProxyType({"": "https://pypi.org"})
 
     def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
         """Its name and version, and the summary and keywords its upload declared."""

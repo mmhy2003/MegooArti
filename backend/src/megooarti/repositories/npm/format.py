@@ -21,6 +21,7 @@ import asyncio
 import weakref
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import quote
 
@@ -727,6 +728,7 @@ async def _group_search(context: RepositoryContext, request: Request) -> Respons
 
 class NpmFormat(Format):
     name = "npm"
+    public_remotes = MappingProxyType({"": "https://registry.npmjs.org"})
 
     async def upload(self, context: RepositoryContext, form: UploadForm) -> list[str]:
         """Publish a package tarball as `npm publish` would. Its `package.json` says what it is."""

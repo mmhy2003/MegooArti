@@ -67,6 +67,8 @@ raises.
 | `default_deployment_policy` | The policy of a hosted repository that was given none | `allow_redeploy` |
 | `describe_component` | Which component (namespace, name, version) a stored file belongs to, from its path and what was recorded about it at upload, or none | the file, in its folder |
 | `search_text` | The words a component is found by | namespace, name and version |
+| `public_remotes` | The public repository a proxy is made with where no remote is given, by the protocol of its settings (`""` for a format without one), as `GET /api/v1/formats` gives them to the web form and agents | none |
+| `public_remote` | Which of them a proxy with given settings is made with | the protocol's, else `""`'s |
 | `ordered_versions` | A package's versions from the oldest to the newest, as the format's clients order them, or none where they have no order (Docker's tags): what an agent is told is the newest | numbers read as numbers: 1.10 after 1.9 |
 | `is_prerelease` | Whether a client takes a version only when it is asked for: a prerelease, a snapshot | none is |
 | `delete_asset` | Delete a file as the format's own client would, with what goes with it; refuse one the format keeps itself | removes the file |

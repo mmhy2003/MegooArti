@@ -19,6 +19,7 @@ import hashlib
 from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import aclosing
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -281,6 +282,7 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
 
 class ApkFormat(Format):
     name = "apk"
+    public_remotes = MappingProxyType({"": "https://dl-cdn.alpinelinux.org/alpine"})
     types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.RSA
