@@ -64,13 +64,14 @@ def test_the_backend_takes_the_gateways_word_for_who_is_calling():
     assert "ports" not in services()["backend"]  # which is why it can
 
 
-def test_the_gateway_sends_the_api_the_repositories_and_the_registry_to_the_backend():
+def test_the_gateway_sends_the_api_the_repositories_the_registry_and_mcp_to_the_backend():
     routes = dict(re.findall(r"location (\S+) \{\s*proxy_pass (\$\w+);\s*\}", GATEWAY))
 
     assert routes == {
         "/api/": "$backend",
         "/repository/": "$backend",
         "/v2/": "$backend",
+        "/mcp": "$backend",
         "/": "$frontend",
     }
 
@@ -78,7 +79,8 @@ def test_the_gateway_sends_the_api_the_repositories_and_the_registry_to_the_back
 def test_the_gateway_passes_a_path_on_exactly_as_it_was_sent():
     # With anything after the upstream's address nginx decodes the path and writes it
     # again: an npm scope's encoded slash would become a real one.
-    assert re.findall(r"proxy_pass ([^;]+);", GATEWAY) == ["$backend"] * 3 + ["$frontend"]
+    # The API, the repositories, the registry and MCP; then the web UI.
+    assert re.findall(r"proxy_pass ([^;]+);", GATEWAY) == ["$backend"] * 4 + ["$frontend"]
     assert "rewrite" not in GATEWAY
 
 
