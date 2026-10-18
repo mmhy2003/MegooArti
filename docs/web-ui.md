@@ -10,21 +10,24 @@ repositories, blob stores and the installation's own settings.
   type and four checksums (each with a button that copies it), who stored it and when,
   and a download link. Every folder and file has an address of its own, so a link to
   one can be shared. A group lists its members. A proxy shows what has been fetched
-  through it so far. An APT, YUM or apk repository also says how a machine is set up
-  to use it: its key, its address and the account it signs in with, as commands to
-  copy, with what is yours to fill in between angle brackets.
+  through it so far. An APT, YUM, apk or NuGet repository also says how a machine is
+  set up to use it: its key, its address and the account it signs in with, as commands
+  to copy, with what is yours to fill in between angle brackets. A NuGet repository's
+  are for `dotnet` and `nuget.config`, Chocolatey, PowerShell, and a debugger's symbols.
 - **A component's page** says what a package version is, lists its files, and gives
   what to paste into a build or a shell to use it (for Maven, the dependency for
-  Maven and for Gradle), each with a copy button.
+  Maven and for Gradle; for NuGet, `dotnet`, a `PackageReference`, Chocolatey and
+  PowerShell), each with a copy button.
 - **Search** is a box in the header of every screen: press `/` to reach it. The
   results page filters by format, repository, group, name and version, and by a
   file's checksum: paste an MD5, SHA-1, SHA-256 or SHA-512, and its length says which
   it is. A search is in the address, so it can be shared and gone back to. Search
   looks in hosted and proxy repositories: what a group serves is found in its members.
-- **Upload** is offered for a hosted Raw, Maven, npm, PyPI, APT, YUM or apk
+- **Upload** is offered for a hosted Raw, Maven, npm, PyPI, APT, YUM, apk or NuGet
   repository to whoever may add to it, from the repository ("Upload here") and
-  from the navigation. The form has the fields the format needs: none for APT,
-  whose packages say where they go, and a directory for YUM and apk. Files are
+  from the navigation. The form has the fields the format needs: none for APT and
+  NuGet, whose packages say where they go (a NuGet symbol package goes beside its
+  package, whichever is chosen first), and a directory for YUM and apk. Files are
   chosen, or dropped onto a file field. It shows how much has been sent, and can be
   stopped. What the server refuses about a field is said at that field, which then
   has the keyboard; anything else is said above the button. A Docker image is
@@ -67,10 +70,12 @@ repositories, blob stores and the installation's own settings.
     does when the remote fails; a group has its members, put in order with buttons;
     a hosted or proxy Maven repository has a version policy and a layout policy; a
     hosted APT repository has its suite, a hosted YUM repository the depth of its
-    metadata, and a proxy of APT, YUM or apk its remote's public keys, which a group
-    checks it with. What cannot change later (name, format, type, blob store,
-    version policy, suite, depth of the metadata) is shown as it is and not as a
-    field, beside the address the repository's clients use. A proxy's secret is
+    metadata, a proxy of APT, YUM or apk its remote's public keys, which a group
+    checks it with, and a NuGet proxy its protocol (V3, or V2 for the Chocolatey
+    community feed and the PowerShell Gallery) and a symbol server to pass on. A
+    hosted NuGet repository takes a version once unless another policy is chosen. What
+    cannot change later (name, format, type, blob store, version policy, suite, depth
+    of the metadata, a NuGet proxy's protocol) is shown as it is and not as a field, beside the address the repository's clients use. A proxy's secret is
     typed and never shown: leave the field empty to keep the one that is stored. A
     repository's page also shows a proxy's state and last error, has it check
     everything with its remote again, rebuilds the index, and deletes the

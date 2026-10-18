@@ -27,6 +27,8 @@ const STORED = "browser-test-stored";
 const REMOTE_SECRET = "the-remote-s-own-secret";
 const DEBS = "browser-test-debs";
 const ALPINE = "browser-test-alpine";
+const NUGET = "browser-test-nuget";
+const GALLERY = "browser-test-gallery";
 // A remote's public key, as Alpine publishes its own: PEM RSA.
 const REMOTE_KEY = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwh4+mF9v0dj392qnTja8
@@ -41,6 +43,82 @@ kQIDAQAB
 // A name with what an address gives a meaning to: a space, a fragment, an escape.
 const ODD = "a b#c%.txt";
 const UPLOADS = "**/api/v1/content/*/upload";
+
+// --- NuGet packages, made here: a zip of stored files ------------------------------------
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) crc = (CRC_TABLE[(crc ^ byte) & 0xff] as number) ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** A zip of the files, each stored as it is: what a package's reader reads. */
+function zipOf(files: Record<string, Buffer>): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const [name, data] of Object.entries(files)) {
+    const nameBytes = Buffer.from(name);
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, data);
+    centrals.push(central, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(Object.keys(files).length, 8);
+  end.writeUInt16LE(Object.keys(files).length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+function nuspecOf(id: string, version: string, types = ""): Buffer {
+  return Buffer.from(
+    '<?xml version="1.0" encoding="utf-8"?>' +
+      '<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata>' +
+      `<id>${id}</id><version>${version}</version><authors>MegooArti</authors>` +
+      `<description>Says hello in the browser.</description>${types}</metadata></package>`,
+  );
+}
+
+// A portable PDB, as far as a symbol server reads it: its metadata root, and a #Pdb
+// stream that begins with its id (a GUID, then a stamp).
+const PDB_GUID = "201d67afc77a4cd5a6668a65b7b7382d";
+const PDB = Buffer.concat([
+  Buffer.from("BSJB"),
+  Buffer.from([1, 0, 1, 0, 0, 0, 0, 0, 12, 0, 0, 0]),
+  Buffer.from("PDB v1.0\0\0\0\0"),
+  Buffer.from([0, 0, 1, 0]),
+  Buffer.from([48, 0, 0, 0, 30, 0, 0, 0]),
+  Buffer.from("#Pdb\0\0\0\0"),
+  Buffer.from("af671d207ac7d54ca6668a65b7b7382d", "hex"),
+  Buffer.from([1, 0, 0, 0]),
+  Buffer.from("debug info"),
+]);
 
 test.describe.configure({ mode: "serial" });
 
@@ -1407,6 +1485,69 @@ test("a proxy of apk is given its remote's keys, and keeps them when it is saved
   );
   const saved = await (await page.request.get(`/api/v1/repositories/${ALPINE}`)).json();
   expect(saved.format_config).toEqual({ remote_keys: REMOTE_KEY });
+});
+
+test("a NuGet proxy is made with its protocol and its symbol server, and a hosted one takes a package and its symbols", async () => {
+  await page.goto("/admin/repositories/~new");
+  await page.getByLabel("Format").selectOption("nuget");
+  await page.getByLabel("Name", { exact: true }).fill(GALLERY);
+  await page.getByRole("radio", { name: "Proxy" }).check();
+  await expect(page.getByRole("radio", { name: "V3" })).toBeChecked();
+  await page.getByRole("radio", { name: "V2" }).check();
+  await page.getByLabel("Remote address").fill("https://www.powershellgallery.com/api/v2/");
+  await page.getByLabel("Symbol server").fill("https://symbols.nuget.org/download/symbols");
+  await page.getByRole("button", { name: "Create repository" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: GALLERY })).toBeVisible();
+  // Chosen once: a fact now, and not a choice that would be tried.
+  await expect(page.getByRole("radio", { name: "V2" })).toHaveCount(0);
+  await expect(page.getByText("V2", { exact: true })).toBeVisible();
+  const made = await (await page.request.get(`/api/v1/repositories/${GALLERY}`)).json();
+  expect(made.format_config).toEqual({
+    protocol: "v2",
+    symbol_url: "https://symbols.nuget.org/download/symbols",
+  });
+
+  await createRepository({ name: NUGET, format: "nuget", type: "hosted" });
+  await page.goto(`/upload/${NUGET}`);
+  const symbols = '<packageTypes><packageType name="SymbolsPackage"/></packageTypes>';
+  await page.getByLabel("Files").setInputFiles([
+    {
+      name: "Hello.1.0.0.snupkg",
+      mimeType: "application/octet-stream",
+      buffer: zipOf({
+        "MegooArti.Browser.nuspec": nuspecOf("MegooArti.Browser", "1.0.0", symbols),
+        "lib/net8.0/Hello.pdb": PDB,
+      }),
+    },
+    {
+      name: "Hello.1.0.0.nupkg",
+      mimeType: "application/octet-stream",
+      buffer: zipOf({ "MegooArti.Browser.nuspec": nuspecOf("MegooArti.Browser", "1.0.0") }),
+    },
+  ]);
+  await page.getByRole("button", { name: "Upload" }).click();
+  // Packages first, a symbol package beside its package, whatever order they were chosen in.
+  await expect(page.getByText("2 files stored")).toBeVisible();
+  const key = `hello.pdb/${PDB_GUID}FFFFFFFF/hello.pdb`;
+  expect((await page.request.get(`/repository/${NUGET}/symbols/${key}`)).status()).toBe(200);
+
+  // How each client is given it is on its page, with the address a client is given.
+  await page.goto(`/browse/${NUGET}`);
+  await expect(page.getByRole("heading", { name: "Set up a machine" })).toBeVisible();
+  const origin = new URL(page.url()).origin;
+  await expect(page.getByRole("figure").filter({ hasText: "choco source add" })).toContainText(
+    `${origin}/repository/${NUGET}/`,
+  );
+  await expect(
+    page.getByRole("figure").filter({ hasText: "Register-PSResourceRepository" }),
+  ).toContainText(`${origin}/repository/${NUGET}/index.json`);
+  await expect(page.getByRole("figure").filter({ hasText: "dotnet-symbol" })).toContainText(
+    `${origin}/repository/${NUGET}/symbols/`,
+  );
+  await expectAccessibleInBothModes(async () => {
+    await expect(page.getByRole("heading", { name: "Set up a machine" })).toBeVisible();
+  });
 });
 
 test("the screens that list and make repositories meet WCAG 2.1 AA in both modes", async () => {
