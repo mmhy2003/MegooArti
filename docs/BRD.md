@@ -252,6 +252,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 | API-4 | The API covers at least: repositories, blob stores, components, assets, search, upload, users, roles, privileges, tokens and system status in P1; and content selectors, LDAP, OIDC, cleanup policies, routing rules, tasks, webhooks and audit in P2. | P1 / P2 | Must |
 | API-5 | List endpoints are paginated and return errors in one consistent, documented format. | P1 | Must |
 | API-6 | Breaking changes to the API require a new API version; the previous version remains available for at least one minor release. | P1 | Should |
+| API-7 | AI agents connect over the Model Context Protocol (MCP), signed in with a personal API token or with OAuth, and can do only what their user may: find packages and versions, read how a client is set up, and, given the permissions, administer repositories, content, users and roles. | P2 | Should |
 
 ### 5.9 System administration
 
