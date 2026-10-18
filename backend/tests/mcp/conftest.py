@@ -12,6 +12,8 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult
 
+from tests.repositories.conftest import fake_remote  # noqa: F401  (a fixture of these tests too)
+
 
 @asynccontextmanager
 async def connected(app: FastAPI, token: str) -> AsyncIterator[Client]:
