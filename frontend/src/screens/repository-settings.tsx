@@ -60,6 +60,7 @@ import {
   TYPES,
   updateBody,
   VERSION_POLICIES,
+  defaultRemoteOf,
   publicRemotesOf,
   withDefaultRemote,
   type Draft,
@@ -130,6 +131,12 @@ function RepositoryForm({
   // A new proxy is given its format's public remote, until another is typed.
   const formats = useFormats(creating);
   const remotes = publicRemotesOf(formats.data ?? []);
+  // A proxy chosen before the server said its formats' remotes is given one when it has.
+  const [hadFormats, setHadFormats] = useState(false);
+  if (creating && formats.data !== undefined && !hadFormats) {
+    setHadFormats(true);
+    if (draft.remoteUrl === "") setDraft({ ...draft, remoteUrl: defaultRemoteOf(draft, remotes) });
+  }
   const set = (change: Partial<Draft>) =>
     setDraft((held) => ({
       ...held,

@@ -250,6 +250,7 @@ Each plan ends with something an agent uses: 14a with a token and the read tools
 | N6 | `create_user` makes a user who must change their password when they first sign in, always. | 6.2: no tool sets a password a person did not choose (D4 of the identity-access spec). |
 | N7 | `delete_path` deletes a file at the path, or else everything under the folder, a thousand files at a time until there is none, each round committed; `No such file or folder.` where there is neither. `delete_component` takes a component's id, or its name and version as `package_details` does. | The REST API has a route for each; an agent names a path, as it does to `browse`. |
 | N8 | `revoke_token` revokes API tokens; an OAuth approval is revoked by plan 14c's tools and screens. | There are no approvals before 14c. |
+| N9 | A password or a secret given to a tool, at any depth of what it is given (`password`, `proxy.remote_auth.secret`), is written `[redacted]` in the call's log; `delete_path` takes a path with a slash at either end, and refuses one that is only slashes; `revoke_token` finds a token by its name however many its user has; the form gives a proxy chosen before `GET /formats` answered its remote when it does; the server's instructions say what the tools that change things are for. | The final review of 14b: 8.4 says no logged argument is a secret, and 14b's tools are the first given any. |
 
 ## 13. Requirements
 

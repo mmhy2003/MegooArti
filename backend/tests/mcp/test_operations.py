@@ -3,6 +3,7 @@ clearing a proxy's cache, and going through an index again; shown only to whoeve
 change repositories."""
 
 import pytest
+import structlog
 
 from tests.accounts import PASSWORD, basic
 from tests.mcp.conftest import refusal, structured
@@ -235,3 +236,63 @@ async def test_an_operation_a_caller_may_not_do_is_no_tool_of_theirs(agent, make
         )
 
     assert refusal(refused) == "Unknown tool: create_repository"
+
+
+async def test_no_password_or_secret_given_to_a_tool_is_written_to_the_log(agent, token):
+    with structlog.testing.capture_logs() as logs:
+        async with agent(token) as client:
+            await client.call_tool(
+                "create_user",
+                {"username": "dev", "display_name": "Dev", "password": "the-users-password-1"},
+            )
+            await client.call_tool(
+                "create_repository",
+                {
+                    "name": "private",
+                    "format": "npm",
+                    "type": "proxy",
+                    "proxy": {
+                        "remote_url": "https://npm.example.org",
+                        "remote_auth": {"type": "basic", "username": "robot", "secret": "basic-1"},
+                    },
+                },
+            )
+            await client.call_tool(
+                "update_repository",
+                {
+                    "name": "private",
+                    "proxy": {"remote_auth": {"type": "bearer", "secret": "bearer-1"}},
+                },
+            )
+
+    written = str(logs)
+    calls = [entry for entry in logs if entry["event"] == "mcp_tool_called"]
+    assert [entry["outcome"] for entry in calls] == ["ok", "ok", "ok"]
+    for secret in ("the-users-password-1", "basic-1", "bearer-1"):
+        assert secret not in written
+    assert calls[0]["arguments"]["password"] == "[redacted]"
+    assert calls[2]["arguments"]["proxy"]["remote_auth"] == {
+        "type": "bearer",
+        "secret": "[redacted]",
+    }
+
+
+async def test_a_token_that_may_only_read_calls_an_operation_by_its_name_in_vain(
+    agent, administrator, make_token
+):
+    reading = await make_token(administrator, "reads", scopes=["admin:*:read", "repository:*"])
+
+    async with agent(reading) as client:
+        refused = await client.call_tool(
+            "create_repository", {"name": "mine", "format": "raw", "type": "hosted"}
+        )
+
+    assert refusal(refused) == "Unknown tool: create_repository"
+
+
+async def test_the_server_tells_an_agent_what_the_tools_that_change_things_are_for(agent, token):
+    async with agent(token) as client:
+        instructions = client.instructions or ""
+
+    assert "administer users, their tokens and roles" in instructions
+    assert "asks you before" in instructions

@@ -175,3 +175,31 @@ async def test_a_role_is_made_changed_in_what_is_given_and_deleted(agent, token)
     assert "maven-readers" in [role["name"] for role in listed["items"]]
     assert gone == {"deleted": "maven-readers"}
     assert refusal(builtin).endswith("builtin_protected: Built-in roles cannot be deleted.")
+
+
+async def test_the_last_administrator_is_not_taken_away(agent, token):
+    async with agent(token) as client:
+        refused = await client.call_tool("update_user", {"username": "root", "roles": []})
+        role = await client.call_tool("update_role", {"name": "admin", "permissions": []})
+
+    assert "last_administrator" in refusal(refused)
+    assert refusal(role).endswith("builtin_protected: The admin role cannot be changed.")
+
+
+async def test_a_token_is_revoked_by_its_name_however_many_its_user_has(
+    agent, token, make_user, make_token
+):
+    dev = await make_user("dev")
+    oldest = await make_token(dev, "the-first")
+    for number in range(201):
+        await make_token(dev, f"later-{number}")
+
+    async with agent(token) as client:
+        details = structured(await client.call_tool("user_details", {"username": "dev"}))
+        revoked = structured(
+            await client.call_tool("revoke_token", {"username": "dev", "token": "the-first"})
+        )
+
+    assert len(details["tokens"]) == 202
+    assert revoked == {"deleted": "the-first"}
+    assert oldest

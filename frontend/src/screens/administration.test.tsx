@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test } from "vitest";
 
@@ -385,6 +385,17 @@ describe("a new repository (R2)", () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText("Remote address")).toHaveValue("https://maven.internal/central"),
+    );
+  });
+
+  test("a proxy chosen before the server has said its formats' remotes is given one when it has", async () => {
+    fresh();
+    // At once, before the formats are had.
+    fireEvent.click(screen.getByRole("radio", { name: "Proxy" }));
+    expect(screen.getByLabelText("Remote address")).toHaveValue("");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Remote address")).toHaveValue("https://repo1.maven.org/maven2"),
     );
   });
 

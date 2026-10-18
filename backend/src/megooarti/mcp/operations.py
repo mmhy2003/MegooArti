@@ -232,6 +232,11 @@ async def delete_path(
     """Delete a file, or a folder and everything under it, from a repository, each file as
     the format's own client would. Files the format keeps itself (an index, a checksum)
     are skipped: they go with what they describe. It cannot be undone."""
+    path = path.strip("/")
+    if not path:
+        raise _invalid(
+            "path", "Give a file or a folder. To delete everything, delete the repository."
+        )
     principal, request = caller().principal, caller().request
     async with database() as db:
         try:

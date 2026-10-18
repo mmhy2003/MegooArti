@@ -130,7 +130,7 @@ members' versions.
   reads it.
 
 Each tool call is logged (`mcp_tool_called`): who made it, with which token, the tool,
-its arguments, how it ended and how long it took.
+its arguments (a password or a secret in them written `[redacted]`), how it ended and how long it took.
 
 ## Behind your own reverse proxy
 

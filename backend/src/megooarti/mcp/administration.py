@@ -7,18 +7,20 @@ import uuid
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.mcp.results import Cursor, Limit, Page, offset_of, page_of
 from megooarti.mcp.tools import CHANGE, DESTRUCTIVE, READ, WRITE, caller, database, holding, tool
 from megooarti.pagination import PageParams
-from megooarti.security import tokens, users
+from megooarti.security import users
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
 from megooarti.security.api.roles import RoleContent, RoleCreate, RoleOut
 from megooarti.security.api.schemas import TokenInfo
 from megooarti.security.api.users import UserCreate, UserOut, UserUpdate
+from megooarti.security.models import ApiToken
 
 Username = Annotated[str, Field(max_length=64)]
 RoleName = Annotated[str, Field(max_length=64)]
@@ -72,10 +74,16 @@ async def user_details(username: Username) -> UserDetails:
         view = await users_api.get_user(user_id, principal, db)
         held = None
         if principal.allows("admin:tokens:read"):
-            listed = await users_api.list_user_tokens(
-                user_id, PageParams(limit=200, offset=0), principal, db
-            )
-            held = [TokenInfo.model_validate(one, from_attributes=True) for one in listed["items"]]
+            held = []
+            while True:
+                listed = await users_api.list_user_tokens(
+                    user_id, PageParams(limit=200, offset=len(held)), principal, db
+                )
+                held += [
+                    TokenInfo.model_validate(one, from_attributes=True) for one in listed["items"]
+                ]
+                if not listed["items"] or len(held) >= listed["total"]:
+                    break
     return UserDetails(user=_user(view), tokens=held)
 
 
@@ -144,8 +152,9 @@ async def revoke_token(username: Username, token: Annotated[str, Field(max_lengt
     with it is refused from then on."""
     async with database() as db:
         user_id = await _user_id(db, username)
-        listed, _ = await tokens.list_tokens(db, user_id, 200, 0)
-        found = next((one for one in listed if one.name == token), None)
+        found = await db.scalar(
+            select(ApiToken).where(ApiToken.user_id == user_id, ApiToken.name == token)
+        )
         if found is None:
             raise ApiError(404, "not_found", "No such token.")
         await users_api.revoke_user_token(user_id, found.id, caller().principal, db)

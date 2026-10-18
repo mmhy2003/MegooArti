@@ -12,7 +12,7 @@ from typing import Any
 import structlog
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -124,6 +124,25 @@ def refused(error: ValidationError) -> ApiError:
     return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
+# What a tool is given that is a credential: never written to the log (8.4).
+_SECRETS = frozenset({"password", "secret"})
+
+
+def loggable(value: Any) -> Any:
+    """What a tool was given, as the log may keep it: a password or a secret in it, at
+    any depth, written `[redacted]`."""
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]" if key in _SECRETS and item is not None else loggable(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list | tuple):
+        return [loggable(item) for item in value]
+    return value
+
+
 def said(error: ApiError) -> str:
     """A REST error as an agent reads it: its code, its message, and each field's."""
     lines = [f"{error.code}: {error.message}"]
@@ -168,7 +187,7 @@ def tool(
                     tool=function.__name__,
                     user=principal.user.username,
                     token=None if principal.token_id is None else str(principal.token_id),
-                    arguments=arguments,
+                    arguments=loggable(arguments),
                     outcome=outcome,
                     duration_ms=round((time.perf_counter() - started) * 1000),
                 )

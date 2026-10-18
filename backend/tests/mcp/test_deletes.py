@@ -130,3 +130,23 @@ async def test_a_delete_where_the_caller_may_not_delete_is_refused(
     assert refusal(outside).endswith(
         "invalid_path: The path is not valid: it has an empty, '.' or '..' segment."
     )
+
+
+async def test_a_folder_is_deleted_whatever_slashes_it_is_written_with_but_never_the_root(
+    agent, token
+):
+    async with agent(token) as client:
+        trailing = structured(
+            await client.call_tool("delete_path", {"repository": "files", "path": "docs/sub/"})
+        )
+        leading = structured(
+            await client.call_tool("delete_path", {"repository": "files", "path": "/docs"})
+        )
+        root = await client.call_tool("delete_path", {"repository": "files", "path": "/"})
+        left = structured(await client.call_tool("browse", {"repository": "files"}))
+
+    assert (trailing["deleted"], leading["deleted"]) == (1, 2)
+    assert refusal(root).endswith(
+        "- path: Give a file or a folder. To delete everything, delete the repository."
+    )
+    assert [item["name"] for item in left["items"]] == ["top.txt"]
