@@ -38,6 +38,7 @@ GUIDES = [
     "docs/formats/raw.md",
     "docs/web-ui.md",
     "docs/api.md",
+    "docs/mcp.md",
     "docs/development.md",
     "docs/adding-a-format.md",
 ]

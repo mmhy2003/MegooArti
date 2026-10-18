@@ -13,6 +13,9 @@ how.
 A change that would break a caller of `/api/v1` is made under a new version, with the
 old one kept for a while.
 
+AI agents have an address of their own, `/mcp`, where the Model Context Protocol gives
+them tools made for what they ask: see [AI agents](mcp.md).
+
 ## Who is calling
 
 - **HTTP Basic**, with a user name and a password, or with an API token in the place

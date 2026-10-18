@@ -60,6 +60,7 @@ TLS, in front of it or in its place.
 | [Maven](docs/formats/maven.md), [npm](docs/formats/npm.md), [PyPI](docs/formats/pypi.md), [Docker](docs/formats/docker.md), [APT](docs/formats/apt.md), [YUM](docs/formats/yum.md), [apk](docs/formats/apk.md), [NuGet](docs/formats/nuget.md), [Raw](docs/formats/raw.md) | Setting up each format, and each of its clients |
 | [The web UI](docs/web-ui.md) | What the screens do |
 | [The API](docs/api.md) | Who is calling, errors, lists, and browsing, uploading and searching without a package client |
+| [AI agents (MCP)](docs/mcp.md) | Connecting an AI agent with an API token, and the tools it is given |
 | [Development](docs/development.md) | Running from source, the tests, and the rules of the code |
 | [Adding a format](docs/adding-a-format.md) | The interface a format implements, and what is expected of one |
 

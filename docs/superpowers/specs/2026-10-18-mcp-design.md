@@ -219,6 +219,21 @@ MegooArti is both the authorization server and the protected resource, as MCP's 
 
 Each plan ends with something an agent uses: 14a with a token and the read tools, 14b with the ops tools, 14c with OAuth sign-in from claude.ai.
 
+### Settled while building plan 14a
+
+| # | What | Why |
+| --- | --- | --- |
+| M1 | Each request to `/mcp` is served by a session manager of its own, made for it and stopped with it (stateless, answers in JSON). | Nothing is kept between requests (4), so nothing need outlive one: no start in the application's lifespan, and tests reach the endpoint as clients do. |
+| M2 | The token is checked by `agent_principal` in `security/authentication.py`, a dependency of the `/mcp` route among `AUTHENTICATION_DEPENDENCIES` (in place of 4's `verifier.py`): `Bearer mga_…` only, else `401` with `WWW-Authenticate: Bearer`. | One place decides who calls, with the failed-sign-in throttle the REST API has (8.2); the route guard test sees the route as guarded. Plan 14c adds OAuth tokens there. |
+| M3 | The SDK's check of the `Host` header against DNS rebinding is off at `/mcp`. | Every request needs a bearer token, which a browser never sends by itself; the check would refuse every name the server is reached by. |
+| M4 | A tool calls the REST route functions themselves (`search_components`, `get_component`, `list_folder`, `get_repository`, …) with the caller's principal. | Their checks, their filtering of what the caller may browse, and their answers are the tools' (9.1's pairs: search and setup are tested against REST). |
+| M5 | A refusal reads `Error executing tool <name>: <code>: <message>`, a field's message on a line of its own; any other failure `internal_error: Something went wrong. It has been logged.`, the error logged and not said. | The SDK names the tool first (8.1). An unexpected error's text may hold what the agent should not see. |
+| M6 | MegooArti keeps no description of a package: `package_details` gives none (in place of 6.1's `description_untrusted`). The untrusted field of 14a is a proxy's `last_error_untrusted`. | Nothing records one to give; a format that records one can add it, marked so. |
+| M7 | `package_versions` orders versions as each format's clients do: `Format.ordered_versions` and `Format.is_prerelease` (numbers read as numbers by default; SemVer for npm, NuGet's, Maven's, PEP 440 for PyPI, dpkg's, rpm's, apk's). Docker's tags have no order, and are listed from the one pushed or fetched last. It reads at most 2,000 copies of a package, and asks for a namespace where several have the name. | An agent asked for the newest version must not be given 1.9 before 1.10, nor a prerelease as the newest release. |
+| M8 | A repository's settings and a proxy's state (`repository_details`; `list_repositories`' `remote`) need `admin:repositories:read`, as the route that gives them does. Anyone who may browse a repository gets its address, a group's members they may browse, and its setup. | Each tool authorizes as its REST route (6). |
+| M9 | `package_details` takes the repository always, with `component_id`, or with `name` and `version` (and `namespace`). It describes 50 files at most. | The REST API finds a component in its repository; a version's files are a few, but a format may keep many. |
+| M10 | Each call's log names the token by its id. | The principal holds the token's id; its prefix is a second lookup for every call. |
+
 ## 13. Requirements
 
 | BRD | Where |
