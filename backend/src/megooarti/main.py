@@ -16,6 +16,8 @@ from megooarti.db.schema import head_revision
 from megooarti.db.session import create_sessionmaker
 from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register_error_handlers
 from megooarti.maintenance import run_exclusively, run_periodically
+from megooarti.mcp.endpoint import router as mcp_router
+from megooarti.mcp.server import Server as McpServer
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories import upkeep
 from megooarti.repositories.api import router as repositories_router
@@ -153,6 +155,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(search_router, prefix=API_PREFIX)
     app.include_router(content_router)  # /repository/..., outside the JSON API
     app.include_router(registry_router)  # /v2/..., the container registry API
+    app.state.mcp = McpServer()
+    app.include_router(mcp_router)  # /mcp, for AI agents
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep

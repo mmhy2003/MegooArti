@@ -492,10 +492,26 @@ async def registry_credentials(
 
 # Who is calling, if anyone. Both enforce CSRF for cookie requests; they differ only in
 # the challenge a 401 carries.
+async def agent_principal(request: Request, db: AsyncSession = Depends(get_session)) -> Principal:
+    """Dependency of the MCP endpoint: an API token as a bearer token, and nothing else.
+
+    No cookie, no password and no anonymous access: an agent always acts for someone,
+    who made the token it holds. Raises 401, or 429 after too many failed attempts.
+    """
+    scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+    value = value.strip()
+    if scheme.lower() != "bearer" or not value.startswith(TOKEN_PREFIX):
+        raise unauthorized("Sign in with an API token, as a bearer token.")
+    user, token = await _authenticate_token(db, request, value)
+    principal = await build_principal(db, user, "token", token=token)
+    await db.commit()  # when the token was last used
+    return principal
+
+
 current_principal = _principal_dependency("Bearer")  # the JSON API
 client_principal = _principal_dependency("Basic")  # for package clients
 AUTHENTICATION_DEPENDENCIES = frozenset(
-    {current_principal, client_principal, client_credentials, registry_credentials}
+    {current_principal, client_principal, client_credentials, registry_credentials, agent_principal}
 )
 
 
