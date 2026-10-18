@@ -56,6 +56,11 @@ class Server(MCPServer):
         shown_to = self._shown_to.get(name)
         return shown_to is not None and shown_to(tools.caller().principal)
 
+    def _tool_input_schema(self, name: str) -> dict[str, Any] | None:
+        # The SDK reads it to check a call's `Mcp-Param` headers before the call is made:
+        # a tool the caller is not shown has, for them, no schema to check against.
+        return super()._tool_input_schema(name) if self._shown(name) else None
+
     async def list_tools(self) -> list[Tool]:
         return [listed for listed in await super().list_tools() if self._shown(listed.name)]
 

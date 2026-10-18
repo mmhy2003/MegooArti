@@ -12,6 +12,7 @@ from typing import Any
 import structlog
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -20,10 +21,22 @@ from megooarti.security.authentication import Principal
 
 log = structlog.get_logger(__name__)
 
-# What a tool that only reads says of itself (E3): it changes nothing, and asks nothing
+# What a tool says of itself (E3). One that only reads changes nothing, and asks nothing
 # of the world outside this server.
 READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+# One that makes something: made again, it is refused, or there are two.
+WRITE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
+)
+# One that changes something to what it is given: given it again, nothing more changes.
+CHANGE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+# One that deletes, or takes away: a client asks the person first.
+DESTRUCTIVE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False
 )
 
 
@@ -61,6 +74,34 @@ def anyone(principal: Principal) -> bool:
     return True
 
 
+def holding(permission: str) -> Callable[[Principal], bool]:
+    """Shown to whoever holds `permission`, as the REST route it stands beside requires."""
+    return lambda principal: principal.allows(permission)
+
+
+def _could(pattern: str, action: str) -> bool:
+    """Whether a pattern grants `action` on the content of some repository."""
+    wanted = ("repository", None, None, action)  # None: whatever its format and its name
+    return all(
+        part == "*" or want is None or part == want
+        for part, want in zip(pattern.split(":"), wanted, strict=False)
+    )
+
+
+def may_somewhere(action: str) -> Callable[[Principal], bool]:
+    """Shown to whoever may do `action` to the content of some repository: by their
+    permissions, narrowed by their token's scopes, or by what is public."""
+
+    def shown(principal: Principal) -> bool:
+        if any(_could(pattern, action) for pattern in principal.public):
+            return True
+        if principal.is_anonymous or not any(_could(p, action) for p in principal.patterns):
+            return False
+        return principal.scopes is None or any(_could(s, action) for s in principal.scopes)
+
+    return shown
+
+
 @dataclass(frozen=True)
 class Tool:
     function: Callable[..., Awaitable[Any]]
@@ -72,6 +113,15 @@ class Tool:
 
 # Every tool, as the modules that define them register them on import.
 TOOLS: list[Tool] = []
+
+
+def refused(error: ValidationError) -> ApiError:
+    """What the tool was given, refused as the REST API refuses a body it cannot take."""
+    details = [
+        {"field": ".".join(str(part) for part in item["loc"]), "message": item["msg"]}
+        for item in error.errors()
+    ]
+    return ApiError(422, "validation_error", "The request is not valid.", details)
 
 
 def said(error: ApiError) -> str:
@@ -99,6 +149,9 @@ def tool(
             except ApiError as error:
                 outcome = error.code
                 raise ToolError(said(error)) from None
+            except ValidationError as error:
+                outcome = "validation_error"
+                raise ToolError(said(refused(error))) from None
             except ToolError:
                 outcome = "refused"
                 raise
