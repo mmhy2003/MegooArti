@@ -215,6 +215,15 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | S10 | A key is matched without regard to case, and served as it is kept: its name and GUID in lower case, then `FFFFFFFF`. | Symbol servers match keys so; a debugger may ask in the module's own case. |
 | S11 | A proxy's symbol server failing does not count towards leaving the proxy's remote alone (`Source(blocks=False)`, which the engine now honours for a download as for a document); the failure is recorded. | One `503` of symbols.nuget.org blocked the proxy's packages, and debuggers ask for a PDB of every module. |
 
+### Settled while building plan 13g
+
+| # | What | Why |
+| --- | --- | --- |
+| U1 | The repository form has NuGet: a hosted one's deployment policy is `disable_redeploy` until another is chosen, as the server gives one (D6); a proxy chooses its protocol once (V3, the default, or V2), shown as a fact after, and may name a symbol server, checked as a remote's address is, and sent only when one is given; a group of NuGet has its members. The remote's hint says what a V3 and a V2 feed's address is. | X6, Z6 and S4, as an administrator meets them. |
+| U2 | NuGet is in every list of formats: the form's, the permissions' rows, and those that take an upload. An upload takes `.nupkg` and `.snupkg` files, several at once, and no directory: each goes where its `.nuspec` says, packages before symbol packages (W7). | W7. |
+| U3 | A NuGet repository's page has the setup snippets the server gives (W10, Z6, S7): `dotnet`, `nuget.config`, Chocolatey, PowerShell and Symbols; a version's page its usage. The UI shows them as it shows every format's: it writes none of its own. | One place says how a machine is set up: the server. |
+| U4 | The browser test makes a V2 proxy of NuGet in the form, and uploads to a hosted one a package and its symbol package that it writes itself (a zip of stored files, and a portable PDB), and finds the PDB at its key; then the setup snippets and their accessibility. | Section 10's browser tests. |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
