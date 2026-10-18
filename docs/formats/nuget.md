@@ -207,7 +207,8 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   have (inlined up to 128 versions, then in pages of 64). A search, and autocomplete,
   ask each member and list an id once, as the first member that found it has it. A
   package, its `.nuspec` and its symbol package come from the first member that has
-  them. A member that is offline, or whose feed cannot be reached, is passed over.
+  them. A member that is offline, or whose feed cannot be reached, is passed over. An
+  id a hosted member holds is that member's alone (below).
   Every address in what a group serves is its own.
 - **A group serves V2 too**, at its own address, from its hosted members, its V2
   proxies and its groups; V3 comes from its hosted members, its V3 proxies and its
@@ -218,12 +219,19 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   to the next. The newest version of an id is the newest any member has. A group reads
   ten of a feed's pages for a query at the most: a page past them is refused with a
   `400` that says to narrow the query.
-- **An id is every member's in a group.** A public package with the id of one you push
-  adds its versions beside yours: a floating version (`1.*`) or `dotnet add package`
-  without a version can take a version of nuget.org's. Give your packages a prefix
-  reserved for you on nuget.org, or have machines use the hosted repository and the
-  proxy as two sources, with NuGet's package source mapping
-  (`<packageSourceMapping>` in `nuget.config`) naming the source each id comes from.
+- **An id you push is yours alone in a group.** Where a hosted repository behind a
+  group (or behind a group in it) holds an id, matched without regard to case, the
+  group answers for that id from the hosted repositories that hold it, and asks no
+  proxy: a public package of the same id adds no versions to it, and a floating version
+  (`1.*`) or `dotnet add package` without a version cannot take one of nuget.org's.
+  This holds for an id's version list, registration and versions in autocomplete, its
+  package, `.nuspec` and symbol package, and in V2 for `FindPackagesById()`, a
+  `Packages()` query of one id, an entry and `package/<id>/<version>`. If every hosted
+  repository that holds the id is offline, the group answers `503`, and does not fall
+  back to a proxy. A search over many ids lists each as the first member that found it
+  has it, as above. An id is held from its first push: push your first version before
+  anyone restores the id through the group, or a version of a public package of that
+  id may already be in the lock files of those who did.
 - **NuGet Audit** (the warnings `dotnet restore` gives for a package with a known
   vulnerability, such as `NU1903`) reads its data from a source's `index.json`. A proxy
   passes on its feed's data, nuget.org's for a proxy of nuget.org, kept and checked

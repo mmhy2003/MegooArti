@@ -149,7 +149,7 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | Y8 | A group asks a member that is not a group for its first `skip + take` results a page at a time (the client's `take`), or a tenth of them at a time for a page far down, and at most 1,000 at a time (in place of Y4's 1,000). | nuget.org's results each list every version of their id (3.6 MB for 20 of `awssdk`): asked for two pages at once, its answer passed the 8 MiB a proxy takes of a search, and the proxy was passed over in silence. |
 | Y9 | A group in a group is asked once for all of its first `skip + take` results, and asks its own members as the outer group does. | Members are listed once for each request (Y5): asked a second time, the inner group had no members, and a page past the first 1,000 results came back empty. |
 | Y10 | A group asks its members only for a package's files and NuGet Audit's files; any other path it does not write is `404`. | A member's answer to anything else would carry the member's addresses. |
-| Y11 | An id's versions are every member's, as 7.2 says and as Nexus's NuGet groups have them: a public package of an id you push adds its versions beside yours. The guide says so, and points to nuget.org's reserved prefixes and to NuGet's package source mapping. Keeping an id pushed here from the other members, as the npm, PyPI and Docker groups do (`group.owners`), is left to a later plan, if wanted. | NuGet resolves the lowest version a range allows, which narrows what a public package can take over; a floating version, or `dotnet add package` without one, does not. |
+| Y11 | (Replaced by H1.) An id's versions are every member's, as 7.2 says and as Nexus's NuGet groups have them: a public package of an id you push adds its versions beside yours. The guide says so, and points to nuget.org's reserved prefixes and to NuGet's package source mapping. Keeping an id pushed here from the other members, as the npm, PyPI and Docker groups do (`group.owners`), is left to a later plan, if wanted. | NuGet resolves the lowest version a range allows, which narrows what a public package can take over; a floating version, or `dotnet add package` without one, does not. |
 
 ### Settled while building plan 13d
 
@@ -224,6 +224,12 @@ A package client signs in with an API token: as the `X-NuGet-ApiKey` header (wha
 | U3 | A NuGet repository's page has the setup snippets the server gives (W10, Z6, S7): `dotnet`, `nuget.config`, Chocolatey, PowerShell and Symbols; a version's page its usage. The UI shows them as it shows every format's: it writes none of its own. | One place says how a machine is set up: the server. |
 | U4 | The browser test makes a V2 proxy of NuGet in the form, and uploads to a hosted one a package and its symbol package that it writes itself (a zip of stored files, and a portable PDB), and finds the PDB at its key; then the setup snippets and their accessibility. | Section 10's browser tests. |
 
+### Settled by the change for ids pushed into groups
+
+| # | What | Why |
+| --- | --- | --- |
+| H1 | An id that a hosted repository behind a group holds (through groups in the group too, matched without regard to case) is answered for by the hosted repositories that hold it, alone, in the members' order (in place of Y11 and 7.2's union for such an id): its version list, registration, autocomplete of its versions, package, `.nuspec` and `.snupkg`, and in V2 `FindPackagesById()`, `Packages()` filtered by the id, its entry and `package/<id>/<version>`. Where every one that holds it is offline, the group answers `503 repository_offline` and asks no other member. A search over many ids, and a PDB at its key, are as before. | Ids are not verified: a public package of an id you push, by mistake or on purpose, would otherwise add versions a floating version or `dotnet add package` takes, and stand in for your repository while it is offline. The npm, PyPI and Docker groups keep a pushed name from their other members in the same way (`group.owners`). |
+
 ## 5. Hosted repositories
 
 - **Push:** `PUT api/v2/package` with the package as `multipart/form-data` (as every client sends it). The server reads the zip's central directory and its `.nuspec` (bounded, section 9): `id`, `version`, `title`, `authors`, `owners`, `description`, `summary`, `releaseNotes`, `copyright`, `language`, `tags`, `projectUrl`, `license` and `licenseUrl`, `icon` and `iconUrl`, `readme`, `requireLicenseAcceptance`, `developmentDependency`, `minClientVersion`, `packageTypes`, and `dependencies` by target framework; and the package's SHA-512. A file that is not a NuGet package, or whose `.nuspec` has no id or no valid version, is refused with `400 invalid_package`. The package is stored at `v3/package/<id>/<version>/<id>.<version>.nupkg` (lower case, E2), and its `.nuspec` beside it.
@@ -253,7 +259,7 @@ A group's members are in order. It serves V3 from those that speak V3, and V2 fr
 
 ### 7.2 V3
 
-- **Version list:** the union of the members' lists, sorted.
+- **Version list:** the union of the members' lists, sorted; of an id a hosted member holds, its holders' alone (H1).
 - **A package, its `.nuspec` or `.snupkg`:** fetched from the first member that has it.
 - **Registration:** written by the group (E5): for an id, every version any member has, a version several members have taken from the first; in pages of 64, with the group's addresses.
 - **Search and autocomplete:** each member is asked for its first `skip + take` results; the answers are merged in member order, the first result for an id kept, and the page asked for is cut from them. `totalHits` is the sum of the members' less the ids dropped, which is what can be known. `skip + take` is at most 3,000 (section 9).
