@@ -41,6 +41,8 @@ export type SigningKeyOut = Schemas["SigningKeyOut"];
 export type SigningKeyGenerate = Schemas["SigningKeyGenerate"];
 export type SigningKeyImport = Schemas["SigningKeyImport"];
 export type BlobStoreOut = Schemas["BlobStoreOut"];
+/** A format the server has: its types, and the public repository a new proxy is given. */
+export type FormatOut = Schemas["FormatOut"];
 export type BlobStoreCreate = Schemas["BlobStoreCreate"];
 /** What is running: version, schema, runtime, database. */
 export type Information = Schemas["Information"];

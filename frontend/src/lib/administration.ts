@@ -10,6 +10,7 @@ import { api } from "@/lib/api/client";
 import type {
   BlobStoreCreate,
   BlobStoreOut,
+  FormatOut,
   IndexRebuilt,
   Information,
   Page,
@@ -56,6 +57,16 @@ function afterRepositoryChange(client: QueryClient): Promise<void> {
 }
 
 // --- Repositories ---------------------------------------------------------------------------
+
+/** The formats the server has, and the public repository each gives a new proxy. */
+export function useFormats(enabled = true) {
+  return useQuery({
+    queryKey: ["formats"],
+    queryFn: () => every<FormatOut>("/formats"),
+    enabled,
+    staleTime: Infinity, // they change with the server's version only
+  });
+}
 
 export function useManagedRepositories(page: number) {
   return useQuery({

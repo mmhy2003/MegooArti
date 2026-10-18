@@ -21,6 +21,7 @@ import {
   useCreateRepository,
   useDeleteRepository,
   useEveryBlobStore,
+  useFormats,
   useEveryManagedRepository,
   useInvalidateCache,
   useManagedRepository,
@@ -59,6 +60,7 @@ import {
   TYPES,
   updateBody,
   VERSION_POLICIES,
+  publicRemotesOf,
   withDefaultRemote,
   type Draft,
   type RepositoryType,
@@ -126,8 +128,13 @@ function RepositoryForm({
   const creating = repository === null;
   const [draft, setDraft] = useState<Draft>(() => (repository ? draftOf(repository) : EMPTY));
   // A new proxy is given its format's public remote, until another is typed.
+  const formats = useFormats(creating);
+  const remotes = publicRemotesOf(formats.data ?? []);
   const set = (change: Partial<Draft>) =>
-    setDraft((held) => ({ ...held, ...(creating ? withDefaultRemote(held, change) : change) }));
+    setDraft((held) => ({
+      ...held,
+      ...(creating ? withDefaultRemote(held, change, remotes) : change),
+    }));
   const { form, tried, attempt } = useAttempts(error);
   const storesReadable = may("admin:blobstores:read");
   const stores = useEveryBlobStore(creating && storesReadable);

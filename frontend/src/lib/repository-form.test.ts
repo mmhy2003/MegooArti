@@ -20,6 +20,7 @@ import {
   moved,
   policyOf,
   problemsOf,
+  publicRemotesOf,
   takesRemoteKeys,
   updateBody,
   withDefaultRemote,
@@ -518,6 +519,26 @@ describe("the addresses of a repository's settings", () => {
 
 describe("the remote a proxy is made with", () => {
   const making = (change: Partial<Draft>): Draft => ({ ...EMPTY, ...change });
+  // As the server gives them (GET /formats).
+  const REMOTES = publicRemotesOf([
+    { name: "maven", types: [], public_remotes: { "": "https://repo1.maven.org/maven2" } },
+    { name: "npm", types: [], public_remotes: { "": "https://registry.npmjs.org" } },
+    { name: "pypi", types: [], public_remotes: { "": "https://pypi.org" } },
+    { name: "docker", types: [], public_remotes: { "": "https://registry-1.docker.io" } },
+    { name: "apt", types: [], public_remotes: { "": "http://deb.debian.org/debian" } },
+    { name: "apk", types: [], public_remotes: { "": "https://dl-cdn.alpinelinux.org/alpine" } },
+    {
+      name: "nuget",
+      types: [],
+      public_remotes: {
+        "": "https://api.nuget.org/v3/index.json",
+        v3: "https://api.nuget.org/v3/index.json",
+        v2: "https://community.chocolatey.org/api/v2/",
+      },
+    },
+    { name: "yum", types: [], public_remotes: {} },
+    { name: "raw", types: [], public_remotes: {} },
+  ]);
 
   test.each([
     ["maven", "v3", "https://repo1.maven.org/maven2"],
@@ -531,14 +552,14 @@ describe("the remote a proxy is made with", () => {
     ["yum", "v3", ""],
     ["raw", "v3", ""],
   ])("of %s (%s) is its public one, or none where there is no one", (format, protocol, remote) => {
-    expect(defaultRemoteOf(making({ format, type: "proxy", protocol }))).toBe(remote);
-    expect(defaultRemoteOf(making({ format, type: "hosted", protocol }))).toBe("");
+    expect(defaultRemoteOf(making({ format, type: "proxy", protocol }), REMOTES)).toBe(remote);
+    expect(defaultRemoteOf(making({ format, type: "hosted", protocol }), REMOTES)).toBe("");
   });
 
   test("is given as a proxy is chosen, and follows the format, the type and the protocol", () => {
     let held = making({});
     const change = (one: Partial<Draft>) => {
-      held = { ...held, ...withDefaultRemote(held, one) };
+      held = { ...held, ...withDefaultRemote(held, one, REMOTES) };
       return held.remoteUrl;
     };
 
@@ -559,9 +580,13 @@ describe("the remote a proxy is made with", () => {
       { type: "hosted" as const },
       { type: "proxy" as const },
     ]) {
-      held = { ...held, ...withDefaultRemote(held, one) };
+      held = { ...held, ...withDefaultRemote(held, one, REMOTES) };
       expect(held.remoteUrl).toBe("https://mirror.example.org/maven2");
     }
-    expect(withDefaultRemote(held, { remoteUrl: "" })).toEqual({ remoteUrl: "" });
+    expect(withDefaultRemote(held, { remoteUrl: "" }, REMOTES)).toEqual({ remoteUrl: "" });
+  });
+
+  test("is none while the server has not said what its formats' are", () => {
+    expect(defaultRemoteOf(making({ format: "maven", type: "proxy" }), {})).toBe("");
   });
 });

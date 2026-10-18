@@ -14,6 +14,35 @@ import { NewRepositoryScreen, RepositorySettingsScreen } from "./repository-sett
 import { SystemScreen } from "./system";
 
 const page = (items: unknown[], total = items.length) => ({ items, total, limit: 50, offset: 0 });
+// The public repositories a new proxy is given, as the server says (GET /formats).
+const FORMATS = [
+  {
+    name: "maven",
+    types: ["group", "hosted", "proxy"],
+    public_remotes: { "": "https://repo1.maven.org/maven2" },
+  },
+  {
+    name: "npm",
+    types: ["group", "hosted", "proxy"],
+    public_remotes: { "": "https://registry.npmjs.org" },
+  },
+  { name: "pypi", types: ["group", "hosted", "proxy"], public_remotes: { "": "https://pypi.org" } },
+  {
+    name: "apt",
+    types: ["group", "hosted", "proxy"],
+    public_remotes: { "": "http://deb.debian.org/debian" },
+  },
+  {
+    name: "nuget",
+    types: ["group", "hosted", "proxy"],
+    public_remotes: {
+      "": "https://api.nuget.org/v3/index.json",
+      v3: "https://api.nuget.org/v3/index.json",
+      v2: "https://community.chocolatey.org/api/v2/",
+    },
+  },
+  { name: "yum", types: ["group", "hosted", "proxy"], public_remotes: {} },
+];
 const holding = (...permissions: string[]): SessionInfo => ({ ...ADMIN, permissions });
 const of = (calls: Call[], method: string) => calls.filter((call) => call.method === method);
 const notices = () => screen.getByRole("region", { name: "Notifications" });
@@ -175,6 +204,7 @@ describe("a new repository (R2)", () => {
     const api = mockApi({
       "GET /repositories": { json: page([ALL, CENTRAL, NPM, RELEASES]) },
       "GET /blob-stores": { json: page(STORES) },
+      "GET /formats": { json: page(FORMATS) },
       "POST /repositories": (call) => ({
         status: 201,
         json: repository((call.body as { name: string }).name),
@@ -338,6 +368,24 @@ describe("a new repository (R2)", () => {
       type: "proxy",
       proxy: { remote_url: "https://registry.npmjs.org" },
     });
+  });
+
+  test("a proxy's public remote is the one the server says", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh({
+      "GET /formats": {
+        json: page([
+          { name: "maven", types: [], public_remotes: { "": "https://maven.internal/central" } },
+        ]),
+      },
+    });
+    await waitFor(() => expect(calls.some((call) => call.path.startsWith("/formats"))).toBe(true));
+
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Remote address")).toHaveValue("https://maven.internal/central"),
+    );
   });
 
   test("a remote that was typed is not given another when the format changes", async () => {

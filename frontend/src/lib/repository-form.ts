@@ -5,7 +5,7 @@
  * type. This module says which parts a combination has, what a form starts with, what
  * is wrong with it before the server is asked, and the body that is sent.
  */
-import type { RepositoryCreate, RepositoryOut, RepositoryUpdate } from "@/lib/api/types";
+import type { FormatOut, RepositoryCreate, RepositoryOut, RepositoryUpdate } from "@/lib/api/types";
 import { isAddressable } from "@/lib/paths";
 
 /** The formats the server has. Each can be hosted, a proxy or a group. */
@@ -178,41 +178,42 @@ export function hasSigningKey(repository: { format: string; type: string }): boo
   return repository.type !== "proxy" && SIGNED.has(repository.format);
 }
 
-/** Whether a combination has a NuGet proxy's settings: its protocol and its symbol server. */
-// The public repository a proxy of each format is made with unless another is typed. YUM
-// has none (each distribution, version and architecture has its own), nor has raw.
-const PUBLIC_REMOTES: Readonly<Record<string, string>> = {
-  maven: "https://repo1.maven.org/maven2",
-  npm: "https://registry.npmjs.org",
-  pypi: "https://pypi.org",
-  docker: "https://registry-1.docker.io",
-  apt: "http://deb.debian.org/debian",
-  apk: "https://dl-cdn.alpinelinux.org/alpine",
-};
-// NuGet's, by protocol: nuget.org's V3 feed, and Chocolatey's community feed for V2.
-const PUBLIC_NUGET_REMOTES: Readonly<Record<string, string>> = {
-  v3: "https://api.nuget.org/v3/index.json",
-  v2: "https://community.chocolatey.org/api/v2/",
-};
+/**
+ * The public repository a new proxy is given where no remote is typed, by format and by the
+ * protocol of its settings ("" for a format without one), as the server says (GET /formats).
+ */
+export type PublicRemotes = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+export function publicRemotesOf(formats: readonly FormatOut[]): PublicRemotes {
+  return Object.fromEntries(formats.map((format) => [format.name, format.public_remotes]));
+}
 
 /** The public remote a proxy of the form's format (and protocol) is given; none for
  * another type, or a format without one. */
-export function defaultRemoteOf(draft: Pick<Draft, "format" | "type" | "protocol">): string {
+export function defaultRemoteOf(
+  draft: Pick<Draft, "format" | "type" | "protocol">,
+  remotes: PublicRemotes,
+): string {
   if (draft.type !== "proxy") return "";
-  const remotes = draft.format === "nuget" ? PUBLIC_NUGET_REMOTES : PUBLIC_REMOTES;
-  return (draft.format === "nuget" ? remotes[draft.protocol] : remotes[draft.format]) ?? "";
+  const ofFormat = remotes[draft.format] ?? {};
+  return ofFormat[draft.protocol] ?? ofFormat[""] ?? "";
 }
 
 /** A change to a form for a new repository, with the remote that goes with it: the public
  * one of the format, type and protocol it leads to, while the remote is none or the one the
  * form gave. A remote that was typed is kept. */
-export function withDefaultRemote(held: Draft, change: Partial<Draft>): Partial<Draft> {
+export function withDefaultRemote(
+  held: Draft,
+  change: Partial<Draft>,
+  remotes: PublicRemotes,
+): Partial<Draft> {
   if ("remoteUrl" in change) return change;
-  if (held.remoteUrl !== "" && held.remoteUrl !== defaultRemoteOf(held)) return change;
-  const remoteUrl = defaultRemoteOf({ ...held, ...change });
+  if (held.remoteUrl !== "" && held.remoteUrl !== defaultRemoteOf(held, remotes)) return change;
+  const remoteUrl = defaultRemoteOf({ ...held, ...change }, remotes);
   return remoteUrl === held.remoteUrl ? change : { ...change, remoteUrl };
 }
 
+/** Whether a combination has a NuGet proxy's settings: its protocol and its symbol server. */
 export function isNuGetProxy(draft: { format: string; type: string }): boolean {
   return draft.format === "nuget" && draft.type === "proxy";
 }
