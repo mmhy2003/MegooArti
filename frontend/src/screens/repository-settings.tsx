@@ -50,9 +50,11 @@ import {
   FORMATS,
   hasMavenSettings,
   hasSigningKey,
+  isNuGetProxy,
   LAYOUT_POLICIES,
   policyOf,
   problemsOf,
+  PROTOCOLS,
   takesRemoteKeys,
   TYPES,
   updateBody,
@@ -87,6 +89,8 @@ const REFUSED_AT = [
   "format_config.suite",
   "format_config.repodata_depth",
   "format_config.remote_keys",
+  "format_config.protocol",
+  "format_config.symbol_url",
 ] as const;
 
 function useMay(): (permission: string) => boolean {
@@ -261,9 +265,25 @@ function RepositoryForm({
           <>
             <fieldset className={SECTION}>
               <legend className={LEGEND}>{t("sections.remote")}</legend>
+              {/* Chosen once: a repository that is there shows it as a fact. */}
+              {creating && isNuGetProxy(draft) ? (
+                <ChoiceGroup
+                  legend={t("fields.protocol")}
+                  value={draft.protocol}
+                  onChange={(value) => set({ protocol: value })}
+                  options={option("protocols", PROTOCOLS)}
+                />
+              ) : null}
+              {refused.at["format_config.protocol"] ? (
+                <Alert tone="danger">{refused.at["format_config.protocol"]}</Alert>
+              ) : null}
               <TextField
                 label={t("fields.remoteUrl")}
-                hint={t("hints.remoteUrl")}
+                hint={
+                  isNuGetProxy(draft)
+                    ? t(`hints.remoteUrlOf.${draft.protocol === "v2" ? "v2" : "v3"}`)
+                    : t("hints.remoteUrl")
+                }
                 type="url"
                 required
                 spellCheck={false}
@@ -299,6 +319,18 @@ function RepositoryForm({
                   value={draft.authSecret}
                   error={wrong("authSecret", refused.at["proxy.remote_auth.secret"])}
                   onChange={(event) => set({ authSecret: event.target.value })}
+                />
+              ) : null}
+              {isNuGetProxy(draft) ? (
+                <TextField
+                  label={t("fields.symbolUrl")}
+                  hint={t("hints.symbolUrl")}
+                  type="url"
+                  spellCheck={false}
+                  autoComplete="off"
+                  value={draft.symbolUrl}
+                  error={wrong("symbolUrl", refused.at["format_config.symbol_url"])}
+                  onChange={(event) => set({ symbolUrl: event.target.value })}
                 />
               ) : null}
               {takesRemoteKeys(draft) ? (
@@ -651,6 +683,11 @@ export function RepositorySettingsScreen() {
           ) : null}
           {found.type === "hosted" && found.format === "yum" ? (
             <Fact name={t("fields.repodataDepth")}>{draftOf(found).repodataDepth}</Fact>
+          ) : null}
+          {isNuGetProxy(found) ? (
+            <Fact name={t("fields.protocol")}>
+              {t(`protocols.${draftOf(found).protocol === "v2" ? "v2" : "v3"}`)}
+            </Fact>
           ) : null}
           {view.data ? (
             <Fact name={t("fields.address")} copy={view.data.url} mono>

@@ -9,7 +9,17 @@ import type { RepositoryCreate, RepositoryOut, RepositoryUpdate } from "@/lib/ap
 import { isAddressable } from "@/lib/paths";
 
 /** The formats the server has. Each can be hosted, a proxy or a group. */
-export const FORMATS = ["raw", "maven", "npm", "pypi", "docker", "apt", "yum", "apk"] as const;
+export const FORMATS = [
+  "raw",
+  "maven",
+  "npm",
+  "pypi",
+  "docker",
+  "apt",
+  "yum",
+  "apk",
+  "nuget",
+] as const;
 /** The formats whose indexes are signed: a key of their own, and a remote's keys for a proxy. */
 export const SIGNED: ReadonlySet<string> = new Set(["apt", "yum", "apk"]);
 export const TYPES = ["hosted", "proxy", "group"] as const;
@@ -24,6 +34,8 @@ export const DEFAULT_BLOB_STORE = "default";
 export const DEFAULT_SUITE = "stable";
 /** How many directories down a YUM repository's metadata may be. */
 export const DEPTH_MOST = 5;
+/** The protocols a NuGet proxy speaks to its remote, and serves: chosen once. */
+export const PROTOCOLS = ["v3", "v2"] as const;
 
 // The server's rule for a name, said before the request is made.
 const NAME = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -63,6 +75,10 @@ export type Draft = {
   repodataDepth: string;
   /** A proxy's remote's public keys, as they are pasted. */
   remoteKeys: string;
+  /** A NuGet proxy's protocol: v3 or v2. Chosen once. */
+  protocol: string;
+  /** The symbol server a NuGet proxy passes symbol requests on to; empty for none. */
+  symbolUrl: string;
 };
 
 /** A form for a repository that is not there yet: the server's own defaults. */
@@ -90,6 +106,8 @@ export const EMPTY: Draft = {
   suite: DEFAULT_SUITE,
   repodataDepth: "0",
   remoteKeys: "",
+  protocol: "v3",
+  symbolUrl: "",
 };
 
 const text = (value: unknown, otherwise: string): string =>
@@ -126,20 +144,23 @@ export function draftOf(repository: RepositoryOut): Draft {
       typeof config.repodata_depth === "number" ? config.repodata_depth : EMPTY.repodataDepth,
     ),
     remoteKeys: text(config.remote_keys, EMPTY.remoteKeys),
+    protocol: text(config.protocol, EMPTY.protocol),
+    symbolUrl: text(config.symbol_url, EMPTY.symbolUrl),
   };
 }
 
 /**
  * The deployment policy of a hosted repository: the one that was chosen, or the one the
  * server gives a repository that names none. A Maven repository for releases refuses to
- * replace what was deployed (a release is deployed once); every other one allows it.
+ * replace what was deployed (a release is deployed once), and so does a NuGet one (a
+ * version is pushed once, as nuget.org takes it); every other one allows it.
  */
 export function policyOf(
   draft: Pick<Draft, "format" | "versionPolicy" | "deploymentPolicy">,
 ): string {
   if (draft.deploymentPolicy !== null) return draft.deploymentPolicy;
   const releases = draft.format === "maven" && draft.versionPolicy === "release";
-  return releases ? "disable_redeploy" : "allow_redeploy";
+  return releases || draft.format === "nuget" ? "disable_redeploy" : "allow_redeploy";
 }
 
 /** Whether a combination has settings of the format's own: a Maven repository that stores. */
@@ -155,6 +176,11 @@ export function takesRemoteKeys(draft: Pick<Draft, "format" | "type">): boolean 
 /** Whether a combination has a key of its own: a hosted repository or a group that signs. */
 export function hasSigningKey(repository: { format: string; type: string }): boolean {
   return repository.type !== "proxy" && SIGNED.has(repository.format);
+}
+
+/** Whether a combination has a NuGet proxy's settings: its protocol and its symbol server. */
+export function isNuGetProxy(draft: { format: string; type: string }): boolean {
+  return draft.format === "nuget" && draft.type === "proxy";
 }
 
 /** A whole number of at least `minimum`, or null for what is none. */
@@ -185,7 +211,8 @@ export type Problem =
   | "usernameNeeded"
   | "secretNeeded"
   | "suiteRule"
-  | "depthRule";
+  | "depthRule"
+  | "symbolUrlRule";
 
 export type Problems = Partial<
   Record<
@@ -197,7 +224,8 @@ export type Problems = Partial<
     | "authUsername"
     | "authSecret"
     | "suite"
-    | "repodataDepth",
+    | "repodataDepth"
+    | "symbolUrl",
     Problem
   >
 >;
@@ -224,6 +252,9 @@ export function problemsOf(draft: Draft, creating: boolean): Problems {
     }
     if (draft.authType !== "none" && draft.authSecret === "" && !draft.hasSecret) {
       problems.authSecret = "secretNeeded";
+    }
+    if (isNuGetProxy(draft) && draft.symbolUrl.trim() !== "" && !isRemote(draft.symbolUrl)) {
+      problems.symbolUrl = "symbolUrlRule";
     }
   }
   // Chosen once: a repository that is there has the one it was made with.
@@ -282,6 +313,11 @@ function formatConfig(draft: Draft): Record<string, unknown> {
     return { version_policy: draft.versionPolicy, layout_policy: draft.layoutPolicy };
   }
   if (takesRemoteKeys(draft)) return { remote_keys: draft.remoteKeys };
+  if (isNuGetProxy(draft)) {
+    // Its protocol is sent as it is held: the server refuses to change it.
+    const symbolUrl = draft.symbolUrl.trim();
+    return { protocol: draft.protocol, ...(symbolUrl ? { symbol_url: symbolUrl } : {}) };
+  }
   if (draft.type !== "hosted") return {};
   if (draft.format === "apt") return { suite: draft.suite.trim() };
   if (draft.format === "yum") return { repodata_depth: whole(draft.repodataDepth, 0) ?? 0 };

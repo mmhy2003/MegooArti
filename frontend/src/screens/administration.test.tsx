@@ -556,7 +556,7 @@ describe("a new repository (R2)", () => {
     const formats = within(screen.getByLabelText("Format"))
       .getAllByRole("option")
       .map((option) => option.textContent);
-    expect(formats).toEqual(expect.arrayContaining(["apt", "yum", "apk"]));
+    expect(formats).toEqual(expect.arrayContaining(["apt", "yum", "apk", "nuget"]));
   });
 
   test("a hosted APT repository is made with the suite that is typed, which is checked first", async () => {
@@ -650,6 +650,87 @@ describe("a new repository (R2)", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("The remote's public keys")).toHaveAccessibleDescription(
         "These are not public keys.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("a NuGet proxy is made with its protocol and its symbol server, which is checked first", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.selectOptions(screen.getByLabelText("Format"), "nuget");
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    expect(screen.getByRole("radio", { name: "V3" })).toBeChecked();
+    expect(screen.getByLabelText("Remote address")).toHaveAccessibleDescription(
+      "The feed's service index: https://api.nuget.org/v3/index.json for nuget.org.",
+    );
+    await user.click(screen.getByRole("radio", { name: "V2" }));
+    expect(screen.getByLabelText("Remote address")).toHaveAccessibleDescription(
+      /Chocolatey's, https:\/\/www\.powershellgallery\.com\/api\/v2\/ for the PowerShell Gallery\./,
+    );
+    await user.type(screen.getByLabelText("Name"), "choco-community");
+    // Pasted, as an address is: typed a key at a time, it is slow.
+    await user.click(screen.getByLabelText("Remote address"));
+    await user.paste("https://community.chocolatey.org/api/v2/");
+    const symbols = screen.getByLabelText("Symbol server");
+    await user.click(symbols);
+    await user.paste("ftp://symbols.example.org");
+    await user.click(create());
+    expect(symbols).toHaveAccessibleDescription(
+      "Give an http or https address with a host, and without credentials, a query or a fragment, or none.",
+    );
+    expect(of(calls, "POST")).toHaveLength(0);
+
+    await user.clear(symbols);
+    await user.click(create());
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      format: "nuget",
+      type: "proxy",
+      format_config: { protocol: "v2" },
+    });
+    await expectAccessible();
+  });
+
+  test("a hosted NuGet repository refuses a version pushed twice unless told otherwise", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+
+    await user.selectOptions(screen.getByLabelText("Format"), "nuget");
+    expect(screen.getByRole("radio", { name: "Disable redeploy" })).toBeChecked();
+    expect(screen.queryByLabelText("Symbol server")).toBeNull();
+    await user.type(screen.getByLabelText("Name"), "nuget-hosted");
+    await user.click(create());
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      format: "nuget",
+      hosted: { deployment_policy: "disable_redeploy" },
+      format_config: {},
+    });
+  });
+
+  test("says where the server refuses a protocol or a symbol server", async () => {
+    const user = userEvent.setup();
+    fresh({
+      "POST /repositories": failure(422, "validation_error", "The request is not valid.", [
+        { field: "format_config.symbol_url", message: "Give an http or https address." },
+      ]),
+    });
+
+    await user.selectOptions(screen.getByLabelText("Format"), "nuget");
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    await user.type(screen.getByLabelText("Name"), "nuget-org");
+    await user.click(screen.getByLabelText("Remote address"));
+    await user.paste("https://api.nuget.org/v3/index.json");
+    await user.click(screen.getByLabelText("Symbol server"));
+    await user.paste("https://symbols.example.org");
+    await user.click(create());
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Symbol server")).toHaveAccessibleDescription(
+        "Give an http or https address.",
       ),
     );
     expect(screen.queryByRole("alert")).toBeNull();
@@ -994,6 +1075,31 @@ describe("the settings of a repository", () => {
     expect(of(calls, "PUT")[0]?.body).toMatchObject({
       online: false,
       format_config: { remote_keys: "the keys" },
+    });
+  });
+
+  test("of a NuGet proxy show its protocol, chosen once, and keep its symbol server", async () => {
+    const user = userEvent.setup();
+    const held = repository("nuget-org", {
+      ...proxy("nuget-org"),
+      format: "nuget",
+      format_config: { protocol: "v3", symbol_url: "https://symbols.nuget.org/download/symbols" },
+    });
+    const { calls } = settings(held, { "PUT /repositories/nuget-org": { json: held } });
+
+    expect(await screen.findByText("Protocol")).toBeVisible();
+    expect(screen.getByText("V3")).toBeVisible();
+    expect(screen.queryByRole("radio", { name: "V2" })).toBeNull(); // chosen once
+    expect(screen.getByLabelText("Symbol server")).toHaveValue(
+      "https://symbols.nuget.org/download/symbols",
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Online" }));
+    await user.click(save());
+
+    await waitFor(() => expect(of(calls, "PUT")).toHaveLength(1));
+    expect(of(calls, "PUT")[0]?.body).toMatchObject({
+      online: false,
+      format_config: { protocol: "v3", symbol_url: "https://symbols.nuget.org/download/symbols" },
     });
   });
 

@@ -682,7 +682,9 @@
       "layoutPolicy": "Layout policy",
       "suite": "Suite",
       "repodataDepth": "Depth of the metadata",
-      "remoteKeys": "The remote's public keys"
+      "remoteKeys": "The remote's public keys",
+      "protocol": "Protocol",
+      "symbolUrl": "Symbol server"
     },
     "hints": {
       "name": "Letters, digits and . _ - , up to 64. It is part of every address, and cannot be changed later.",
@@ -705,7 +707,12 @@
         "apt": "ASCII-armoured OpenPGP keys, those the remote signs its Release files with. A group checks what this proxy fetched with them: without them, it cannot be a member of one.",
         "yum": "ASCII-armoured OpenPGP keys, those the remote signs its repomd.xml with, if it does. A group checks what this proxy fetched with them. They are not needed: dnf checks each package's own signature.",
         "apk": "PEM RSA public keys, those the remote signs its indexes with: Alpine's are in /usr/share/apk/keys. A group checks what this proxy fetched with them: without them, it cannot be a member of one."
-      }
+      },
+      "remoteUrlOf": {
+        "v3": "The feed's service index: https://api.nuget.org/v3/index.json for nuget.org.",
+        "v2": "The feed's address: https://community.chocolatey.org/api/v2/ for Chocolatey's, https://www.powershellgallery.com/api/v2/ for the PowerShell Gallery."
+      },
+      "symbolUrl": "Optional. A symbol server whose PDBs this proxy passes on to debuggers, and keeps: https://symbols.nuget.org/download/symbols for nuget.org's packages."
     },
     "sections": {
       "hosted": "What it takes",
@@ -767,7 +774,8 @@
       "usernameNeeded": "Give the user name.",
       "secretNeeded": "Give it: none is stored.",
       "suiteRule": "A suite is 1 to 64 letters, digits or . _ - , and begins with a letter or a digit.",
-      "depthRule": "A whole number from 0 to 5."
+      "depthRule": "A whole number from 0 to 5.",
+      "symbolUrlRule": "Give an http or https address with a host, and without credentials, a query or a fragment, or none."
     },
     "mayNotCreate": "You may not create repositories.",
     "create": "Create repository",
@@ -801,7 +809,15 @@
     "deleteBodyGroup": "Every client that uses its address is refused. Its members are not touched. This cannot be undone.",
     "deleted": "Deleted the repository {name}.",
     "leftOutTitle": "Members left out",
-    "leftOutIntro": "A check found what these proxies fetched wanting. The group answers without each one until it next reaches its remote."
+    "leftOutIntro": "A check found what these proxies fetched wanting. The group answers without each one until it next reaches its remote.",
+    "protocols": {
+      "v3": "V3",
+      "v2": "V2"
+    },
+    "protocolsHints": {
+      "v3": "A feed of NuGet's V3 protocol, as nuget.org's: for dotnet, nuget.exe, choco and PSResourceGet. It cannot be changed later.",
+      "v2": "A feed of the V2 protocol, as the Chocolatey community feed and the PowerShell Gallery: it serves V2 alone. It cannot be changed later."
+    }
   },
   "blobStores": {
     "title": "Blob stores",

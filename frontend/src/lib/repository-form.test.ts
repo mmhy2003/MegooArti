@@ -15,6 +15,7 @@ import {
   FORMATS,
   hasMavenSettings,
   hasSigningKey,
+  isNuGetProxy,
   moved,
   policyOf,
   problemsOf,
@@ -420,6 +421,63 @@ describe("APT, YUM and apk", () => {
     }
     expect(takesRemoteKeys({ format: "maven", type: "proxy" })).toBe(false);
     expect(hasSigningKey({ format: "raw", type: "hosted" })).toBe(false);
+  });
+});
+
+describe("NuGet", () => {
+  const SYMBOLS = "https://symbols.nuget.org/download/symbols";
+
+  test("is a format a repository can have, hosted by default a version pushed once", () => {
+    expect(FORMATS).toContain("nuget");
+    // As nuget.org takes one: a second push of a version is refused (D6).
+    expect(policyOf(draft({ format: "nuget" }))).toBe("disable_redeploy");
+    expect(createBody(draft({ format: "nuget" })).hosted).toEqual({
+      deployment_policy: "disable_redeploy",
+    });
+    expect(createBody(draft({ format: "nuget" })).format_config).toEqual({});
+    expect(createBody(draft({ format: "nuget", type: "group" })).format_config).toEqual({});
+  });
+
+  test("a proxy is made with its protocol, V3 unless V2 is chosen, and a symbol server if one is given", () => {
+    const proxy = { ...PROXY, format: "nuget" };
+
+    expect(isNuGetProxy(proxy)).toBe(true);
+    expect(isNuGetProxy({ ...proxy, type: "hosted" })).toBe(false);
+    expect(createBody(proxy).format_config).toEqual({ protocol: "v3" });
+    expect(createBody({ ...proxy, protocol: "v2" }).format_config).toEqual({ protocol: "v2" });
+    expect(createBody({ ...proxy, symbolUrl: ` ${SYMBOLS} ` }).format_config).toEqual({
+      protocol: "v3",
+      symbol_url: SYMBOLS,
+    });
+  });
+
+  test("the form of a proxy that is there starts from its protocol and its symbol server, and sends them back", () => {
+    const held = draftOf(
+      stored({
+        format: "nuget",
+        type: "proxy",
+        format_config: { protocol: "v2", symbol_url: SYMBOLS },
+      }),
+    );
+
+    expect([held.protocol, held.symbolUrl]).toEqual(["v2", SYMBOLS]);
+    expect(updateBody(held).format_config).toEqual({ protocol: "v2", symbol_url: SYMBOLS });
+    // One made before there were settings speaks V3, as the server has it.
+    expect(draftOf(stored({ format: "nuget", type: "proxy", format_config: {} })).protocol).toBe(
+      "v3",
+    );
+  });
+
+  test.each([
+    ["", undefined],
+    [SYMBOLS, undefined],
+    ["ftp://symbols.example.org", "symbolUrlRule"],
+    ["https://user:secret@symbols.example.org", "symbolUrlRule"],
+    ["not an address", "symbolUrlRule"],
+  ])("a symbol server %j: %s", (symbolUrl, problem) => {
+    expect(problemsOf({ ...PROXY, format: "nuget", symbolUrl }, true).symbolUrl).toBe(problem);
+    // Of another format it is not the form's.
+    expect(problemsOf({ ...PROXY, symbolUrl }, true).symbolUrl).toBeUndefined();
   });
 });
 
