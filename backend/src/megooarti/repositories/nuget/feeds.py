@@ -5,6 +5,10 @@ Each function is given the address its documents are to name (`base`): a group a
 its members for theirs with its own, so that what it merges names only the group. A
 member that does not have something, or cannot be asked, gives nothing to the group
 (as the generic group engine passes over it); anything else it raises is raised.
+
+An id that a hosted repository behind a group holds is answered for by the hosted
+repositories that hold it, alone: ids are not verified, so a public package of the same
+id must not add versions to it, nor stand in for it while its repository is offline.
 """
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -45,6 +49,41 @@ async def _members[T](
     return given
 
 
+async def owners(context: RepositoryContext, package_id: str) -> list[RepositoryContext]:
+    """The hosted repositories behind a group that hold an id, matched without regard to
+    case: those that are online, in order. Raises 503 where only offline ones hold it."""
+    online, offline = [], False
+    for leaf in await group.leaves(context):
+        member = leaf.context
+        if member.repository.type != "hosted" or await member.spelling("", package_id) is None:
+            continue
+        if leaf.online:
+            online.append(member)
+        else:
+            offline = True
+    if not online and offline:
+        raise ApiError(
+            503,
+            "repository_offline",
+            f"The repository that holds {package_id} is offline, and no other may answer for it.",
+        )
+    return online
+
+
+async def _for_id[T](
+    context: RepositoryContext,
+    request: Request,
+    package_id: str,
+    ask: Callable[[RepositoryContext], Awaitable[T]],
+) -> list[T]:
+    """What a group's members give of one id: its owners' alone where a hosted repository
+    holds it, else what each member that serves V3 gives."""
+    held = await owners(context, package_id)
+    if held:
+        return [await ask(member) for member in held]
+    return await _members(context, request, ask)
+
+
 # --- An id's versions -----------------------------------------------------------------
 
 
@@ -57,7 +96,9 @@ async def versions_of(context: RepositoryContext, request: Request, package_id: 
     elif kind == "proxy":
         listed = await proxied.versions_of(context, package_id)
     else:
-        given = await _members(context, request, lambda one: versions_of(one, request, package_id))
+        given = await _for_id(
+            context, request, package_id, lambda one: versions_of(one, request, package_id)
+        )
         listed = [version for found in given for version in found]
     normalized = {
         version.lower() for one in listed if (version := versions.normalize(one)) is not None
@@ -81,7 +122,9 @@ async def items_of(
     if kind == "proxy":
         found = await proxied.items_of(context, package_id, base)
         return documents.merged_items([[one for one in found if isinstance(one, dict)]])
-    given = await _members(context, request, lambda one: items_of(one, request, package_id, base))
+    given = await _for_id(
+        context, request, package_id, lambda one: items_of(one, request, package_id, base)
+    )
     return documents.merged_items(given)
 
 
@@ -271,8 +314,11 @@ async def completed_versions(
         data = answer.get("data") if isinstance(answer, dict) else None
         listed = [one for one in data if isinstance(one, str)] if isinstance(data, list) else []
     else:
-        given = await _members(
-            context, request, lambda one: completed_versions(one, request, package_id, prerelease)
+        given = await _for_id(
+            context,
+            request,
+            package_id,
+            lambda one: completed_versions(one, request, package_id, prerelease),
         )
         listed = [version for found in given for version in found]
     shown: dict[str, str] = {}

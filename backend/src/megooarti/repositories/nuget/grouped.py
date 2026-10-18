@@ -59,6 +59,23 @@ async def _autocomplete(context: RepositoryContext, request: Request) -> Respons
     return await responses.respond_json(context, request, documents.autocomplete(ids, total))
 
 
+async def _of_an_id(
+    context: RepositoryContext, request: Request, path: str, serve: Serve, package_id: str
+) -> Response:
+    """A file of an id's: from the first of its owners that has it, where a hosted
+    repository holds the id; else from the first member that has it."""
+    held = await feeds.owners(context, package_id)
+    if not held:
+        return await group.handle_group(context, request, path, serve)
+    for member in held:
+        try:
+            return await serve(member, request, path)
+        except ApiError as error:
+            if error.status_code not in group.TRY_NEXT:
+                raise
+    raise _not_found()
+
+
 async def handle_group(
     context: RepositoryContext, request: Request, path: str, serve: Serve
 ) -> Response:
@@ -94,7 +111,9 @@ async def handle_group(
     # A package, its `.nuspec`, a file of NuGet Audit's, a package at V2's address, a
     # PDB at its key: the first member that has it. Nothing else is asked of the members:
     # what they would answer has their addresses.
-    if parsed.kind in ("download", "symbol") or path.startswith(paths.PACKAGES):
+    if parsed.kind in ("package", "nuspec", "symbols", "download"):
+        return await _of_an_id(context, request, path, serve, parsed.id)
+    if parsed.kind == "symbol" or path.startswith(paths.PACKAGES):
         return await group.handle_group(context, request, path, serve)
     if proxied.vulnerability_name(path) is not None:
         return await group.handle_group(context, request, path, serve)

@@ -36,6 +36,22 @@ def _not_found(message: str = "No member of this group has it.") -> ApiError:
     return ApiError(404, "not_found", message)
 
 
+async def _members(
+    context: RepositoryContext, request: Request, query: odata.Query
+) -> list[RepositoryContext]:
+    """The members a query of a group is asked of: of one id a hosted repository holds,
+    its owners alone; else every member that serves V2."""
+    package_id = query.id if query.function in (odata.FIND, odata.ENTRY) else query.filter.id
+    held = await feeds.owners(context, package_id) if package_id else []
+    if held:
+        return held
+    return [
+        member
+        for member in await group.member_contexts(context, request)
+        if feeds.speaks(member, "v2")
+    ]
+
+
 async def _listing(
     member: RepositoryContext,
     request: Request,
@@ -77,9 +93,7 @@ async def merged(
     order, an id's version once, and how many there are: the members' counts less the
     entries dropped. A member that is offline or cannot be asked gives nothing."""
     given = []
-    for member in await group.member_contexts(context, request):
-        if not feeds.speaks(member, "v2"):
-            continue
+    for member in await _members(context, request, query):
         try:
             given.append(await _listing(member, request, path, query, base, wanted, counted))
         except ApiError as error:
@@ -129,9 +143,7 @@ async def _entry_of(
     context: RepositoryContext, request: Request, path: str, query: odata.Query, base: str
 ) -> bytes | None:
     """An entry of a group's: the first member's that has it, with the group's address."""
-    for member in await group.member_contexts(context, request):
-        if not feeds.speaks(member, "v2"):
-            continue
+    for member in await _members(context, request, query):
         try:
             if member.repository.type == "hosted":
                 found = await v2.entry_of(member, query.id, query.version, base)

@@ -1,6 +1,7 @@
 """A group of NuGet repositories: one V3 feed of its members' (spec 7.1, 7.2) — an id's
 versions together, its registration written by the group from its members' items, a
-search merged in the members' order, a package from the first member that has it."""
+search merged in the members' order, a package from the first member that has it; and an
+id a hosted member holds, its owners' alone."""
 
 import gzip
 import json
@@ -8,6 +9,7 @@ import json
 import pytest
 
 from megooarti.repositories.nuget import documents
+from tests.accounts import error_code
 from tests.repositories.nuget.conftest import push
 from tests.repositories.nuget.packages import nupkg
 
@@ -15,7 +17,9 @@ GROUP = "/repository/nuget-all"
 BASE = "https://test/repository/nuget-all/"
 REMOTE = "http://remote.test/nuget"
 PUSHED = "Pushed here."
-FETCHED = nupkg("MegooArti.Hello", "3.0.0", description="On the feed.")
+THERE = "Pushed there."
+FETCHED = nupkg("MegooArti.Hello", "3.0.0", description=THERE)
+FOLDER = "v3/package/megooarti.hello"
 
 
 def service_index(*, vulnerabilities: bool = False) -> bytes:
@@ -70,11 +74,18 @@ def remote_registration(remote, package_id: str, items: list[dict]) -> None:
 
 @pytest.fixture
 async def group(client, hosted, root, fake_remote):
-    """`nuget-all`: a hosted repository with MegooArti.Hello 1.0.0 and 2.0.0, then a proxy
-    of a feed with its 1.0.0 and 3.0.0 and with Newtonsoft.Json 13.0.3."""
+    """`nuget-all`: a hosted repository with MegooArti.Hello 1.0.0 and 2.0.0, another
+    with its 1.0.0 and 3.0.0, then a proxy of a feed with a MegooArti.Hello of its own
+    (1.0.0 and 99.0.0) and with Newtonsoft.Json 13.0.3."""
     for version in ("1.0.0", "2.0.0"):
         package = nupkg("MegooArti.Hello", version, description=PUSHED)
         assert (await push(client, root, package)).status_code == 201
+    second = {"name": "nuget-second", "format": "nuget", "type": "hosted"}
+    assert (await client.post("/api/v1/repositories", json=second, headers=root)).status_code == 201
+    for version in ("1.0.0", "3.0.0"):
+        package = nupkg("MegooArti.Hello", version, description=THERE)
+        pushed = await push(client, root, package, repository="nuget-second")
+        assert pushed.status_code == 201
     for made in [
         {
             "name": "nuget-org",
@@ -86,21 +97,22 @@ async def group(client, hosted, root, fake_remote):
             "name": "nuget-all",
             "format": "nuget",
             "type": "group",
-            "group": {"members": ["nuget-hosted", "nuget-org"]},
+            "group": {"members": ["nuget-hosted", "nuget-second", "nuget-org"]},
         },
     ]:
         answer = await client.post("/api/v1/repositories", json=made, headers=root)
         assert answer.status_code == 201, answer.text
     fake_remote.files["nuget/v3/index.json"] = service_index()
     flat = "nuget/v3-flatcontainer/megooarti.hello"
-    fake_remote.files[f"{flat}/index.json"] = b'{"versions":["1.0.0","3.0.0"]}'
-    fake_remote.files[f"{flat}/3.0.0/megooarti.hello.3.0.0.nupkg"] = FETCHED
-    fake_remote.files[f"{flat}/1.0.0/megooarti.hello.1.0.0.nupkg"] = b"never asked for"
+    fake_remote.files[f"{flat}/index.json"] = b'{"versions":["1.0.0","99.0.0"]}'
+    fake_remote.files[f"{flat}/99.0.0/megooarti.hello.99.0.0.nupkg"] = b"never asked for"
     remote_registration(
         fake_remote,
         "MegooArti.Hello",
-        [remote_item("MegooArti.Hello", "1.0.0"), remote_item("MegooArti.Hello", "3.0.0")],
+        [remote_item("MegooArti.Hello", "1.0.0"), remote_item("MegooArti.Hello", "99.0.0")],
     )
+    newtonsoft = "nuget/v3-flatcontainer/newtonsoft.json/index.json"
+    fake_remote.files[newtonsoft] = b'{"versions":["13.0.3"]}'
     remote_registration(fake_remote, "Newtonsoft.Json", [remote_item("Newtonsoft.Json", "13.0.3")])
     return fake_remote
 
@@ -159,12 +171,13 @@ async def test_a_registration_is_the_groups_own_with_the_first_members_item_of_a
     shown = {item["catalogEntry"]["version"]: item for item in page["items"]}
     assert list(shown) == ["1.0.0", "2.0.0", "3.0.0"]
     assert shown["1.0.0"]["catalogEntry"]["description"] == PUSHED  # the first member's
-    assert shown["3.0.0"]["catalogEntry"]["description"] == "On the feed."
+    assert shown["3.0.0"]["catalogEntry"]["description"] == THERE
     assert shown["3.0.0"]["packageContent"] == (
         f"{BASE}v3/package/megooarti.hello/3.0.0/megooarti.hello.3.0.0.nupkg"
     )
     # Every address a client follows is the group's: none of a member's, none of the feed's.
     assert "/repository/nuget-hosted/" not in answer.text
+    assert "/repository/nuget-second/" not in answer.text
     assert "/repository/nuget-org/" not in answer.text
     assert f"{REMOTE}/registration/" not in answer.text
     assert f"{REMOTE}/v3-flatcontainer/" not in answer.text
@@ -210,19 +223,17 @@ async def test_a_package_comes_from_the_first_member_that_has_it(client, root, g
     fetched = await get(client, root, f"{folder}/3.0.0/megooarti.hello.3.0.0.nupkg")
 
     assert pushed.content == nupkg("MegooArti.Hello", "1.0.0", description=PUSHED)
-    assert fetched.content == FETCHED
-    assert "/nuget/v3-flatcontainer/megooarti.hello/1.0.0/" not in str(group.paths())
+    assert fetched.content == FETCHED  # the second member's
 
 
 async def test_a_member_that_cannot_be_asked_is_passed_over(client, root, group):
     group.down = True
 
-    listed = await get(client, root, "v3/package/megooarti.hello/index.json")
-    registration = await get(client, root, "v3/registration/megooarti.hello/index.json")
+    listed = await get(client, root, "v3/package/newtonsoft.json/index.json")
+    registration = await get(client, root, "v3/registration/newtonsoft.json/index.json")
 
-    assert listed.json() == {"versions": ["1.0.0", "2.0.0"]}
-    (page,) = registration.json()["items"]
-    assert [item["catalogEntry"]["version"] for item in page["items"]] == ["1.0.0", "2.0.0"]
+    # Only the feed has it: with the feed passed over, nothing does.
+    assert (listed.status_code, registration.status_code) == (404, 404)
 
 
 async def test_a_search_is_merged_in_the_members_order(client, root, group):
@@ -393,3 +404,51 @@ async def test_what_a_group_does_not_write_is_not_asked_of_its_members(client, r
 
     assert answer.status_code == 404
     assert not [seen for seen in group.requests if "registration" in seen["path"]]
+
+
+async def offline(client, root, *names: str) -> None:
+    for name in names:
+        answer = await client.put(
+            f"/api/v1/repositories/{name}", json={"online": False}, headers=root
+        )
+        assert answer.status_code == 200, answer.text
+
+
+async def test_an_id_held_here_is_its_owners_alone_and_no_feed_adds_to_it(client, root, group):
+    # The feed has MegooArti.Hello too, a 99.0.0 of its own: a public package of an id
+    # pushed here, which a floating version would take.
+    listed = await get(client, root, "v3/package/megooarti.hello/index.json")
+    registration = await get(client, root, "v3/registration/megooarti.hello/index.json")
+    leaf = await get(client, root, "v3/registration/megooarti.hello/99.0.0.json")
+    package = await get(client, root, f"{FOLDER}/99.0.0/megooarti.hello.99.0.0.nupkg")
+    group.files["nuget/autocomplete"] = b'{"totalHits":1,"data":["99.0.0"]}'
+    completed = await get(client, root, "v3/autocomplete", id="MegooArti.Hello")
+
+    assert listed.json() == {"versions": ["1.0.0", "2.0.0", "3.0.0"]}
+    assert "99.0.0" not in registration.text
+    assert (leaf.status_code, package.status_code) == (404, 404)
+    assert completed.json()["data"] == ["1.0.0", "2.0.0", "3.0.0"]
+    # The feed was not asked about it at all.
+    assert not [path for path in group.paths() if "megooarti.hello" in path.lower()]
+    assert not [seen for seen in group.requests if "MegooArti.Hello" in seen["query"]]
+
+
+async def test_an_id_no_hosted_member_holds_is_the_feeds(client, root, group):
+    listed = await get(client, root, "v3/package/newtonsoft.json/index.json")
+
+    assert listed.json() == {"versions": ["13.0.3"]}
+
+
+async def test_an_id_whose_owners_are_offline_is_answered_by_no_feed(client, root, group):
+    await offline(client, root, "nuget-hosted")
+    one_away = await get(client, root, "v3/package/megooarti.hello/index.json")
+    await offline(client, root, "nuget-second")
+    listed = await get(client, root, "v3/package/megooarti.hello/index.json")
+    registration = await get(client, root, "v3/registration/megooarti.hello/index.json")
+    package = await get(client, root, f"{FOLDER}/1.0.0/megooarti.hello.1.0.0.nupkg")
+
+    # One owner online answers for the id; with none, the group does not.
+    assert one_away.json() == {"versions": ["1.0.0", "3.0.0"]}
+    for answer in (listed, registration, package):
+        assert (answer.status_code, error_code(answer)) == (503, "repository_offline")
+    assert not [path for path in group.paths() if "megooarti.hello" in path.lower()]

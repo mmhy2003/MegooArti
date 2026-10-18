@@ -1,6 +1,7 @@
 """NuGet's V2 protocol of a group: one feed of its members that serve V2, its hosted
 members, V2 proxies and groups (E3, 7.3) — queries merged in the members' order, an id's
-version once, the page cut by the group, with the group's own addresses."""
+version once, the page cut by the group, with the group's own addresses; and an id a
+hosted member holds, its owners' alone."""
 
 from xml.etree import ElementTree
 
@@ -17,7 +18,8 @@ ATOM = "{http://www.w3.org/2005/Atom}"
 D = "{http://schemas.microsoft.com/ado/2007/08/dataservices}"
 M = "{http://schemas.microsoft.com/ado/2007/08/dataservices/metadata}"
 PUSHED = "Pushed here."
-FETCHED = nupkg("MegooArti.Hello", "3.0.0", description="On the feed.")
+THERE = "Pushed there."
+FETCHED = nupkg("MegooArti.Hello", "3.0.0", description=THERE)
 
 
 def entry(package_id: str, version: str, description: str = "On the feed.") -> str:
@@ -86,6 +88,10 @@ async def group(client, hosted, root, fake_remote):
     for version in ("1.0.0", "2.0.0"):
         package = nupkg("MegooArti.Hello", version, description=PUSHED)
         assert (await push(client, root, package)).status_code == 201
+    # Another hosted repository, with MegooArti.Hello 3.0.0.
+    await make(client, root, name="nuget-second", type="hosted")
+    pushed = await push(client, root, FETCHED, repository="nuget-second")
+    assert pushed.status_code == 201
     await make(
         client,
         root,
@@ -106,19 +112,11 @@ async def group(client, hosted, root, fake_remote):
         root,
         name="nuget-all",
         type="group",
-        group={"members": ["nuget-hosted", "choco", "nuget-org"]},
+        group={"members": ["nuget-hosted", "nuget-second", "choco", "nuget-org"]},
     )
     hello = [entry("MegooArti.Hello", "1.0.0"), entry("MegooArti.Hello", "3.0.0")]
-    fake_remote.files["api/v2/FindPackagesById()"] = feed(*hello, count=2)
+    fake_remote.files["api/v2/FindPackagesById()"] = feed(entry("Choco.Thing", "1.0.0"), count=1)
     fake_remote.files["api/v2/Search()"] = feed(*hello, entry("Choco.Thing", "1.0.0"), count=3)
-    fake_remote.files["api/v2/Packages(Id='MegooArti.Hello',Version='3.0.0')"] = (
-        '<?xml version="1.0" encoding="utf-8"?>'
-        '<entry xml:base="http://remote.test/api/v2/" xmlns="http://www.w3.org/2005/Atom" '
-        'xmlns:d="http://schemas.microsoft.com/ado/2007/08/dataservices" '
-        'xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">'
-        + entry("MegooArti.Hello", "3.0.0").removeprefix("<entry>")
-    ).encode()
-    fake_remote.files["api/v2/package/MegooArti.Hello/3.0.0"] = FETCHED
     return fake_remote
 
 
@@ -145,14 +143,14 @@ async def test_a_query_is_merged_in_the_members_order_an_ids_version_once(client
     assert [(one[0], one[1], one[2]) for one in entries(answer)] == [
         ("MegooArti.Hello", "1.0.0", PUSHED),  # the first member's
         ("MegooArti.Hello", "2.0.0", PUSHED),
-        ("MegooArti.Hello", "3.0.0", "On the feed."),
+        ("MegooArti.Hello", "3.0.0", THERE),  # the second member's
     ]
     assert [one[3] for one in entries(answer)] == [
         f"{BASE}package/MegooArti.Hello/{version}" for version in ("1.0.0", "2.0.0", "3.0.0")
     ]
     assert "remote.test" not in answer.text
     assert "/repository/nuget-hosted/" not in answer.text
-    assert "/repository/choco/" not in answer.text
+    assert "/repository/nuget-second/" not in answer.text
 
 
 async def test_a_page_is_cut_by_the_group_and_leads_to_the_next(client, root, group):
@@ -195,8 +193,8 @@ async def test_a_package_is_the_first_members_that_has_it(client, root, group):
 
 
 async def test_each_protocol_is_asked_of_the_members_that_serve_it(client, root, group):
-    await get(client, root, "FindPackagesById()", id="'MegooArti.Hello'")
-    await get(client, root, "v3/package/megooarti.hello/index.json")
+    await get(client, root, "FindPackagesById()", id="'Choco.Thing'")
+    await get(client, root, "v3/package/choco.thing/index.json")
 
     hosts = {seen["host"] for seen in group.requests}
     # The V2 proxy is asked V2's query, and not V3's; the V3 proxy V3's, and not V2's.
@@ -211,25 +209,26 @@ async def test_each_protocol_is_asked_of_the_members_that_serve_it(client, root,
 async def test_a_member_that_cannot_be_asked_is_passed_over(client, root, group):
     group.down = True
 
-    answer = await get(client, root, "FindPackagesById()", id="'MegooArti.Hello'")
+    answer = await get(client, root, "Search()", searchTerm="''")
 
     assert [(one[0], one[1]) for one in entries(answer)] == [
         ("MegooArti.Hello", "1.0.0"),
         ("MegooArti.Hello", "2.0.0"),
+        ("MegooArti.Hello", "3.0.0"),
     ]
 
 
 async def test_a_feeds_next_page_is_followed_for_the_entries_asked_for(client, root, group):
     group.files["api/v2/FindPackagesById()"] = feed(
-        entry("MegooArti.Hello", "3.0.0"),
-        next_page=f"{REMOTE}FindPackagesById?id='MegooArti.Hello'&$skiptoken='3.0.0'",
+        entry("Choco.Thing", "1.0.0"),
+        next_page=f"{REMOTE}FindPackagesById?id='Choco.Thing'&$skiptoken='1.0.0'",
     )
-    group.files["api/v2/FindPackagesById"] = feed(entry("MegooArti.Hello", "4.0.0"))
+    group.files["api/v2/FindPackagesById"] = feed(entry("Choco.Thing", "2.0.0"))
 
-    answer = await get(client, root, "FindPackagesById()", id="'MegooArti.Hello'")
+    answer = await get(client, root, "FindPackagesById()", id="'Choco.Thing'")
 
-    assert [one[1] for one in entries(answer)] == ["1.0.0", "2.0.0", "3.0.0", "4.0.0"]
-    assert asked(group, "FindPackagesById") == ["id='MegooArti.Hello'&$skiptoken='3.0.0'"]
+    assert [one[1] for one in entries(answer)] == ["1.0.0", "2.0.0"]
+    assert asked(group, "FindPackagesById") == ["id='Choco.Thing'&$skiptoken='1.0.0'"]
 
 
 async def test_a_group_in_a_group_is_one_feed_too(client, root, group):
@@ -257,8 +256,7 @@ async def test_a_query_no_client_sends_is_refused_by_the_group(client, root, gro
 
 
 async def test_the_newest_of_an_id_is_the_groups_newest_once(client, root, group):
-    # choco install without a version: the newest of the id among every member's.
-    group.files["api/v2/Packages()"] = feed(entry("MegooArti.Hello", "3.0.0"), count=1)
+    # choco install without a version: the newest of the id among every owner's.
     query = {"$filter": "(tolower(Id) eq 'megooarti.hello') and IsLatestVersion"}
 
     answer = await get(client, root, "Packages()", **query)
@@ -280,3 +278,44 @@ async def test_a_query_past_what_the_group_reads_of_a_feed_is_refused(client, ro
 
     assert (answer.status_code, error_code(answer)) == (400, "unsupported_query")
     assert "narrow" in answer.json()["error"]["message"]
+
+
+async def offline(client, root, *names: str) -> None:
+    for name in names:
+        answer = await client.put(
+            f"/api/v1/repositories/{name}", json={"online": False}, headers=root
+        )
+        assert answer.status_code == 200, answer.text
+
+
+async def test_an_id_held_here_is_its_owners_alone_and_no_feed_adds_to_it(client, root, group):
+    # The feed has a MegooArti.Hello 99.0.0 of its own: what `choco install` would take.
+    group.files["api/v2/FindPackagesById()"] = feed(entry("MegooArti.Hello", "99.0.0"))
+    group.files["api/v2/Packages()"] = feed(entry("MegooArti.Hello", "99.0.0"))
+    group.files["api/v2/package/MegooArti.Hello/99.0.0"] = b"never asked for"
+
+    found = await get(client, root, "FindPackagesById()", id="'MegooArti.Hello'")
+    newest = await get(
+        client,
+        root,
+        "Packages()",
+        **{"$filter": "(tolower(Id) eq 'megooarti.hello') and IsLatestVersion"},
+    )
+    entry_of = await get(client, root, "Packages(Id='MegooArti.Hello',Version='99.0.0')")
+    package = await get(client, root, "package/MegooArti.Hello/99.0.0")
+
+    assert [one[1] for one in entries(found)] == ["1.0.0", "2.0.0", "3.0.0"]
+    assert [one[1] for one in entries(newest)] == ["3.0.0"]
+    assert (entry_of.status_code, package.status_code) == (404, 404)
+    assert group.requests == []  # the feed was not asked about it
+
+
+async def test_an_id_whose_owners_are_offline_is_answered_by_no_feed(client, root, group):
+    await offline(client, root, "nuget-hosted", "nuget-second")
+
+    found = await get(client, root, "FindPackagesById()", id="'MegooArti.Hello'")
+    package = await get(client, root, "package/MegooArti.Hello/1.0.0")
+
+    for answer in (found, package):
+        assert (answer.status_code, error_code(answer)) == (503, "repository_offline")
+    assert group.requests == []
