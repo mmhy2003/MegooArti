@@ -345,6 +345,12 @@ class ApkFormat(Format):
             await _keep(context, path, file.staged, apk)
         return [path for path, _ in read]
 
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return sorted(set(texts), key=versions.sort_key)
+
+    def is_prerelease(self, version: str) -> bool:
+        return versions.is_prerelease(version)
+
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if (
             versions.NAME.fullmatch(key.name) is None

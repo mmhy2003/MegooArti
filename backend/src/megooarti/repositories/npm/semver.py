@@ -48,6 +48,12 @@ def sort_key(version: str) -> Key:
     return (1, int(major), int(minor), int(patch), ranked, version)
 
 
+def is_prerelease(version: str) -> bool:
+    """Whether a valid version has a pre-release part (`1.0.0-beta.1`)."""
+    match = _SEMVER.fullmatch(version) if len(version) <= _MAX_LENGTH else None
+    return match is not None and match.group(4) is not None
+
+
 def sorted_versions(versions: Iterable[str]) -> list[str]:
     """Distinct versions, lowest first."""
     return sorted(set(versions), key=sort_key)

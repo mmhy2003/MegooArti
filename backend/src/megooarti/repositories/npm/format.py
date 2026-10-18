@@ -784,6 +784,12 @@ class NpmFormat(Format):
             words.append(description)
         return " ".join([super().search_text(key, attributes), *words])
 
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return semver.sorted_versions(texts)
+
+    def is_prerelease(self, version: str) -> bool:
+        return semver.is_prerelease(version)
+
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if not plain(key.name, key.version) or (key.namespace and not plain(key.namespace)):
             return []

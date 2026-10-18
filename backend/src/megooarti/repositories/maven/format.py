@@ -35,7 +35,7 @@ from megooarti.repositories.formats import (
     register,
 )
 from megooarti.repositories.forms import UploadForm
-from megooarti.repositories.maven import checksums, metadata, paths, upload
+from megooarti.repositories.maven import checksums, metadata, paths, upload, versions
 from megooarti.repositories.paths import normalise_path
 
 log = structlog.get_logger(__name__)
@@ -438,6 +438,12 @@ class MavenFormat(Format):
         """Its coordinates, and the three of them as they are written in a build file."""
         together = f"{key.namespace}:{key.name}:{key.version}"
         return f"{super().search_text(key, attributes)} {together}"
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return versions.sorted_versions(texts)
+
+    def is_prerelease(self, version: str) -> bool:
+        return versions.is_prerelease(version)
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         """A dependency, as Maven and Gradle write one. The repository is named elsewhere."""

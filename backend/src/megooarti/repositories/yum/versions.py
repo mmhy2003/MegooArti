@@ -39,6 +39,14 @@ def split_evr(said: str) -> tuple[str, str, str]:
     return epoch or "0", version, release
 
 
+def compare_evr(one: str, two: str) -> int:
+    """-1, 0 or 1 as `[epoch:]version-release` `one` is older, the same or newer than `two`."""
+    first, second = split_evr(one), split_evr(two)
+    if int(first[0]) != int(second[0]):
+        return -1 if int(first[0]) < int(second[0]) else 1
+    return compare(first[1], second[1]) or compare(first[2], second[2])
+
+
 def _alnum(text: str, at: int) -> bool:
     return at < len(text) and text[at].isascii() and text[at].isalnum()
 

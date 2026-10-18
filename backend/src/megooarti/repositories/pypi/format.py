@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -44,6 +45,7 @@ from megooarti.repositories.formats import (
 )
 from megooarti.repositories.forms import UploadForm
 from megooarti.repositories.pypi import names, pages, upload
+from megooarti.repositories.versions import natural_key
 from megooarti.storage.backends import StagedBlob
 
 _FILE = "application/octet-stream"
@@ -412,6 +414,14 @@ async def _group_file(
     raise _not_found("No such file.")
 
 
+def _pep440_key(text: str) -> tuple:
+    """A version's place as pip orders them; text that is not a version before them all."""
+    try:
+        return (1, Version(text), text)
+    except InvalidVersion:
+        return (0, natural_key(text), text)
+
+
 class PypiFormat(Format):
     name = "pypi"
 
@@ -459,6 +469,15 @@ class PypiFormat(Format):
             await _keep(context, sent, file.staged, standing=known)
             for sent, file, known in zip(declared, form.files, standing, strict=True)
         ]
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return sorted(set(texts), key=_pep440_key)
+
+    def is_prerelease(self, version: str) -> bool:
+        try:
+            return Version(version).is_prerelease
+        except InvalidVersion:
+            return False
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if not plain(key.name, key.version):

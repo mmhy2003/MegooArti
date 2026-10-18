@@ -41,6 +41,7 @@ from megooarti.repositories.formats import (
 )
 from megooarti.repositories.forms import UploadForm
 from megooarti.repositories.models import Repository
+from megooarti.repositories.versions import ordered_by
 from megooarti.storage.backends import StagedBlob
 
 # Where what a package said of itself is kept among its file's attributes, and what is
@@ -364,6 +365,12 @@ class AptFormat(Format):
             (await _keep(context, file.staged, deb))[0]
             for (_, deb), file in zip(read, form.files, strict=True)
         ]
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return ordered_by(versions.compare, texts)
+
+    def is_prerelease(self, version: str) -> bool:
+        return "~" in version
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if versions.NAME.fullmatch(key.name) is None or versions.split(key.version) is None:

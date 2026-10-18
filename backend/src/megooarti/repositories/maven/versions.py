@@ -14,6 +14,7 @@ The specification leaves some of this open. Where it does, this follows what Mav
 does, and tests/test_maven_client.py compares the two on a list of versions.
 """
 
+import re
 from collections.abc import Iterable
 from functools import cmp_to_key
 
@@ -134,6 +135,16 @@ def _compare(left: Item, right: Item | None) -> int:
         if result:
             return result
     return 0
+
+
+# Qualifiers Maven orders below a release: alpha, beta, milestone, release candidate,
+# and their one-letter forms when a number follows (`1.0-a1`, `1.0-M2`).
+_BEFORE_RELEASE = re.compile(r"(?i)[.-](?:alpha|beta|milestone|rc|cr|[abm](?=\d))")
+
+
+def is_prerelease(version: str) -> bool:
+    """A snapshot, or a version that Maven orders below its release (`1.0-beta-2`)."""
+    return version.endswith("-SNAPSHOT") or _BEFORE_RELEASE.search(version) is not None
 
 
 def compare(left: str, right: str) -> int:

@@ -56,6 +56,7 @@ from megooarti.repositories.nuget import (
     versions,
 )
 from megooarti.repositories.nuget.documents import Published
+from megooarti.repositories.versions import natural_key
 from megooarti.storage.backends import StagedBlob
 
 _PACKAGE = "application/octet-stream"
@@ -593,6 +594,15 @@ class NuGetFormat(Format):
                     "A package's .nuspec goes with it: delete the package, or its version."
                 )
         return await context.delete(path)
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        distinct = sorted(set(texts))
+        invalid = [text for text in distinct if versions.parse(text) is None]
+        return sorted(invalid, key=natural_key) + versions.ordered(distinct)
+
+    def is_prerelease(self, version: str) -> bool:
+        parsed = versions.parse(version)
+        return parsed is not None and parsed.is_prerelease
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if not plain(key.name, key.version) or not versions.is_id(key.name):

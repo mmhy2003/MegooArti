@@ -752,6 +752,10 @@ class DockerFormat(Format):
     unlisted_namespaces = frozenset({names.MANIFESTS})
     no_upload = "An image is pushed with a container client, not uploaded."
 
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        """A tag is a name, not a version: tags have no order."""
+        return None
+
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         """Only a tag is pulled by a name of its own."""
         if key.namespace or not plain(key.name, key.version):

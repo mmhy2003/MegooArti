@@ -44,6 +44,7 @@ from megooarti.repositories.formats import (
 from megooarti.repositories.forms import UploadForm
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
+from megooarti.repositories.versions import ordered_by
 from megooarti.repositories.yum import paths, repodata, rpms, versions
 from megooarti.storage.backends import StagedBlob
 
@@ -421,6 +422,12 @@ class YumFormat(Format):
         for (path, rpm), file in zip(read, form.files, strict=True):
             await _keep(context, path, file.staged, rpm)
         return [path for path, _ in read]
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        return ordered_by(versions.compare_evr, texts)
+
+    def is_prerelease(self, version: str) -> bool:
+        return "~" in versions.split_evr(version)[1]
 
     def usage(self, address: str, key: ComponentKey, files: Sequence[str]) -> list[Usage]:
         if versions.NAME.fullmatch(key.name) is None or versions.split(key.version) is None:

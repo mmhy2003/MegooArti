@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 from megooarti.errors import ApiError
 from megooarti.repositories.paths import normalise_path
+from megooarti.repositories.versions import natural_key
 
 if TYPE_CHECKING:
     from megooarti.repositories.content import RepositoryContext
@@ -173,6 +174,19 @@ class Format:
         """
         directory, _, filename = path.rpartition("/")
         return ComponentKey(namespace=directory, name=filename)
+
+    def ordered_versions(self, texts: Sequence[str]) -> list[str] | None:
+        """A package's versions, each once, from the oldest to the newest, as this format's
+        clients order them; None for a format whose versions have no order.
+
+        The generic format reads them as people do: numbers as numbers.
+        """
+        return sorted(set(texts), key=natural_key)
+
+    def is_prerelease(self, version: str) -> bool:
+        """Whether a client takes this version only when it is asked for: a prerelease,
+        or a build of what is not released yet. The generic format has none."""
+        return False
 
     def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:
         """The words a component is found by. They are stored in lower case.
