@@ -1,12 +1,15 @@
 """Running repositories (spec 6.2): making, changing and deleting them, clearing a proxy's
-cache, and going through a repository's index again. Each calls the REST route beside it,
-with its permission: `admin:repositories:write`."""
+cache, going through a repository's index again, and deleting what is in one. Each calls
+the REST route beside it, with its permission: `admin:repositories:write`, or `delete` on
+the repository whose content it deletes."""
 
+import uuid
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
 from megooarti.errors import ApiError
+from megooarti.mcp.packages import component_named
 from megooarti.mcp.tools import (
     CHANGE,
     DESTRUCTIVE,
@@ -14,10 +17,11 @@ from megooarti.mcp.tools import (
     caller,
     database,
     holding,
+    may_somewhere,
     tool,
 )
 from megooarti.repositories import api as repositories_api
-from megooarti.repositories import service
+from megooarti.repositories import content_api, service
 from megooarti.repositories.api import (
     GroupSettings,
     HostedIn,
@@ -188,3 +192,59 @@ async def rebuild_search_index(name: Name) -> IndexRebuilt:
     principal, request = caller().principal, caller().request
     async with database() as db:
         return await repositories_api.rebuild_index(name, request, principal, db)
+
+
+# --- Deleting content -----------------------------------------------------------------
+
+
+class Deleted(BaseModel):
+    repository: str
+    deleted: int  # files
+    skipped: int  # files the format keeps itself, which go with what they describe
+
+
+@tool(annotations=DESTRUCTIVE, shown_to=may_somewhere("delete"))
+async def delete_component(
+    repository: Name,
+    component_id: uuid.UUID | None = None,
+    namespace: Annotated[str | None, Field(max_length=256)] = None,
+    name: Annotated[str, Field(max_length=256)] = "",
+    version: Annotated[str, Field(max_length=256)] = "",
+) -> Deleted:
+    """Delete one version of a package from a repository: every file of it, each as the
+    format's own client would delete it. Give `component_id` as `search_packages` gave
+    it, or `name` and `version` (and `namespace` where the format has them). It cannot be
+    undone; a proxy fetches it again when it is next asked for."""
+    principal, request = caller().principal, caller().request
+    async with database() as db:
+        if component_id is None:
+            component_id = await component_named(db, repository, namespace, name, version)
+        held = await content_api.get_component(repository, component_id, request, principal, db)
+        files = [entry for entry in held.files if entry.kind == "file"]
+        await content_api.delete_component(repository, component_id, request, principal, db)
+    return Deleted(repository=repository, deleted=len(files), skipped=0)
+
+
+@tool(annotations=DESTRUCTIVE, shown_to=may_somewhere("delete"))
+async def delete_path(
+    repository: Name, path: Annotated[str, Field(min_length=1, max_length=1024)]
+) -> Deleted:
+    """Delete a file, or a folder and everything under it, from a repository, each file as
+    the format's own client would. Files the format keeps itself (an index, a checksum)
+    are skipped: they go with what they describe. It cannot be undone."""
+    principal, request = caller().principal, caller().request
+    async with database() as db:
+        try:
+            await content_api.delete_asset(repository, path, request, principal, db)
+            return Deleted(repository=repository, deleted=1, skipped=0)
+        except ApiError as error:
+            if error.code != "not_found" or error.message != "No such file.":
+                raise
+        deleted = skipped = 0
+        after: str | None = ""
+        while after is not None:
+            done = await content_api.delete_folder(repository, path, request, after, principal, db)
+            deleted, skipped, after = deleted + done.deleted, skipped + done.skipped, done.next
+    if deleted == skipped == 0:
+        raise ApiError(404, "not_found", "No such file or folder.")
+    return Deleted(repository=repository, deleted=deleted, skipped=skipped)

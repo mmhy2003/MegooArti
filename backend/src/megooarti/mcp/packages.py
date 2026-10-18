@@ -295,6 +295,30 @@ class PackageDetails(BaseModel):
     truncated: bool
 
 
+async def component_named(
+    db: AsyncSession, repository: str, namespace: str | None, name: str, version: str
+) -> uuid.UUID:
+    """The id of the one version of one package that these name in a repository: found
+    by the search, among any number. Raises 422 where they name none or several, 404."""
+    if not name or not version or "*" in name + version:
+        raise _invalid(
+            "component_id", "Give `component_id`, or `name` and `version` (without `*`)."
+        )
+    found, _ = await _search(
+        db,
+        repository=repository,
+        namespace=namespace or "",
+        name=name,
+        version=version,
+        limit=200,
+        offset=0,
+    )
+    matching = _one_package([one for one in found if one.version == version], name, namespace)
+    if not matching:
+        raise ApiError(404, "not_found", "No such component.")
+    return matching[0].id
+
+
 @tool()
 async def package_details(
     repository: RepositoryName,
@@ -315,25 +339,7 @@ async def package_details(
         if members is not None:
             raise _not_browsable(members, "Look in")
         if component_id is None:
-            if not name or not version or "*" in name + version:
-                raise _invalid(
-                    "component_id", "Give `component_id`, or `name` and `version` (without `*`)."
-                )
-            found, _ = await _search(
-                db,
-                repository=repository,
-                namespace=namespace or "",
-                name=name,
-                version=version,
-                limit=200,
-                offset=0,
-            )
-            matching = _one_package(
-                [one for one in found if one.version == version], name, namespace
-            )
-            if not matching:
-                raise ApiError(404, "not_found", "No such component.")
-            component_id = matching[0].id
+            component_id = await component_named(db, repository, namespace, name, version)
         detail = await content_api.get_component(repository, component_id, request, principal, db)
         held = await service.get_repository(db, repository)
         paths = [entry.path for entry in detail.files if entry.kind == "file"]
