@@ -4,6 +4,7 @@ by its name and a role by its name (E2). No tool makes a token or sets a passwor
 one its user must change at their first sign-in (D4 of the identity-access spec)."""
 
 import uuid
+from collections.abc import Iterable
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
@@ -14,7 +15,7 @@ from megooarti.errors import ApiError
 from megooarti.mcp.results import Cursor, Limit, Page, offset_of, page_of
 from megooarti.mcp.tools import CHANGE, DESTRUCTIVE, READ, WRITE, caller, database, holding, tool
 from megooarti.pagination import PageParams
-from megooarti.security import users
+from megooarti.security import roles, users
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
 from megooarti.security.api.roles import RoleContent, RoleCreate, RoleOut
@@ -31,6 +32,40 @@ async def _user_id(db: AsyncSession, username: str) -> uuid.UUID:
     if found is None:
         raise ApiError(404, "not_found", "No such user.")
     return found.id
+
+
+def _covers(held: str, wanted: str) -> bool:
+    """Whether a pattern one holds grants all that `wanted` would."""
+    mine, theirs = held.split(":"), wanted.split(":")
+    return len(mine) <= len(theirs) and all(
+        part == "*" or part == other for part, other in zip(mine, theirs, strict=False)
+    )
+
+
+async def _no_more_than_the_caller(
+    db: AsyncSession, permissions: Iterable[str] = (), role_names: Iterable[str] = ()
+) -> None:
+    """Refuse to give, by a role or a permission, what the caller may not do: by their
+    permissions, narrowed by their token's scopes. A token that may give roles makes no
+    one more than it is (the product owner's ruling on 14b's final review)."""
+    principal = caller().principal
+    wanted = set(permissions)
+    held = [found for name in role_names if (found := await roles.get_role(db, name)) is not None]
+    if held:
+        wanted |= await roles.effective_patterns(db, [role.id for role in held])
+
+    def holds(pattern: str) -> bool:
+        mine = any(_covers(own, pattern) for own in principal.patterns)
+        scoped = principal.scopes is None or any(_covers(s, pattern) for s in principal.scopes)
+        return mine and scoped
+
+    beyond = sorted(pattern for pattern in wanted if not holds(pattern))
+    if beyond:
+        raise ApiError(
+            403,
+            "forbidden",
+            f"You may not give what you may not do yourself: {', '.join(beyond[:5])}.",
+        )
 
 
 def _user(view: object) -> UserOut:
@@ -106,6 +141,7 @@ async def create_user(
         must_change_password=True,
     )
     async with database() as db:
+        await _no_more_than_the_caller(db, role_names=body.roles)
         return _user(await users_api.create_user(body, caller().principal, db))
 
 
@@ -128,6 +164,7 @@ async def update_user(
     }
     body = UserUpdate(**{name: value for name, value in given.items() if value is not None})
     async with database() as db:
+        await _no_more_than_the_caller(db, role_names=roles or ())
         user_id = await _user_id(db, username)
         return _user(await users_api.update_user(user_id, body, caller().principal, db))
 
@@ -191,6 +228,7 @@ async def create_role(
         name=name, description=description, permissions=permissions or [], roles=roles or []
     )
     async with database() as db:
+        await _no_more_than_the_caller(db, body.permissions, body.roles)
         return _role(await roles_api.create_role(body, caller().principal, db))
 
 
@@ -206,6 +244,7 @@ async def update_role(
     administrator is refused."""
     principal = caller().principal
     async with database() as db:
+        await _no_more_than_the_caller(db, permissions or (), roles or ())
         current = _role(await roles_api.get_role(name, principal, db))
         body = RoleContent(
             description=current.description if description is None else description,

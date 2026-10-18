@@ -102,6 +102,8 @@ so of themselves: a client asks you before an agent deletes anything.
 No tool makes an API token, changes a password of one's own, or changes the server's
 settings (anonymous access, the base URL): those are for a person, in the web UI or the
 REST API. Users, tokens and roles are named by their names, as the web UI shows them.
+An agent gives no one, through a role or a permission, more than its own token may do:
+a token that may only administer users cannot make an administrator.
 
 Each tool answers as the REST API does for the same caller: a list leaves out what the
 caller may not browse. Those who may read repositories' settings also get, from

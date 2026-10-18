@@ -203,3 +203,62 @@ async def test_a_token_is_revoked_by_its_name_however_many_its_user_has(
     assert len(details["tokens"]) == 202
     assert revoked == {"deleted": "the-first"}
     assert oldest
+
+
+async def test_a_token_gives_no_role_beyond_what_it_may_do_itself(
+    agent, administrator, make_user, make_token
+):
+    await make_user("dev")
+    users_only = await make_token(
+        administrator, "users-only", scopes=["admin:users:read", "admin:users:write"]
+    )
+
+    async with agent(users_only) as client:
+        made = await client.call_tool(
+            "create_user",
+            {"username": "boss", "display_name": "Boss", "password": "x" * 20, "roles": ["admin"]},
+        )
+        raised = await client.call_tool("update_user", {"username": "dev", "roles": ["admin"]})
+        plain = structured(
+            await client.call_tool(
+                "create_user", {"username": "plain", "display_name": "P", "password": "x" * 20}
+            )
+        )
+
+    beyond = "forbidden: You may not give what you may not do yourself: *."
+    assert refusal(made).endswith(beyond)
+    assert refusal(raised).endswith(beyond)
+    assert plain["roles"] == []
+
+
+async def test_a_token_puts_into_a_role_no_more_than_it_may_do_itself(
+    agent, administrator, make_token
+):
+    roles_only = await make_token(
+        administrator, "roles-only", scopes=["admin:roles:read", "admin:roles:write"]
+    )
+
+    async with agent(roles_only) as client:
+        everything = await client.call_tool("create_role", {"name": "all", "permissions": ["*"]})
+        made = structured(
+            await client.call_tool(
+                "create_role", {"name": "role-readers", "permissions": ["admin:roles:read"]}
+            )
+        )
+        raised = await client.call_tool(
+            "update_role", {"name": "role-readers", "permissions": ["admin:users:write"]}
+        )
+        renamed = structured(
+            await client.call_tool(
+                "update_role", {"name": "role-readers", "description": "Reads roles"}
+            )
+        )
+
+    assert refusal(everything).endswith(
+        "forbidden: You may not give what you may not do yourself: *."
+    )
+    assert made["permissions"] == ["admin:roles:read"]
+    assert refusal(raised).endswith(
+        "forbidden: You may not give what you may not do yourself: admin:users:write."
+    )
+    assert renamed["description"] == "Reads roles"
