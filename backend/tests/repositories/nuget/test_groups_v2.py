@@ -319,3 +319,40 @@ async def test_an_id_whose_owners_are_offline_is_answered_by_no_feed(client, roo
     for answer in (found, package):
         assert (answer.status_code, error_code(answer)) == (503, "repository_offline")
     assert group.requests == []
+
+
+async def test_an_entry_and_a_package_of_an_id_no_hosted_member_holds_are_the_feeds(
+    client, root, group
+):
+    package = nupkg("Choco.Thing", "1.0.0", description="On the feed.")
+    group.files["api/v2/Packages(Id='Choco.Thing',Version='1.0.0')"] = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<entry xml:base="http://remote.test/api/v2/" xmlns="http://www.w3.org/2005/Atom" '
+        'xmlns:d="http://schemas.microsoft.com/ado/2007/08/dataservices" '
+        'xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">'
+        + entry("Choco.Thing", "1.0.0").removeprefix("<entry>")
+    ).encode()
+    group.files["api/v2/package/Choco.Thing/1.0.0"] = package
+
+    fetched = await get(client, root, "Packages(Id='Choco.Thing',Version='1.0.0')")
+    downloaded = await get(client, root, "package/Choco.Thing/1.0.0")
+
+    (found,) = entries(fetched)
+    assert found[:2] == ("Choco.Thing", "1.0.0")
+    assert found[3] == f"{BASE}package/Choco.Thing/1.0.0"
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == package
+
+
+async def test_a_group_in_a_group_merges_an_id_no_hosted_member_holds(client, root, group):
+    await make(client, root, name="nuget-outer", type="group", group={"members": ["nuget-all"]})
+
+    answer = await client.get(
+        "/repository/nuget-outer/FindPackagesById()",
+        params={"id": "'Choco.Thing'"},
+        headers=root,
+    )
+
+    assert [(one[0], one[1], one[3]) for one in entries(answer)] == [
+        ("Choco.Thing", "1.0.0", "https://test/repository/nuget-outer/package/Choco.Thing/1.0.0")
+    ]

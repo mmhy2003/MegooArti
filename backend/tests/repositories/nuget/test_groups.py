@@ -226,6 +226,19 @@ async def test_a_package_comes_from_the_first_member_that_has_it(client, root, g
     assert fetched.content == FETCHED  # the second member's
 
 
+async def test_a_package_of_an_id_no_hosted_member_holds_is_the_feeds(client, root, group):
+    package = nupkg("Newtonsoft.Json", "13.0.3", description="On the feed.")
+    flat = "nuget/v3-flatcontainer/newtonsoft.json/13.0.3"
+    group.files[f"{flat}/newtonsoft.json.13.0.3.nupkg"] = package
+
+    fetched = await get(
+        client, root, "v3/package/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg"
+    )
+
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.content == package
+
+
 async def test_a_member_that_cannot_be_asked_is_passed_over(client, root, group):
     group.down = True
 

@@ -216,20 +216,22 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   feed installs what you push and the feed's packages alike. A V2 query is asked of
   each member, the answers listed in the members' order, an id's version once, as the
   first member that has it has it; the group writes its own pages, and its own links
-  to the next. The newest version of an id is the newest any member has. A group reads
+  to the next. The newest version of an id is the newest any member has, or of an id
+  a hosted member holds, the newest its holders have. A group reads
   ten of a feed's pages for a query at the most: a page past them is refused with a
   `400` that says to narrow the query.
 - **An id you push is yours alone in a group.** Where a hosted repository behind a
   group (or behind a group in it) holds an id, matched without regard to case, the
   group answers for that id from the hosted repositories that hold it, and asks no
-  proxy: a public package of the same id adds no versions to it, and a floating version
+  proxy for it: a public package of the same id adds no versions to it, and a floating version
   (`1.*`) or `dotnet add package` without a version cannot take one of nuget.org's.
   This holds for an id's version list, registration and versions in autocomplete, its
   package, `.nuspec` and symbol package, and in V2 for `FindPackagesById()`, a
   `Packages()` query of one id, an entry and `package/<id>/<version>`. If every hosted
   repository that holds the id is offline, the group answers `503`, and does not fall
   back to a proxy. A search over many ids lists each as the first member that found it
-  has it, as above. An id is held from its first push: push your first version before
+  has it, as above. An id is held from its first push until its last version there is
+  deleted, when the other members answer for it again: push your first version before
   anyone restores the id through the group, or a version of a public package of that
   id may already be in the lock files of those who did.
 - **NuGet Audit** (the warnings `dotnet restore` gives for a package with a known

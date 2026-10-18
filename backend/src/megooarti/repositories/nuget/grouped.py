@@ -5,7 +5,8 @@ written from its members' items, the first member's for a version several have; 
 search and an autocomplete are merged in the members' order. Each is written on each
 request from what the members have, each member keeping what it keeps (W1). A package,
 its `.nuspec` and a file of NuGet Audit's come from the first member that has them, as
-the generic group engine answers. A group signs and checks nothing (E4).
+the generic group engine answers. Of an id a hosted member holds, each of these is its
+holders' alone (H1, `feeds.owners`). A group signs and checks nothing (E4).
 """
 
 from starlette.requests import Request

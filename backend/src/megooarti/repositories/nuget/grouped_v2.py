@@ -6,7 +6,8 @@ address, so that what each gives names the group alone; the answers are merged i
 members' order, the first entry of an id and a version kept, and the page asked for cut
 from them, with the group's own link to the next (E5). An entry is the first member's
 that has it. A package at V2's address is the first member's that has it, as the group
-engine answers; the root and `$metadata` are the group's own.
+engine answers; the root and `$metadata` are the group's own. A query of one id, an
+entry and a package of an id a hosted member holds are asked of its holders alone (H1).
 """
 
 from dataclasses import replace
