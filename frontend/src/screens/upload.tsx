@@ -50,7 +50,16 @@ function isUploadable(format: string): format is Uploadable {
 /** What the API refused, by the name of the field or the part it refused it at. */
 type Refusals = Record<string, string>;
 
-function refusalsOf(error: unknown): Refusals {
+// Refusals of the files themselves, which name no field: a package the server cannot
+// take, and, of NuGet, a symbol package whose package is not there yet. Said at the files.
+const OF_THE_FILES = new Set(["invalid_package"]);
+const OF_NUGETS_FILES = new Set(["invalid_package", "not_found"]);
+
+function refusalsOf(error: unknown, format: string): Refusals {
+  const ofTheFiles = format === "nuget" ? OF_NUGETS_FILES : OF_THE_FILES;
+  if (isApiError(error) && ofTheFiles.has(error.code) && error.details.length === 0) {
+    return { file: error.message };
+  }
   if (!isApiError(error) || error.code !== "validation_error") return {};
   return Object.fromEntries(
     error.details.filter((detail) => detail.field).map((detail) => [detail.field, detail.message]),
@@ -182,7 +191,7 @@ function UploadForm({ repository, directory }: { repository: RepositoryView; dir
   const [stored, setStored] = useState<Uploaded | null>(null);
   const stop = useRef<AbortController | null>(null);
   const fields = useRef<HTMLFormElement>(null);
-  const refused = refusalsOf(failure);
+  const refused = refusalsOf(failure, repository.format);
 
   // The keyboard goes to the first field that was refused. A screen reader then reads
   // the field and, with it, why: an error that only appears is not heard.

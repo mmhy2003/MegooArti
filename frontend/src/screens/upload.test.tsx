@@ -388,6 +388,36 @@ describe("uploading to APT, YUM and apk", () => {
       ["directory", "v3.24/main/x86_64"],
     ]);
   });
+  test.each([
+    [
+      "a symbol package before its package",
+      404,
+      "not_found",
+      "This repository has no Hello 1.0.0: push the package first.",
+    ],
+    [
+      "what is not a package",
+      400,
+      "invalid_package",
+      "The package cannot be accepted: it is not a zip file.",
+    ],
+  ])("%s is refused at the file field, as the server says", async (_, status, code, message) => {
+    const user = userEvent.setup();
+    const { uploads } = at("nuget", "/upload/nuget-own");
+    await user.upload(await screen.findByLabelText("Files"), file("Hello.1.0.0.snupkg"));
+    await user.click(send());
+
+    act(() => uploads[0]?.answer(status, { error: { code, message, details: [] } }));
+
+    const files = screen.getByLabelText("Files");
+    await waitFor(() =>
+      expect(files).toHaveAccessibleDescription(expect.stringContaining(message)),
+    );
+    expect(files).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText("This was not found.")).toBeNull(); // not the general words
+    expect(screen.queryByRole("alert", { name: /did not work/ })).toBeNull();
+  });
+
   test("NuGet takes packages and symbol packages, several at once", async () => {
     const user = userEvent.setup();
     const { uploads } = at("nuget", "/upload/nuget-own");
