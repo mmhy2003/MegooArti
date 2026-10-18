@@ -18,7 +18,8 @@ signs in to `/mcp`: not a password, not the web UI's session, and not anonymous 
 Give an agent a token of its own, with the scopes it needs, and an expiry. For an agent
 that only reads, `repository:*:*:browse` and `repository:*:*:read`. The token's
 scopes narrow what the agent may do, and what it is shown: a tool it could not use is
-not listed to it.
+not listed to it. An agent that runs the registry needs a token of someone who may, with
+the `admin:` permissions of what it is to do.
 
 ## Connecting a client
 
@@ -76,6 +77,31 @@ yet.
 | `repository_details` | A repository's address, a group's members, and how a client is set up to use it (`nuget.config`, a sources line, a Docker login) |
 | `whoami` | Who the agent acts as, what they may do, and the token's scopes and expiry |
 | `system_status` | The version, and whether the server is ready |
+
+Tools that change things are shown only to an agent whose token may use them, and say
+so of themselves: a client asks you before an agent deletes anything.
+
+| Tool | What it does | Permission |
+| --- | --- | --- |
+| `create_repository` | Makes a hosted repository, a proxy or a group. A proxy given no remote proxies its format's public repository | `admin:repositories:write` |
+| `update_repository` | Takes a repository online or offline, gives a group its members, or changes some of its settings; what is not given stays as it is, a proxy's secret too | `admin:repositories:write` |
+| `delete_repository` | Deletes a repository and what is in it | `admin:repositories:write` |
+| `invalidate_proxy_cache` | Makes a proxy ask its remote again | `admin:repositories:write` |
+| `rebuild_search_index` | Goes through a repository's files and packages again | `admin:repositories:write` |
+| `delete_component` | Deletes a version of a package, each file as its format's client would | `delete` on the repository |
+| `delete_path` | Deletes a file, or a folder and all under it | `delete` on the repository |
+| `list_users`, `user_details` | The users, and one user's roles and tokens (never a token's value) | `admin:users:read`, and `admin:tokens:read` for the tokens |
+| `create_user` | Makes a user, with a password they must change when they first sign in | `admin:users:write` |
+| `update_user` | Changes a user's name, email, status or roles | `admin:users:write` |
+| `delete_user` | Deletes a user and their tokens | `admin:users:write` |
+| `revoke_token` | Revokes a user's API token, by its name | `admin:tokens:write` |
+| `list_roles` | The roles, with their permissions | `admin:roles:read` |
+| `create_role`, `update_role` | Makes or changes a role; what is not given to a change stays as it is | `admin:roles:write` |
+| `delete_role` | Deletes a role | `admin:roles:write` |
+
+No tool makes an API token, changes a password of one's own, or changes the server's
+settings (anonymous access, the base URL): those are for a person, in the web UI or the
+REST API. Users, tokens and roles are named by their names, as the web UI shows them.
 
 Each tool answers as the REST API does for the same caller: a list leaves out what the
 caller may not browse. Those who may read repositories' settings also get, from

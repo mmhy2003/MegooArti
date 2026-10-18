@@ -238,6 +238,19 @@ Each plan ends with something an agent uses: 14a with a token and the read tools
 | M13 | A group named to `search_packages` or `package_details` is refused with `not_browsable`, naming the members the caller may browse; `package_versions` gives those members' versions. | The search route leaves groups out, so a group's search found nothing and said nothing; agents are given groups' addresses by the setup snippets. |
 | M14 | APT's prerelease is a `~` in the upstream version only; Maven's a qualifier after a separator or a number (`2.0M1`, `1.0rc1`), and a snapshot in any case. | A backport's revision (`1~bpo12+1`, docker-ce's `~ubuntu`) made every release a prerelease. |
 
+### Settled while building plan 14b
+
+| # | What | Why |
+| --- | --- | --- |
+| N1 | Each format says the public repository a proxy of it is made with where no remote is given (`Format.public_remotes`, by the protocol of its settings, `""` for none; `Format.public_remote(format_config)`), and `GET /api/v1/formats` gives them, with each format's types, to whoever is signed in. The web form takes them from there (in place of the form's own table). | One place says what a new proxy is given: the form and `create_repository` cannot differ (6.2). |
+| N2 | A tool that changes is shown to whoever holds its REST route's permission (`holding`); `delete_component` and `delete_path`, whose permission is a repository's, to whoever may delete in some repository by their permissions, narrowed by their token's scopes, or by what is public (`may_somewhere`). Each call is still checked against its repository. | E1 for a permission that is not one string; a tool shown to someone who may delete only elsewhere is refused there, as the REST route refuses. |
+| N3 | `Server._tool_input_schema` gives no schema of a tool the caller is not shown. | The SDK reads it to check a call's `Mcp-Param` headers before the call is made (the ruling of 14a's review). |
+| N4 | What a tool is given that the REST route's body would refuse is refused in the same words: `validation_error`, a line for each field. | The routes are called with bodies made in the tool; their models' errors are the API's (8.1). |
+| N5 | `update_repository` and `update_role` change only what is given: the rest is what there is, and a proxy's stored secret is kept unless a secret is given (the REST API's `PUT` takes them whole). `update_user`'s fields left out, or null, are not changed: an email is not cleared through MCP. | An agent that sends what it means to change does not undo the rest by leaving it out. |
+| N6 | `create_user` makes a user who must change their password when they first sign in, always. | 6.2: no tool sets a password a person did not choose (D4 of the identity-access spec). |
+| N7 | `delete_path` deletes a file at the path, or else everything under the folder, a thousand files at a time until there is none, each round committed; `No such file or folder.` where there is neither. `delete_component` takes a component's id, or its name and version as `package_details` does. | The REST API has a route for each; an agent names a path, as it does to `browse`. |
+| N8 | `revoke_token` revokes API tokens; an OAuth approval is revoked by plan 14c's tools and screens. | There are no approvals before 14c. |
+
 ## 13. Requirements
 
 | BRD | Where |
