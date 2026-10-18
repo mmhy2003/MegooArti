@@ -59,6 +59,7 @@ import {
   TYPES,
   updateBody,
   VERSION_POLICIES,
+  withDefaultRemote,
   type Draft,
   type RepositoryType,
 } from "@/lib/repository-form";
@@ -124,7 +125,9 @@ function RepositoryForm({
   const may = useMay();
   const creating = repository === null;
   const [draft, setDraft] = useState<Draft>(() => (repository ? draftOf(repository) : EMPTY));
-  const set = (change: Partial<Draft>) => setDraft((held) => ({ ...held, ...change }));
+  // A new proxy is given its format's public remote, until another is typed.
+  const set = (change: Partial<Draft>) =>
+    setDraft((held) => ({ ...held, ...(creating ? withDefaultRemote(held, change) : change) }));
   const { form, tried, attempt } = useAttempts(error);
   const storesReadable = may("admin:blobstores:read");
   const stores = useEveryBlobStore(creating && storesReadable);

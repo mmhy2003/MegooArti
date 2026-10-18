@@ -72,8 +72,11 @@ repositories, blob stores and the installation's own settings.
     hosted APT repository has its suite, a hosted YUM repository the depth of its
     metadata, a proxy of APT, YUM or apk its remote's public keys, which a group
     checks it with, and a NuGet proxy its protocol (V3, or V2 for the Chocolatey
-    community feed and the PowerShell Gallery) and a symbol server to pass on. A
-    hosted NuGet repository takes a version once unless another policy is chosen. What
+    community feed and the PowerShell Gallery) and a symbol server to pass on. A new
+    proxy's remote starts as its format's public repository (Maven Central, the npm
+    registry, PyPI, Docker Hub, Debian, Alpine; nuget.org for NuGet V3 and the
+    Chocolatey community feed for V2; none for YUM and raw), and follows the format
+    and the protocol chosen until another address is typed. A hosted NuGet repository takes a version once unless another policy is chosen. What
     cannot change later (name, format, type, blob store, version policy, suite, depth
     of the metadata, a NuGet proxy's protocol) is shown as it is and not as a field, beside the address the repository's clients use. A proxy's secret is
     typed and never shown: leave the field empty to keep the one that is stored. A

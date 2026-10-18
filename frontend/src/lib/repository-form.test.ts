@@ -10,6 +10,7 @@ import {
 
 import {
   createBody,
+  defaultRemoteOf,
   draftOf,
   EMPTY,
   FORMATS,
@@ -21,6 +22,7 @@ import {
   problemsOf,
   takesRemoteKeys,
   updateBody,
+  withDefaultRemote,
   type Draft,
 } from "./repository-form";
 
@@ -511,5 +513,55 @@ describe("the addresses of a repository's settings", () => {
     expect(NEW_REPOSITORY).toBe("/admin/repositories/~new");
     // A repository may be called "new", and its settings are then its own page.
     expect(repositorySettingsHref("new")).toBe("/admin/repositories/new");
+  });
+});
+
+describe("the remote a proxy is made with", () => {
+  const making = (change: Partial<Draft>): Draft => ({ ...EMPTY, ...change });
+
+  test.each([
+    ["maven", "v3", "https://repo1.maven.org/maven2"],
+    ["npm", "v3", "https://registry.npmjs.org"],
+    ["pypi", "v3", "https://pypi.org"],
+    ["docker", "v3", "https://registry-1.docker.io"],
+    ["apt", "v3", "http://deb.debian.org/debian"],
+    ["apk", "v3", "https://dl-cdn.alpinelinux.org/alpine"],
+    ["nuget", "v3", "https://api.nuget.org/v3/index.json"],
+    ["nuget", "v2", "https://community.chocolatey.org/api/v2/"],
+    ["yum", "v3", ""],
+    ["raw", "v3", ""],
+  ])("of %s (%s) is its public one, or none where there is no one", (format, protocol, remote) => {
+    expect(defaultRemoteOf(making({ format, type: "proxy", protocol }))).toBe(remote);
+    expect(defaultRemoteOf(making({ format, type: "hosted", protocol }))).toBe("");
+  });
+
+  test("is given as a proxy is chosen, and follows the format, the type and the protocol", () => {
+    let held = making({});
+    const change = (one: Partial<Draft>) => {
+      held = { ...held, ...withDefaultRemote(held, one) };
+      return held.remoteUrl;
+    };
+
+    expect(change({ name: "mirror" })).toBe("");
+    expect(change({ type: "proxy" })).toBe("https://repo1.maven.org/maven2");
+    expect(change({ format: "npm" })).toBe("https://registry.npmjs.org");
+    expect(change({ format: "nuget" })).toBe("https://api.nuget.org/v3/index.json");
+    expect(change({ protocol: "v2" })).toBe("https://community.chocolatey.org/api/v2/");
+    expect(change({ format: "yum" })).toBe("");
+    expect(change({ format: "docker" })).toBe("https://registry-1.docker.io");
+    expect(change({ type: "group" })).toBe("");
+  });
+
+  test("an address that was typed is kept, whatever else changes", () => {
+    let held = making({ type: "proxy", remoteUrl: "https://mirror.example.org/maven2" });
+    for (const one of [
+      { format: "npm" },
+      { type: "hosted" as const },
+      { type: "proxy" as const },
+    ]) {
+      held = { ...held, ...withDefaultRemote(held, one) };
+      expect(held.remoteUrl).toBe("https://mirror.example.org/maven2");
+    }
+    expect(withDefaultRemote(held, { remoteUrl: "" })).toEqual({ remoteUrl: "" });
   });
 });

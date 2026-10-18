@@ -314,12 +314,53 @@ describe("a new repository (R2)", () => {
     expect(sent(calls)).toMatchObject({ format: "npm", format_config: {} });
   });
 
+  test("a proxy is given its format's public remote, and keeps one that is typed", async () => {
+    const user = userEvent.setup();
+    const { calls } = fresh();
+    const remote = () => screen.getByLabelText("Remote address");
+
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    expect(remote()).toHaveValue("https://repo1.maven.org/maven2");
+    await user.selectOptions(screen.getByLabelText("Format"), "nuget");
+    expect(remote()).toHaveValue("https://api.nuget.org/v3/index.json");
+    await user.click(screen.getByRole("radio", { name: "V2" }));
+    expect(remote()).toHaveValue("https://community.chocolatey.org/api/v2/");
+    await user.selectOptions(screen.getByLabelText("Format"), "yum");
+    expect(remote()).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("Format"), "npm");
+    expect(remote()).toHaveValue("https://registry.npmjs.org");
+    await user.type(screen.getByLabelText("Name"), "npmjs");
+    await user.click(create());
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect(sent(calls)).toMatchObject({
+      format: "npm",
+      type: "proxy",
+      proxy: { remote_url: "https://registry.npmjs.org" },
+    });
+  });
+
+  test("a remote that was typed is not given another when the format changes", async () => {
+    const user = userEvent.setup();
+    fresh();
+
+    await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    await user.clear(screen.getByLabelText("Remote address"));
+    await user.paste("https://mirror.example.org/maven2");
+    await user.selectOptions(screen.getByLabelText("Format"), "pypi");
+
+    expect(screen.getByLabelText("Remote address")).toHaveValue(
+      "https://mirror.example.org/maven2",
+    );
+  });
+
   test("a proxy is made with its remote and how it signs in there", async () => {
     const user = userEvent.setup();
     const { calls, client } = fresh();
 
     await user.type(screen.getByLabelText("Name"), "mirror");
     await user.click(screen.getByRole("radio", { name: "Proxy" }));
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.type(screen.getByLabelText("Remote address"), "https://repo.example.org/maven2/");
     await user.selectOptions(screen.getByLabelText("Signs in to the remote with"), "basic");
     await user.type(screen.getByLabelText("User name"), "robot");
@@ -474,6 +515,7 @@ describe("a new repository (R2)", () => {
     expect(screen.getByLabelText("Name")).toHaveFocus();
 
     await user.type(screen.getByLabelText("Name"), "mirror");
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.type(screen.getByLabelText("Remote address"), "repo.example.org");
     await user.click(create());
     expect(screen.getByLabelText("Remote address")).toHaveFocus();
@@ -507,6 +549,7 @@ describe("a new repository (R2)", () => {
     const attempt = async () => {
       await user.type(screen.getByLabelText("Name"), "mirror");
       await user.click(screen.getByRole("radio", { name: "Proxy" }));
+      await user.clear(screen.getByLabelText("Remote address"));
       await user.type(screen.getByLabelText("Remote address"), "https://repo.example.org");
       await user.click(create());
     };
@@ -619,6 +662,7 @@ describe("a new repository (R2)", () => {
     );
     await user.selectOptions(screen.getByLabelText("Format"), "apt");
     await user.type(screen.getByLabelText("Name"), "apt-debian");
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.type(screen.getByLabelText("Remote address"), "http://deb.debian.org/debian");
     await user.type(screen.getByLabelText("The remote's public keys"), "the keys");
     await user.click(create());
@@ -643,6 +687,7 @@ describe("a new repository (R2)", () => {
     await user.selectOptions(screen.getByLabelText("Format"), "apt");
     await user.click(screen.getByRole("radio", { name: "Proxy" }));
     await user.type(screen.getByLabelText("Name"), "apt-debian");
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.type(screen.getByLabelText("Remote address"), "http://deb.debian.org/debian");
     await user.type(screen.getByLabelText("The remote's public keys"), "nonsense");
     await user.click(create());
@@ -671,7 +716,7 @@ describe("a new repository (R2)", () => {
     );
     await user.type(screen.getByLabelText("Name"), "choco-community");
     // Pasted, as an address is: typed a key at a time, it is slow.
-    await user.click(screen.getByLabelText("Remote address"));
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.paste("https://community.chocolatey.org/api/v2/");
     const symbols = screen.getByLabelText("Symbol server");
     await user.click(symbols);
@@ -722,7 +767,7 @@ describe("a new repository (R2)", () => {
     await user.selectOptions(screen.getByLabelText("Format"), "nuget");
     await user.click(screen.getByRole("radio", { name: "Proxy" }));
     await user.type(screen.getByLabelText("Name"), "nuget-org");
-    await user.click(screen.getByLabelText("Remote address"));
+    await user.clear(screen.getByLabelText("Remote address"));
     await user.paste("https://api.nuget.org/v3/index.json");
     await user.click(screen.getByLabelText("Symbol server"));
     await user.paste("https://symbols.example.org");

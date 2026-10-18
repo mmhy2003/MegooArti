@@ -179,6 +179,40 @@ export function hasSigningKey(repository: { format: string; type: string }): boo
 }
 
 /** Whether a combination has a NuGet proxy's settings: its protocol and its symbol server. */
+// The public repository a proxy of each format is made with unless another is typed. YUM
+// has none (each distribution, version and architecture has its own), nor has raw.
+const PUBLIC_REMOTES: Readonly<Record<string, string>> = {
+  maven: "https://repo1.maven.org/maven2",
+  npm: "https://registry.npmjs.org",
+  pypi: "https://pypi.org",
+  docker: "https://registry-1.docker.io",
+  apt: "http://deb.debian.org/debian",
+  apk: "https://dl-cdn.alpinelinux.org/alpine",
+};
+// NuGet's, by protocol: nuget.org's V3 feed, and Chocolatey's community feed for V2.
+const PUBLIC_NUGET_REMOTES: Readonly<Record<string, string>> = {
+  v3: "https://api.nuget.org/v3/index.json",
+  v2: "https://community.chocolatey.org/api/v2/",
+};
+
+/** The public remote a proxy of the form's format (and protocol) is given; none for
+ * another type, or a format without one. */
+export function defaultRemoteOf(draft: Pick<Draft, "format" | "type" | "protocol">): string {
+  if (draft.type !== "proxy") return "";
+  const remotes = draft.format === "nuget" ? PUBLIC_NUGET_REMOTES : PUBLIC_REMOTES;
+  return (draft.format === "nuget" ? remotes[draft.protocol] : remotes[draft.format]) ?? "";
+}
+
+/** A change to a form for a new repository, with the remote that goes with it: the public
+ * one of the format, type and protocol it leads to, while the remote is none or the one the
+ * form gave. A remote that was typed is kept. */
+export function withDefaultRemote(held: Draft, change: Partial<Draft>): Partial<Draft> {
+  if ("remoteUrl" in change) return change;
+  if (held.remoteUrl !== "" && held.remoteUrl !== defaultRemoteOf(held)) return change;
+  const remoteUrl = defaultRemoteOf({ ...held, ...change });
+  return remoteUrl === held.remoteUrl ? change : { ...change, remoteUrl };
+}
+
 export function isNuGetProxy(draft: { format: string; type: string }): boolean {
   return draft.format === "nuget" && draft.type === "proxy";
 }
