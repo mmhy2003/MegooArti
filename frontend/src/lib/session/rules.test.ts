@@ -37,6 +37,19 @@ describe("what a visitor is shown", () => {
     expect(decide(NOBODY, "/login?next=%2Fsearch", "/search")).toEqual(show);
   });
 
+  test("an application's consent page is answered by someone signed in, and is come back to", () => {
+    expect(decide(NOBODY, "/connect?request=sealed")).toEqual(
+      goTo("/login?next=%2Fconnect%3Frequest%3Dsealed"),
+    );
+    expect(decide(VISITOR, "/connect?request=sealed")).toEqual(
+      goTo("/login?next=%2Fconnect%3Frequest%3Dsealed"),
+    );
+    expect(decide(ADMIN, "/connect?request=sealed")).toEqual(show);
+    expect(decide(ADMIN, "/login", "/connect?request=sealed")).toEqual(
+      goTo("/connect?request=sealed"),
+    );
+  });
+
   test("a visitor browses where anonymous access is on, and has no account", () => {
     expect(isAnonymous(VISITOR)).toBe(true);
     expect(isAnonymous(NOBODY)).toBe(false);

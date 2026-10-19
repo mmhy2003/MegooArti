@@ -13,6 +13,8 @@ export const CHANGE_PASSWORD = "/account/password";
 const ACCOUNT_AREA = "/account";
 // But for this: what is kept in the browser is as much a visitor's as anybody's.
 const PREFERENCES = "/account/preferences";
+// Where an application signing in with OAuth sends a person: only they may answer it.
+const CONNECT = "/connect";
 
 export type Decision = { show: true } | { show: false; goTo: string };
 
@@ -91,7 +93,8 @@ export function decide(session: SessionInfo, path: string, next: string | null =
     }
     return { show: true };
   }
-  const inAccount = pathname === ACCOUNT_AREA || pathname.startsWith(`${ACCOUNT_AREA}/`);
+  const inAccount =
+    pathname === ACCOUNT_AREA || pathname.startsWith(`${ACCOUNT_AREA}/`) || pathname === CONNECT;
   if (isAnonymous(session) && (!inAccount || pathname === PREFERENCES)) return { show: true };
   return { show: false, goTo: signInFor(path) };
 }

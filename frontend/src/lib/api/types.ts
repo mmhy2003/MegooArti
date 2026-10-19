@@ -41,6 +41,13 @@ export type SigningKeyOut = Schemas["SigningKeyOut"];
 export type SigningKeyGenerate = Schemas["SigningKeyGenerate"];
 export type SigningKeyImport = Schemas["SigningKeyImport"];
 export type BlobStoreOut = Schemas["BlobStoreOut"];
+/** An application a user let sign in as them with OAuth (MCP spec 7.6). */
+export type ConnectedApp = Schemas["ConnectedApp"];
+/** What an application asks, as the consent page shows it. */
+export type Asked = Schemas["Asked"];
+export type Consent = Schemas["Consent"];
+/** Where the browser goes after the consent page: back to the application. */
+export type Redirect = Schemas["Redirect"];
 /** A format the server has: its types, and the public repository a new proxy is given. */
 export type FormatOut = Schemas["FormatOut"];
 export type BlobStoreCreate = Schemas["BlobStoreCreate"];

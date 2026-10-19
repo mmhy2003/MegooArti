@@ -265,6 +265,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connected Apps
+         * @description The applications the caller let sign in as them with OAuth, the newest first.
+         */
+        get: operations["list_connected_apps_api_v1_me_connected_apps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/connected-apps/{app_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Connected App
+         * @description Revoke an approval: the application's tokens stop working at once.
+         */
+        delete: operations["revoke_connected_app_api_v1_me_connected_apps__app_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/password": {
         parameters: {
             query?: never;
@@ -312,6 +352,50 @@ export interface paths {
         post?: never;
         /** Revoke Token */
         delete: operations["revoke_token_api_v1_me_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Asked
+         * @description What a client asks of the signed-in person, for the consent page to show.
+         */
+        get: operations["asked_api_v1_oauth_consent_get"];
+        put?: never;
+        /**
+         * Approve
+         * @description The person approves: a code for the client, back at its redirect address.
+         */
+        post: operations["approve_api_v1_oauth_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth/refusal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refuse
+         * @description The person refuses: the client is told so (`access_denied`).
+         */
+        post: operations["refuse_api_v1_oauth_refusal_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -646,6 +730,43 @@ export interface paths {
         patch: operations["update_user_api_v1_users__user_id__patch"];
         trace?: never;
     };
+    "/api/v1/users/{user_id}/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List User Connected Apps
+         * @description The applications a user let sign in as them with OAuth.
+         */
+        get: operations["list_user_connected_apps_api_v1_users__user_id__connected_apps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/connected-apps/{app_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke User Connected App */
+        delete: operations["revoke_user_connected_app_api_v1_users__user_id__connected_apps__app_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{user_id}/password": {
         parameters: {
             query?: never;
@@ -705,6 +826,18 @@ export interface components {
         AnonymousAccess: {
             /** Enabled */
             enabled: boolean;
+        };
+        /** Answer */
+        Answer: {
+            /** Request */
+            request: string;
+        };
+        /** Asked */
+        Asked: {
+            /** Client */
+            client: string;
+            /** Redirect Host */
+            redirect_host: string;
         };
         /** AssetView */
         AssetView: {
@@ -841,6 +974,47 @@ export interface components {
             namespace: string;
             /** Version */
             version: string;
+        };
+        /**
+         * ConnectedApp
+         * @description An approval a user gave an application signed in with OAuth (MCP spec 7.6).
+         */
+        ConnectedApp: {
+            /** Client */
+            client: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Redirect Host */
+            redirect_host: string;
+            /** Scopes */
+            scopes: string[] | null;
+        };
+        /** Consent */
+        Consent: {
+            /**
+             * Access
+             * @enum {string}
+             */
+            access: "read" | "all";
+            /**
+             * Lasts
+             * @enum {string}
+             */
+            lasts: "1d" | "30d" | "90d" | "forever";
+            /** Request */
+            request: string;
         };
         /** Database */
         Database: {
@@ -984,6 +1158,17 @@ export interface components {
         Page_ComponentView_: {
             /** Items */
             items: components["schemas"]["ComponentView"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[ConnectedApp] */
+        Page_ConnectedApp_: {
+            /** Items */
+            items: components["schemas"]["ConnectedApp"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -1149,6 +1334,11 @@ export interface components {
             failures: number;
             /** Last Error */
             last_error: string | null;
+        };
+        /** Redirect */
+        Redirect: {
+            /** Redirect */
+            redirect: string;
         };
         /** RemoteAuthIn */
         RemoteAuthIn: {
@@ -2157,6 +2347,67 @@ export interface operations {
             };
         };
     };
+    list_connected_apps_api_v1_me_connected_apps_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ConnectedApp_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revoke_connected_app_api_v1_me_connected_apps__app_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     change_password_api_v1_me_password_put: {
         parameters: {
             query?: never;
@@ -2270,6 +2521,103 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    asked_api_v1_oauth_consent_get: {
+        parameters: {
+            query: {
+                request: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Asked"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    approve_api_v1_oauth_consent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Consent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Redirect"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    refuse_api_v1_oauth_refusal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Answer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Redirect"];
+                };
             };
             /** @description Any error. */
             default: {
@@ -3145,6 +3493,70 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserOut"];
                 };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_user_connected_apps_api_v1_users__user_id__connected_apps_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ConnectedApp_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revoke_user_connected_app_api_v1_users__user_id__connected_apps__app_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+                app_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Any error. */
             default: {

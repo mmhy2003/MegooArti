@@ -439,10 +439,16 @@ describe("the pages of an account (A1)", () => {
 
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["API tokens", "/account/tokens"],
+      ["Connected apps", "/account/connected-apps"],
       ["Password", "/account/password"],
       ["Preferences", "/account/preferences"],
     ]);
-    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual(["page", null, null]);
+    expect(links.map((link) => link.getAttribute("aria-current"))).toEqual([
+      "page",
+      null,
+      null,
+      null,
+    ]);
     await expectAccessible();
   });
 

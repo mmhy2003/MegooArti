@@ -335,6 +335,7 @@
     "label": "Account",
     "pages": {
       "tokens": "API tokens",
+      "apps": "Connected apps",
       "password": "Password",
       "preferences": "Preferences"
     }
@@ -558,7 +559,11 @@
     "builtinDelete": "A built-in user cannot be deleted. It can be disabled.",
     "mayNotCreate": "You may not create users.",
     "selfPassword": "This is your own account: your password is changed under your account, where you are asked for the one you have.",
-    "toOwnPassword": "Change your password"
+    "toOwnPassword": "Change your password",
+    "appsTitle": "Connected apps",
+    "appsOf": "Applications {username} connected",
+    "noApps": "This user has connected no application.",
+    "appRevoked": "Revoked {name}, which {username} connected."
   },
   "roles": {
     "title": "Roles",
@@ -917,5 +922,54 @@
     "imported": "{name} signs with the imported key.",
     "replaceBody": "Its indexes are signed with that key from now on. Every machine that uses {name} must install the new public key, or it refuses what the repository serves.",
     "unreadable": "This key cannot be read with the installation's secret key, so nothing is signed with it: every client is refused the indexes. Generate a new key or import one."
+  },
+  "connectedApps": {
+    "title": "Connected apps",
+    "intro": "Applications you let sign in as you with OAuth, such as an AI agent. Revoke one, and its sign-in stops working at once.",
+    "listTitle": "Your connected apps",
+    "none": "You have connected no application.",
+    "sentTo": "Sent back to {host}",
+    "everything": "Everything you may do",
+    "reading": "Read what you may read",
+    "never": "Until it is revoked",
+    "columns": {
+      "app": "Application",
+      "mayDo": "May do",
+      "expires": "Expires",
+      "lastUsed": "Last used",
+      "connected": "Connected",
+      "actions": "Actions"
+    },
+    "revoke": "Revoke",
+    "revokeNamed": "Revoke {name}",
+    "confirmTitle": "Revoke {name}?",
+    "confirmText": "It is signed out at once, and must be connected again to sign in.",
+    "revoked": "Revoked {name}."
+  },
+  "connect": {
+    "title": "Connect an application",
+    "asks": "<app>{name}</app> asks to use MegooArti as you.",
+    "itsWords": "That is the name it gave itself. When you answer, your browser goes back to it, at {host}.",
+    "nothingAsked": "Nothing is asked here. Start again from the application.",
+    "fields": {
+      "access": "What it may do",
+      "lasts": "For how long"
+    },
+    "access": {
+      "read": "Read what I can read",
+      "all": "Everything I can do"
+    },
+    "accessHints": {
+      "read": "Find and read packages and settings. It changes nothing.",
+      "all": "Whatever you may do, changing and deleting included."
+    },
+    "lasts": {
+      "1d": "A day",
+      "30d": "30 days",
+      "90d": "90 days",
+      "forever": "Until I revoke it"
+    },
+    "allow": "Allow",
+    "refuse": "Refuse"
   }
 }

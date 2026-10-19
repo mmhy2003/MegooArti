@@ -1,20 +1,25 @@
 "use client";
 
-import { KeyRound, SlidersHorizontal, Ticket, type LucideIcon } from "lucide-react";
+import { KeyRound, Plug, SlidersHorizontal, Ticket, type LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import { useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
 
 import { AppLink } from "@/components/ui/link";
 import { cn } from "@/lib/cn";
-import { ACCOUNT_TOKENS, PREFERENCES } from "@/lib/paths";
+import { ACCOUNT_TOKENS, CONNECTED_APPS, PREFERENCES } from "@/lib/paths";
 import { CHANGE_PASSWORD } from "@/lib/session/rules";
 import { useSession } from "@/lib/session/session";
 
-type Page = { key: "tokens" | "password" | "preferences"; href: Route; icon: LucideIcon };
+type Page = {
+  key: "tokens" | "apps" | "password" | "preferences";
+  href: Route;
+  icon: LucideIcon;
+};
 
 const PAGES: Page[] = [
   { key: "tokens", href: ACCOUNT_TOKENS, icon: Ticket },
+  { key: "apps", href: CONNECTED_APPS, icon: Plug },
   { key: "password", href: CHANGE_PASSWORD as Route, icon: KeyRound },
   { key: "preferences", href: PREFERENCES, icon: SlidersHorizontal },
 ];

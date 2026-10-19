@@ -349,6 +349,19 @@ describe("one user", () => {
   function one(who = ALICE, more: Routes = {}, session = ADMIN) {
     const api = mockApi({
       [`GET /users/${who.id}`]: { json: who },
+      [`GET /users/${who.id}/connected-apps`]: {
+        json: page([
+          {
+            id: "app1",
+            client: "Claude",
+            redirect_host: "claude.ai",
+            scopes: null,
+            created_at: "2026-10-18T08:00:00Z",
+            last_used_at: null,
+            expires_at: null,
+          },
+        ]),
+      },
       [`GET /users/${who.id}/tokens`]: {
         json: page([
           {
@@ -557,6 +570,30 @@ describe("one user", () => {
     one(ALICE, {}, holding("admin:users:read", "admin:tokens:read"));
     expect(await screen.findByRole("table", { name: "API tokens of alice" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Revoke ci build" })).toBeNull();
+  });
+
+  test("has the applications they connected listed, and revoked by whoever may", async () => {
+    const user = userEvent.setup();
+    const first = one(ALICE, { "DELETE /users/id-of-alice/connected-apps/app1": { status: 204 } });
+
+    const table = await screen.findByRole("table", { name: "Applications alice connected" });
+    expect(within(table).getByText("Sent back to claude.ai")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Revoke Claude" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke" }),
+    );
+
+    await waitFor(() =>
+      expect(notices()).toHaveTextContent("Revoked Claude, which alice connected."),
+    );
+    expect(of(first.calls, "DELETE")[0]?.path).toBe("/users/id-of-alice/connected-apps/app1");
+    first.unmount();
+
+    one(ALICE, {}, holding("admin:users:read", "admin:tokens:read"));
+    expect(
+      await screen.findByRole("table", { name: "Applications alice connected" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Revoke Claude" })).toBeNull();
   });
 
   test("is deleted only by whoever types their name, and is then not asked for again (A8)", async () => {

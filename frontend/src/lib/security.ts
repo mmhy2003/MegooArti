@@ -9,8 +9,12 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { api } from "@/lib/api/client";
 import type {
+  Asked,
+  ConnectedApp,
+  Consent,
   Page,
   PasswordReset,
+  Redirect,
   RoleContent,
   RoleCreate,
   RoleOut,
@@ -30,6 +34,7 @@ export const AT_ONCE = 50;
 const EVERY = 200;
 
 const TOKENS = "tokens";
+const APPS = "connected-apps";
 const USERS = "users";
 const ROLES = "roles";
 const SETTINGS = "settings";
@@ -77,6 +82,45 @@ export function useRevokeToken() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/me/tokens/${encodeURIComponent(id)}`),
     onSuccess: () => client.invalidateQueries({ queryKey: [TOKENS, "mine"] }),
+  });
+}
+
+// --- Connected apps (OAuth) -------------------------------------------------------------------
+
+export function useMyConnectedApps() {
+  return useQuery({
+    queryKey: [APPS, "mine"],
+    queryFn: () => api.get<Page<ConnectedApp>>("/me/connected-apps", { query: { limit: EVERY } }),
+  });
+}
+
+export function useRevokeConnectedApp() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/me/connected-apps/${encodeURIComponent(id)}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: [APPS, "mine"] }),
+  });
+}
+
+/** What an application asks of the person signed in: for its consent page. */
+export function useConsentRequest(request: string) {
+  return useQuery({
+    queryKey: ["consent", request],
+    queryFn: () => api.get<Asked>("/oauth/consent", { query: { request } }),
+    enabled: request !== "",
+    retry: false,
+  });
+}
+
+export function useApprove() {
+  return useMutation({
+    mutationFn: (answer: Consent) => api.post<Redirect>("/oauth/consent", answer),
+  });
+}
+
+export function useRefuse() {
+  return useMutation({
+    mutationFn: (request: string) => api.post<Redirect>("/oauth/refusal", { request }),
   });
 }
 
@@ -164,6 +208,24 @@ export function useRevokeUserToken(id: string) {
     mutationFn: (token: string) =>
       api.delete<void>(`${user(id)}/tokens/${encodeURIComponent(token)}`),
     onSuccess: () => client.invalidateQueries({ queryKey: [TOKENS, "of", id] }),
+  });
+}
+
+export function useUserConnectedApps(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [APPS, "of", id],
+    queryFn: () =>
+      api.get<Page<ConnectedApp>>(`${user(id)}/connected-apps`, { query: { limit: EVERY } }),
+    enabled,
+  });
+}
+
+export function useRevokeUserConnectedApp(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (app: string) =>
+      api.delete<void>(`${user(id)}/connected-apps/${encodeURIComponent(app)}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: [APPS, "of", id] }),
   });
 }
 

@@ -14,6 +14,9 @@ const UPLOAD = "/upload";
 const SEARCH = "/search";
 export const ACCOUNT_TOKENS = "/account/tokens" as Route;
 export const PREFERENCES = "/account/preferences" as Route;
+export const CONNECTED_APPS = "/account/connected-apps" as Route;
+/** The consent page an application signing in with OAuth sends a person to. */
+export const CONNECT = "/connect" as Route;
 export const USERS = "/admin/users" as Route;
 export const NEW_USER = "/admin/users/new" as Route;
 export const ROLES = "/admin/roles" as Route;

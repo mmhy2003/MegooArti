@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { NewPasswordField } from "@/components/new-password-field";
+import { ConnectedAppList } from "@/components/connected-app-list";
 import { TokenList } from "@/components/token-list";
 import { Alert } from "@/components/ui/alert";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -30,9 +31,11 @@ import {
   useDeleteUser,
   useEveryRole,
   useResetPassword,
+  useRevokeUserConnectedApp,
   useRevokeUserToken,
   useUpdateUser,
   useUser,
+  useUserConnectedApps,
   useUserTokens,
 } from "@/lib/security";
 import { allows, CHANGE_PASSWORD } from "@/lib/session/rules";
@@ -494,6 +497,37 @@ function Tokens({ user, mayRevoke }: { user: UserOut; mayRevoke: boolean }) {
   );
 }
 
+function ConnectedApps({ user, mayRevoke }: { user: UserOut; mayRevoke: boolean }) {
+  const t = useTranslations("users");
+  const notify = useNotify();
+  const apps = useUserConnectedApps(user.id, true);
+  const revoke = useRevokeUserConnectedApp(user.id);
+  return (
+    <Panel>
+      <h2 className="px-6 pt-6 text-lg font-semibold text-fg uppercase">{t("appsTitle")}</h2>
+      {apps.isError ? (
+        <ErrorState error={apps.error} onRetry={() => void apps.refetch()} className="m-6" />
+      ) : !apps.data ? (
+        <LoadingState />
+      ) : (
+        <ConnectedAppList
+          caption={t("appsOf", { username: user.username })}
+          apps={apps.data.items}
+          empty={t("noApps")}
+          onRevoke={
+            mayRevoke
+              ? async (app) => {
+                  await revoke.mutateAsync(app.id);
+                  notify(t("appRevoked", { name: app.client, username: user.username }));
+                }
+              : undefined
+          }
+        />
+      )}
+    </Panel>
+  );
+}
+
 function Delete({
   user,
   remove,
@@ -594,7 +628,10 @@ export function UserScreen() {
         <Password user={found} />
       )}
       {may("admin:tokens:read") ? (
-        <Tokens user={found} mayRevoke={may("admin:tokens:write")} />
+        <>
+          <Tokens user={found} mayRevoke={may("admin:tokens:write")} />
+          <ConnectedApps user={found} mayRevoke={may("admin:tokens:write")} />
+        </>
       ) : null}
       {mayWrite ? (
         isSelf || found.builtin ? (
