@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
+from megooarti.security import users
 from megooarti.security.authentication import Principal, require
 from megooarti.security.guards import ensure_administrator_remains
 from megooarti.security.roles import get_role
@@ -157,6 +158,8 @@ async def set_local_sign_in(
     and must then hold full access: else nobody who signs in would."""
     await set_setting(db, "local_sign_in", {"enabled": body.enabled})
     await ensure_administrator_remains(db)
+    if not body.enabled:
+        await users.sign_out_our_own(db)  # signed out for good, as a disabled user is
     result = await _sign_in(db)
     await db.commit()
     log.info(

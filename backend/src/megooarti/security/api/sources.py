@@ -132,7 +132,7 @@ async def _apply(
 ) -> None:
     await _check_name(db, body.name, source.id)
     mapping = [entry.model_dump() for entry in body.group_mapping]
-    await sources.check_mapping(db, mapping)
+    await sources.check_mapping(db, mapping, source.group_mapping or [])
     source.settings = sources.kept_settings(
         request.app.state.settings, kind, body.settings, source.settings or None
     )
@@ -204,7 +204,10 @@ async def update_source(
 ) -> SourceOut:
     """Change a source; its kind stays. Turned off, its users are refused until it is on."""
     source = await _load(db, source_id)
+    was_on = source.enabled
     await _apply(db, request, source, body, _kind(source.kind))
+    if was_on and not source.enabled:
+        await sources.sign_out_users(db, source)
     await db.flush()
     result = await _out(db, source)
     await db.commit()

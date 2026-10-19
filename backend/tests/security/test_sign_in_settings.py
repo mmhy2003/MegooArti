@@ -123,7 +123,7 @@ async def test_with_our_own_sign_in_off_only_the_built_in_admin_signs_in(
     assert admin.status_code == 200
 
 
-async def test_the_session_of_one_of_our_own_ends_when_our_sign_in_is_turned_off(
+async def test_the_sessions_of_our_own_end_when_our_sign_in_is_turned_off_for_good(
     admin_client, other_client, make_user, sessionmaker
 ):
     await admin_can_sign_in(sessionmaker)
@@ -137,7 +137,8 @@ async def test_the_session_of_one_of_our_own_ends_when_our_sign_in_is_turned_off
     back = (await other_client.get(SESSION)).json()
 
     assert after["authenticated"] is False
-    assert back["user"]["username"] == "dana"
+    # Signed out, as a disabled user is: turning it on again brings no session back.
+    assert back["authenticated"] is False
 
 
 async def test_our_own_sign_in_stays_on_while_the_built_in_admin_has_no_full_access(

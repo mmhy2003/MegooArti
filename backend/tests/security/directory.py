@@ -16,6 +16,7 @@ SECRET = "the directory's bind password"
 class Directory(sources.Kind):
     name = "directory"
     secrets = ("secret",)
+    bound = ("address",)
     takes_passwords = True
 
     def checked(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -25,6 +26,7 @@ class Directory(sources.Kind):
         return {
             "people": people,
             "down": bool(settings.get("down")),
+            "address": str(settings.get("address", "ldap://directory.example")),
             "secret": settings.get("secret"),
         }
 

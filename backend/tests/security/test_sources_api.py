@@ -236,3 +236,72 @@ async def test_the_sign_in_screen_is_told_the_enabled_sources_signed_in_to_in_th
         ("Corp SSO", "portal")
     ]
     assert set(listed.json()["items"][0]) == {"id", "name", "kind"}
+
+
+async def test_a_source_whose_mapped_role_was_deleted_is_still_turned_off(
+    admin_client, sessionmaker, kinds
+):
+    await make_role(sessionmaker, "staff", "repository:*:*:read")
+    made = (
+        await admin_client.post(
+            SOURCES,
+            json=directory(enabled=True, group_mapping=[{"group": "staff", "roles": ["staff"]}]),
+        )
+    ).json()
+    await admin_client.delete("/api/v1/roles/staff")
+
+    off = await admin_client.put(
+        f"{SOURCES}/{made['id']}",
+        json={
+            "name": "corp",
+            "enabled": False,
+            "settings": made["settings"],
+            "group_mapping": made["group_mapping"],
+        },
+    )
+    added = await admin_client.put(
+        f"{SOURCES}/{made['id']}",
+        json={
+            "name": "corp",
+            "enabled": False,
+            "settings": made["settings"],
+            "group_mapping": [*made["group_mapping"], {"group": "x", "roles": ["nobody-has-it"]}],
+        },
+    )
+
+    assert off.status_code == 200, off.text
+    assert off.json()["enabled"] is False
+    # A role a mapping is newly given must still be one there is.
+    assert (added.status_code, error_code(added)) == (422, "validation_error")
+
+
+async def test_a_secret_is_not_kept_for_an_address_it_was_not_given_for(admin_client, kinds):
+    made = (await admin_client.post(SOURCES, json=directory())).json()
+    elsewhere = {**made["settings"], "address": "ldap://attacker.example"}
+
+    kept = await admin_client.put(
+        f"{SOURCES}/{made['id']}",
+        json={"name": "corp", "settings": elsewhere, "group_mapping": []},
+    )
+    given = await admin_client.put(
+        f"{SOURCES}/{made['id']}",
+        json={"name": "corp", "settings": {**elsewhere, "secret": SECRET}, "group_mapping": []},
+    )
+
+    assert (kept.status_code, error_code(kept)) == (422, "validation_error")
+    assert kept.json()["error"]["details"][0]["field"] == "settings.secret"
+    assert given.status_code == 200
+    assert given.json()["settings"]["address"] == "ldap://attacker.example"
+
+
+async def test_turning_a_source_off_signs_its_users_out_for_good(admin_client, other_client, kinds):
+    made = (await admin_client.post(SOURCES, json=directory(enabled=True))).json()
+    await other_client.post(LOGIN, json={"username": "ann", "password": "ann pw"})
+    other_client.headers["X-CSRF-Token"] = "unused"
+    body = {"name": "corp", "settings": made["settings"], "group_mapping": []}
+
+    await admin_client.put(f"{SOURCES}/{made['id']}", json={**body, "enabled": False})
+    await admin_client.put(f"{SOURCES}/{made['id']}", json={**body, "enabled": True})
+    session = (await other_client.get("/api/v1/auth/session")).json()
+
+    assert session["authenticated"] is False

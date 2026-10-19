@@ -96,6 +96,8 @@ Settled here, by the designer:
 | S13 | A source's name is 1 to 64 letters, digits, spaces, `.`, `_` and `-`, beginning with a letter or a digit; not `local`; unique whatever its case. A source is made off, and last. `PUT` replaces all but its kind; a secret left out keeps the stored one. | Shown on the sign-in screen and in `name@source`; 14's "tested before it is enabled"; E5. |
 | S14 | A source that cannot be asked answers `503 source_unavailable`, naming it, and is not counted as a failed sign-in. | Section 11. A directory that is down must not lock its users out for 15 minutes. |
 | S15 | The Authentication screen lists the sources, turns them on and off, moves, tests and deletes them; the form that makes or edits one comes with its kind, in 15b (OIDC) and 15d (LDAP), whose settings it shows. | A source's settings are its kind's; this plan has no kind to show. |
+| S16 | A kind names the settings its secrets go with (`Kind.bound`, such as an address). A change to one keeps no stored secret: it must be sent again (`422` at `settings.<secret>`). | E5: a secret is never sent where it was not given for, by pointing a source elsewhere and pressing Test. |
+| S17 | Turning a source off ends its users' sessions, and turning MegooArti's own users off ends theirs but `admin`'s, as disabling a user does; turning them on again brings none back. API tokens work again when it is on. | 4.2's "refused as a disabled user is", for good. |
 
 ## 5. OIDC (plan 15b)
 

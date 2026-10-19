@@ -255,3 +255,61 @@ async def test_a_name_a_source_gives_that_is_nobodys_is_given_another(
     signed_in = await login(client, "pat", "pw")
 
     assert signed_in.json()["user"]["username"] == "__token__@corp"
+
+
+async def test_a_name_shaped_as_a_token_is_given_another_at_once(client, add_source):
+    import asyncio
+
+    await add_source("corp", {"robot": person("pw", username="MGA_robot", id="uid=robot")})
+
+    signed_in = await asyncio.wait_for(login(client, "robot", "pw"), timeout=10)
+
+    assert signed_in.status_code == 200
+    assert not signed_in.json()["user"]["username"].startswith("mga_")
+
+
+async def test_a_taken_name_of_a_source_with_the_longest_name_is_a_name_that_fits(
+    client, other_client, make_user, add_source
+):
+    await make_user("bob")
+    # The directory calls robert bob, the name one of ours has.
+    await add_source("s" * 64, {"robert": person("pw", username="bob")})
+
+    signed_in = await login(other_client, "robert", "pw")
+    name = signed_in.json()["user"]["username"]
+
+    assert signed_in.status_code == 200
+    assert len(name) <= 64 and name.startswith("bob@s")
+
+
+async def test_two_first_sign_ins_at_once_make_one_user(
+    client, add_source, sessionmaker, monkeypatch
+):
+    from megooarti.security import sources
+
+    await make_role(sessionmaker, "developers", "repository:*:*:read")
+    await add_source("corp", {"quinn": person("pw", "developers")}, mapping=DEVELOPERS)
+    await login(client, "quinn", "pw")
+    existing, held_roles = sources._existing, sources._held_roles
+    calls = {"existing": 0}
+
+    async def unseen(db, source, external_id):
+        # As the second of two sign-ins finds it: before the first had made the user.
+        calls["existing"] += 1
+        return None if calls["existing"] == 1 else await existing(db, source, external_id)
+
+    async def none_held(db, user):
+        return {}  # as if the first had not given the role yet
+
+    monkeypatch.setattr(sources, "_existing", unseen)
+    monkeypatch.setattr(sources, "_held_roles", none_held)
+    again = await login(client, "quinn", "pw")
+    async with sessionmaker() as db:
+        quinns = list(
+            await db.scalars(select(User).where(User.external_id == "uid=quinn,ou=people"))
+        )
+
+    assert again.status_code == 200, again.text
+    assert again.json()["user"]["username"] == "quinn"
+    assert len(quinns) == 1
+    monkeypatch.setattr(sources, "_held_roles", held_roles)

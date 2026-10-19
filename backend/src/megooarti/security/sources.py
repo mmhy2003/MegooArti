@@ -12,13 +12,15 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 import structlog
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.config import Settings
 from megooarti.errors import ApiError
 from megooarti.secrets_box import seal, unseal
-from megooarti.security.models import AuthSource, Role, User, UserRole
+from megooarti.security.models import AuthSource, Role, User, UserRole, UserSession
 from megooarti.security.sessions import delete_user_sessions
 from megooarti.security.users import TOKEN_USERNAME, looks_like_token, normalise_username
 
@@ -71,6 +73,9 @@ class Kind:
     in_browser: ClassVar[bool] = False
     # It checks a name and a password, when somebody signs in with them here (E3).
     takes_passwords: ClassVar[bool] = False
+    # The settings its secrets go with, such as the address they are sent to: changing one
+    # asks for the secrets again, which are never sent where they were not given for (E5).
+    bound: ClassVar[tuple[str, ...]] = ()
 
     def checked(self, settings: dict[str, Any]) -> dict[str, Any]:
         """The settings as they are kept, its secrets as they were sent: left out when
@@ -127,11 +132,14 @@ def kept_settings(
     """The settings to keep: checked by the kind, a secret sealed, or the stored one kept
     where none was sent."""
     values = kind.checked(sent)
+    moved = current is not None and any(values.get(b) != current.get(b) for b in kind.bound)
     for name in kind.secrets:
         given = values.get(name)
         if given:
             values[name] = str(seal(settings, given))
         elif current is not None and current.get(name):
+            if moved:
+                raise invalid(f"settings.{name}", "Give it again: what it goes with has changed.")
             values[name] = current[name]
         else:
             values.pop(name, None)
@@ -154,9 +162,14 @@ def opened_settings(settings: Settings, kind: Kind, stored: dict[str, Any]) -> d
     return opened
 
 
-async def check_mapping(db: AsyncSession, mapping: list[dict[str, Any]]) -> None:
-    """Every role a group is given must be one there is (spec 11)."""
-    names = sorted({role for entry in mapping for role in entry["roles"]})
+async def check_mapping(
+    db: AsyncSession, mapping: list[dict[str, Any]], kept: list[dict[str, Any]] = ()
+) -> None:
+    """Every role a group is newly given must be one there is (spec 11). One it was given
+    before and that was deleted since gives nothing, and does not stop the source being
+    changed (turned off, say) until the mapping is put right."""
+    before = {role for entry in kept for role in entry["roles"]}
+    names = sorted({role for entry in mapping for role in entry["roles"]} - before)
     if not names:
         return
     found = set(await db.scalars(select(Role.name).where(Role.name.in_(names))))
@@ -184,6 +197,15 @@ async def users_of(db: AsyncSession, source: AuthSource) -> int:
     return await db.scalar(select(func.count()).where(User.source_id == source.id)) or 0
 
 
+async def sign_out_users(db: AsyncSession, source: AuthSource) -> None:
+    """End the sessions of a source's users: turned off, it signs them out for good."""
+    await db.execute(
+        delete(UserSession).where(
+            UserSession.user_id.in_(select(User.id).where(User.source_id == source.id))
+        )
+    )
+
+
 async def delete_source(db: AsyncSession, source: AuthSource) -> None:
     """Delete a source. Its users are disabled, and kept with what they own (spec 4.3)."""
     held = list(await db.scalars(select(User.id).where(User.source_id == source.id)))
@@ -206,8 +228,10 @@ def _usable(name: str) -> str:
 def _names(wanted: str, source: AuthSource):
     """The names a user of this source may be given, the one they have there first."""
     base = _usable(wanted)
+    if looks_like_token(base):
+        base = f"user-{base}"[:_NAME_LENGTH]  # every name made from it would be shaped so
     yield base
-    suffix = "@" + _usable(source.name)
+    suffix = "@" + _usable(source.name)[: _NAME_LENGTH // 2]
     yield base[: _NAME_LENGTH - len(suffix)] + suffix
     for number in itertools.count(2):
         more = f"{suffix}-{number}"
@@ -240,6 +264,20 @@ def mapped_role_names(source: AuthSource, groups: frozenset[str]) -> list[str]:
     )
 
 
+async def _held_roles(db: AsyncSession, user: User) -> dict[uuid.UUID, str]:
+    """The roles a user holds, each with who gave it."""
+    rows = await db.execute(
+        select(UserRole.role_id, UserRole.granted_by).where(UserRole.user_id == user.id)
+    )
+    return {role_id: by for role_id, by in rows}
+
+
+async def _existing(db: AsyncSession, source: AuthSource, external_id: str) -> User | None:
+    return await db.scalar(
+        select(User).where(User.source_id == source.id, User.external_id == external_id)
+    )
+
+
 async def _map_roles(
     db: AsyncSession, user: User, source: AuthSource, groups: frozenset[str]
 ) -> None:
@@ -247,10 +285,7 @@ async def _map_roles(
     administrator gave are theirs, and kept (E4)."""
     names = mapped_role_names(source, groups)
     wanted = set(await db.scalars(select(Role.id).where(Role.name.in_(names)))) if names else set()
-    rows = await db.execute(
-        select(UserRole.role_id, UserRole.granted_by).where(UserRole.user_id == user.id)
-    )
-    held = {role_id: by for role_id, by in rows}
+    held = await _held_roles(db, user)
     gone = [role_id for role_id, by in held.items() if by == "source" and role_id not in wanted]
     if gone:
         await db.execute(
@@ -258,38 +293,54 @@ async def _map_roles(
         )
     new = wanted - held.keys()
     if new:
+        # Another sign-in of theirs at the same moment may have given it already.
         await db.execute(
-            insert(UserRole),
-            [{"user_id": user.id, "role_id": role_id, "granted_by": "source"} for role_id in new],
+            insert(UserRole)
+            .values(
+                [
+                    {"user_id": user.id, "role_id": role_id, "granted_by": "source"}
+                    for role_id in new
+                ]
+            )
+            .on_conflict_do_nothing()
         )
+
+
+async def _first(db: AsyncSession, source: AuthSource, identity: Identity) -> User:
+    """The user made at a first sign-in; or, when another sign-in of theirs made them a
+    moment before (a package client's requests at once), that one."""
+    made = User(
+        username=await _free_name(db, identity.username, source, None),
+        display_name=identity.username[:128],
+        password_hash=None,
+        status="active",
+        must_change_password=False,
+        builtin=False,
+        source_id=source.id,
+        external_id=identity.external_id,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(made)
+    except IntegrityError:
+        found = await _existing(db, source, identity.external_id)
+        if found is None:
+            raise  # not theirs: another name taken at the same moment
+        return found
+    log.info("user_provisioned", username=made.username, source=source.name)
+    return made
 
 
 async def provision(db: AsyncSession, source: AuthSource, identity: Identity) -> User:
     """The user this identity is: made at their first sign-in, and their name, details and
     mapped roles brought up to date at each (spec 4.2)."""
-    user = await db.scalar(
-        select(User).where(User.source_id == source.id, User.external_id == identity.external_id)
-    )
-    name = await _free_name(db, identity.username, source, None if user is None else user.id)
-    display_name = (identity.display_name.strip() or identity.username)[:128]
-    email = identity.email if identity.email and _EMAIL.fullmatch(identity.email) else None
+    user = await _existing(db, source, identity.external_id)
     if user is None:
-        user = User(
-            username=name,
-            display_name=display_name,
-            email=email if email is None else email[:254],
-            password_hash=None,
-            status="active",
-            must_change_password=False,
-            builtin=False,
-            source_id=source.id,
-            external_id=identity.external_id,
-        )
-        db.add(user)
-        log.info("user_provisioned", username=name, source=source.name)
-    else:
-        user.username, user.display_name = name, display_name
-        user.email = email if email is None else email[:254]
+        user = await _first(db, source, identity)
+    user.username = await _free_name(db, identity.username, source, user.id)
+    user.display_name = (identity.display_name.strip() or identity.username)[:128]
+    email = identity.email if identity.email and _EMAIL.fullmatch(identity.email) else None
+    user.email = email if email is None else email[:254]
     await db.flush()
     await _map_roles(db, user, source, identity.groups)
     return user

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.security.keys import TOKEN_PREFIX
-from megooarti.security.models import AuthSource, Role, User, UserRole
+from megooarti.security.models import AuthSource, Role, User, UserRole, UserSession
 from megooarti.security.passwords import hash_password, password_problem
 from megooarti.security.roles import effective_patterns, get_role, roles_named
 from megooarti.security.sessions import delete_user_sessions
@@ -87,6 +87,16 @@ def is_builtin_admin(user: User) -> bool:
 def is_external(user: User) -> bool:
     """A user of a sign-in source, or of one that was deleted: their password is not ours."""
     return user.source_id is not None or user.external_id is not None
+
+
+async def sign_out_our_own(db: AsyncSession) -> None:
+    """End the sessions of MegooArti's own users but the built-in `admin` (E1)."""
+    ours = select(User.id).where(
+        User.source_id.is_(None),
+        User.external_id.is_(None),
+        ~(User.builtin.is_(True) & (User.username == "admin")),
+    )
+    await db.execute(delete(UserSession).where(UserSession.user_id.in_(ours)))
 
 
 async def can_act(db: AsyncSession, user: User) -> bool:
