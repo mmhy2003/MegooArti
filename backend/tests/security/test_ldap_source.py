@@ -295,3 +295,156 @@ async def test_ldaps_trusts_the_added_certificates_in_a_context_of_its_own(app):
     # Through TLS: what fails then is that an HTTPS server does not speak LDAP.
     assert "CERTIFICATE_VERIFY_FAILED" not in str(past_tls.value)
     assert trusted is not shared and shared is remote.tls_of(app)
+
+
+# --- The final review's ---------------------------------------------------------------------
+
+
+def wire(**answer):
+    from tests.security.ldap_wire import WireDirectory
+
+    return WireDirectory(**answer)
+
+
+async def test_a_referral_is_not_followed_with_the_bind_password():
+    # Active Directory refers a base outside its forest to another server: the bind DN's
+    # password must not go there, in the clear or at all.
+    from tests.security.ldap_wire import settings_for
+
+    elsewhere = wire()
+    with elsewhere.serving() as other:
+        referring = wire(search_code=10, referral=f"ldap://127.0.0.1:{other}/dc=elsewhere")
+        with referring.serving() as port:
+            settings = settings_for(port)
+            with pytest.raises(sources.SourceUnavailable) as signing_in:
+                await asyncio.to_thread(
+                    ldap._sign_in, settings, ldap.context_for(()), "kim", "pw", None
+                )
+            with pytest.raises(sources.SourceUnavailable):
+                await asyncio.to_thread(
+                    ldap.missing, settings, ldap.context_for(()), [f"uid=kim,{PEOPLE}"]
+                )
+
+    assert elsewhere.binds == []
+    assert "referral" in str(signing_in.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("answer", "said"),
+    [
+        ({"search_code": 51}, "busy"),
+        ({"search_code": 50}, "insufficientAccessRights"),
+        ({"search_code": 1}, "operationsError"),
+        ({"drop_on_search": True}, "could not be reached"),
+    ],
+    ids=["busy", "no-rights", "operations-error", "dropped"],
+)
+async def test_a_search_that_fails_is_a_directory_unavailable_never_nobody(answer, said):
+    # "Nobody" would send the password on to the next source (S5), and say a wrong thing.
+    from tests.security.ldap_wire import settings_for
+
+    with wire(**answer).serving() as port:
+        settings = settings_for(port)
+        with pytest.raises(sources.SourceUnavailable) as signing_in:
+            await asyncio.to_thread(
+                ldap._sign_in, settings, ldap.context_for(()), "kim", "pw", None
+            )
+        with pytest.raises(sources.SourceUnavailable):
+            await asyncio.to_thread(ldap._test, settings, ldap.context_for(()), "kim")
+
+    assert said in str(signing_in.value)
+
+
+async def test_a_known_user_signs_in_only_while_the_filter_still_gives_them(
+    client, directory, add_ldap_source, sessionmaker
+):
+    kim = directory.person("kim", "kim's password", employeeType="staff")
+    await add_ldap_source(user_filter="(&(uid={username})(employeeType=staff))")
+    first = await login(client, "kim", "kim's password")
+
+    directory.remove(kim)
+    directory.person("kim", "kim's password", employeeType="former")
+    again = await login(client, "kim", "kim's password")
+
+    assert first.status_code == 200
+    assert again.status_code == 401
+
+
+async def test_a_known_user_outside_the_users_base_is_signed_in_no_more(
+    client, directory, add_ldap_source, change_source, sessionmaker
+):
+    directory.add(f"ou=staff,{BASE}", objectClass="organizationalUnit", ou="staff")
+    directory.person("kim", "kim's password")
+    corp = await add_ldap_source(user_base=BASE)
+    await login(client, "kim", "kim's password")
+
+    await change_source(corp, user_base=f"ou=staff,{BASE}")
+    again = await login(client, "kim", "kim's password")
+
+    assert again.status_code == 401
+
+
+async def test_a_group_search_that_fails_takes_no_role_away(
+    client, directory, add_ldap_source, sessionmaker
+):
+    await make_role(sessionmaker, "developers", "repository:*:*:read")
+    kim = directory.person("kim", "kim's password")
+    directory.group("developers", kim)
+    corp = await add_ldap_source(groups="search", group_base=GROUPS, mapping=DEVELOPERS)
+    await login(client, "kim", "kim's password")
+
+    async with sessionmaker() as db:
+        from megooarti.security.models import AuthSource
+
+        stored_source = await db.get(AuthSource, corp.id)
+        stored_source.settings = {**stored_source.settings, "group_base": f"ou=gone,{BASE}"}
+        await db.commit()
+    again = await login(client, "kim", "kim's password")
+
+    assert (again.status_code, error_code(again)) == (503, "source_unavailable")
+
+
+async def test_the_group_filter_is_given_the_directorys_name_not_the_one_typed(
+    client, directory, add_ldap_source, sessionmaker
+):
+    # People sign in with their email; groups name them by their uid.
+    await make_role(sessionmaker, "developers", "repository:*:*:read")
+    directory.person("kim", "kim's password", mail="kim@corp.example")
+    directory.add(
+        f"cn=developers,{GROUPS}", objectClass="posixGroup", cn="developers", memberUid=["kim"]
+    )
+    await add_ldap_source(
+        user_filter="(mail={username})",
+        groups="search",
+        group_base=GROUPS,
+        group_filter="(memberUid={username})",
+        mapping=DEVELOPERS,
+    )
+
+    signed_in = await login(client, "kim@corp.example", "kim's password")
+
+    assert signed_in.status_code == 200, signed_in.text
+    assert "repository:*:*:read" in signed_in.json()["permissions"]
+
+
+async def test_a_directory_is_asked_on_threads_of_its_own(
+    client, directory, add_ldap_source, monkeypatch
+):
+    # A slow directory must not take the threads files are read and written with.
+    import threading
+
+    seen = []
+    signing_in = ldap._sign_in
+
+    def recorded(*arguments):
+        seen.append(threading.current_thread().name)
+        return signing_in(*arguments)
+
+    monkeypatch.setattr(ldap, "_sign_in", recorded)
+    directory.person("kim", "kim's password")
+    await add_ldap_source()
+
+    await login(client, "kim", "kim's password")
+
+    assert seen and all(name.startswith("ldap") for name in seen)
+    assert ldap.THREADS._max_workers == ldap.THREAD_COUNT

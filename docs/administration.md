@@ -130,10 +130,20 @@ under Authentication, New source, LDAP, or at `POST /api/v1/auth-sources` with
   that knows the name is not tried at any other.
 - **TLS** trusts the usual authorities and the certificates added under Certificates:
   add your directory's authority there.
-- **Every hour**, each enabled LDAP source's users are looked up by their DN. One the
-  directory no longer has is disabled, signed out, and their API tokens refused with
-  them; `directory_user_gone` is logged. A directory that cannot be reached disables
-  nobody (`directory_check_skipped` is logged).
+- **A user who signed in before** is read by their DN, and must still be one the filter
+  gives under the users' base: taken out of the group a filter asks for, or moved out
+  of the base, they sign in no more.
+- **Every hour**, each enabled LDAP source's users are looked up so. One the directory
+  no longer gives as a user is disabled, signed out, and their API tokens refused with
+  them; `directory_user_gone` is logged. A directory that cannot be reached, that does
+  not show the users' base, or that seems to have lost every user at once disables
+  nobody (`directory_check_skipped` is logged, with why).
+- **A user whose entry moves** to another DN (an Active Directory OU move) is disabled
+  by the next check, and cannot sign in at the new DN while that user is there: delete
+  the old user, and they sign in afresh, given their groups' roles again.
+- **Referrals are not followed**: the server would bind there with the same password. A
+  base the directory refers elsewhere (outside an Active Directory forest) is said as
+  the directory being unavailable: set a base it holds.
 - **Test** connects and binds; given a user name, it finds the entry and its groups
   and says the roles they would give. No password is tried.
 - A directory that does not answer within ten seconds is said by name:

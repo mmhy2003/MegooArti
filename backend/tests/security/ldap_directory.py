@@ -22,6 +22,10 @@ class Directory:
         self.add(
             READER, objectClass="person", cn="reader", sn="reader", userPassword=READER_PASSWORD
         )
+        # The containers a directory has: the hourly check asks for the users' base first.
+        self.add(BASE, objectClass="domain", dc="corp")
+        self.add(PEOPLE, objectClass="organizationalUnit", ou="people")
+        self.add(GROUPS, objectClass="organizationalUnit", ou="groups")
 
     def add(self, dn: str, **attributes: Any) -> None:
         self._seed.strategy.add_entry(dn, attributes)

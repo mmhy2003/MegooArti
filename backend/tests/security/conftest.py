@@ -72,7 +72,8 @@ def change_source(sessionmaker, settings, kinds):
             if changes:
                 kind = kinds[stored.kind]
                 sent = {**stored.settings, **changes}
-                sent.pop("secret", None)  # the stored one is kept
+                for secret in kind.secrets:
+                    sent.pop(secret, None)  # the stored one is kept
                 stored.settings = sources.kept_settings(settings, kind, sent, stored.settings)
             await db.commit()
 

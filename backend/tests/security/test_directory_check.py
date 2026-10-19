@@ -73,3 +73,79 @@ async def test_a_source_that_is_off_is_not_checked(
 
 async def test_the_check_is_given_to_the_server_to_run_every_hour():
     assert directory_check.CHECK_SECONDS == 3600
+
+
+async def test_a_users_base_the_directory_does_not_show_disables_nobody(
+    app, client, directory, add_ldap_source, change_source, sessionmaker
+):
+    # An empty replica, or a bind DN that may no longer read: every DN would look gone.
+    kim = directory.person("kim", "kim's password")
+    corp = await add_ldap_source()
+    await sign_in(client, "kim", "kim's password")
+
+    await change_source(corp, user_base="ou=nowhere,dc=corp,dc=example")
+    directory.remove(kim)
+    disabled = await directory_check.run(app)
+
+    assert disabled == 0
+    assert await status_of(sessionmaker, "kim") == "active"
+
+
+async def test_every_user_gone_at_once_disables_nobody_and_is_logged(
+    app, client, other_client, directory, add_ldap_source, sessionmaker
+):
+    kim = directory.person("kim", "kim's password")
+    lou = directory.person("lou", "lou's password")
+    await add_ldap_source()
+    await sign_in(client, "kim", "kim's password")
+    await sign_in(other_client, "lou", "lou's password")
+
+    directory.remove(kim)
+    directory.remove(lou)
+    disabled = await directory_check.run(app)
+
+    assert disabled == 0
+    assert await status_of(sessionmaker, "kim") == "active"
+
+
+async def test_a_user_the_filter_no_longer_gives_is_disabled(
+    app, client, directory, add_ldap_source, sessionmaker
+):
+    kim = directory.person("kim", "kim's password", employeeType="staff")
+    directory.person("lou", "lou's password", employeeType="staff")
+    await add_ldap_source(user_filter="(&(uid={username})(employeeType=staff))")
+    await sign_in(client, "kim", "kim's password")
+
+    directory.remove(kim)
+    directory.person("kim", "kim's password", employeeType="former")
+    disabled = await directory_check.run(app)
+
+    assert disabled == 1
+    assert await status_of(sessionmaker, "kim") == "disabled"
+
+
+async def test_a_directory_that_fails_mid_check_leaves_the_next_source_checked(
+    app, client, other_client, directory, add_ldap_source, sessionmaker, monkeypatch
+):
+    from megooarti.security import ldap
+
+    kim = directory.person("kim", "kim's password")
+    directory.person("lou", "lou's password")
+    await add_ldap_source("First")
+    await add_ldap_source("Second")
+    await sign_in(client, "kim", "kim's password")
+    missing = ldap.missing
+    calls = []
+
+    def failing_first(settings, context, dns):
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise ConnectionResetError("the directory went away")
+        return missing(settings, context, dns)
+
+    monkeypatch.setattr(ldap, "missing", failing_first)
+    directory.remove(kim)
+    disabled = await directory_check.run(app)  # a failure is one source's, not the run's
+
+    assert (disabled, calls) == (0, [0])
+    assert await status_of(sessionmaker, "kim") == "active"
