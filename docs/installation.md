@@ -128,6 +128,8 @@ One address serves everything, and each request goes to the right service:
 | `/repository/` | backend, port 8000 | Maven, npm, PyPI, APT, YUM, apk and Raw repositories |
 | `/v2/` | backend, port 8000 | The Docker registry |
 | `/mcp` | backend, port 8000 | The MCP server, for AI agents |
+| `/.well-known/` | backend, port 8000 | How AI agents find where to sign in with OAuth |
+| `/oauth/` | backend, port 8000 | Where they register, and trade a code for tokens |
 | everything else | frontend, port 3000 | The web UI |
 
 [gateway/nginx.conf](../gateway/nginx.conf) does that: it is what Compose runs, and

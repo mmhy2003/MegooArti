@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import AxeBuilder from "@axe-core/playwright";
@@ -969,6 +970,80 @@ test("the tokens screen meets WCAG 2.1 AA in both modes", async () => {
   await expectAccessibleInBothModes(async () => {
     await expect(page.getByText("You have no token.")).toBeVisible();
   });
+});
+
+test("an agent signing in with OAuth is approved on the consent page, connected, and revoked", async ({
+  playwright,
+  baseURL,
+}) => {
+  // OAuth names the server by its base URL: this browser's address of it.
+  const origin = new URL(baseURL ?? "").origin;
+  await asAdministrator("put", "/api/v1/settings/base-url", { base_url: origin });
+  const callback = `${origin}/oauth-test-callback`;
+  const registered = await page.request.post("/oauth/register", {
+    data: { client_name: "Browser test agent", redirect_uris: [callback] },
+  });
+  expect(registered.status()).toBe(201);
+  const clientId = (await registered.json()).client_id as string;
+  const verifier = randomBytes(48).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const asked = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: callback,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: "browser-state",
+    resource: `${origin}/mcp`,
+  });
+
+  await page.goto(`/oauth/authorize?${asked.toString()}`);
+  await expect(page).toHaveURL(/\/connect\?request=/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Connect an application" }),
+  ).toBeVisible();
+  await expect(page.getByText("Browser test agent")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Read what I can read/ })).toBeChecked();
+  await expectAccessible();
+  await page.getByRole("button", { name: "Allow" }).click();
+
+  await page.waitForURL(/\/oauth-test-callback\?/);
+  const back = new URL(page.url()).searchParams;
+  expect(back.get("state")).toBe("browser-state");
+  const traded = await page.request.post("/oauth/token", {
+    form: {
+      grant_type: "authorization_code",
+      client_id: clientId,
+      code: back.get("code") ?? "",
+      redirect_uri: callback,
+      code_verifier: verifier,
+    },
+  });
+  expect(traded.status()).toBe(200);
+  const access = (await traded.json()).access_token as string;
+  expect(access).toMatch(/^mgo_/);
+  const agent = await playwright.request.newContext({
+    baseURL,
+    extraHTTPHeaders: {
+      Authorization: `Bearer ${access}`,
+      Accept: "application/json, text/event-stream",
+    },
+  });
+  const listTools = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+  expect((await agent.post("/mcp", { data: listTools })).status()).toBe(200);
+
+  await page.goto("/account/connected-apps");
+  const row = page.getByRole("row", { name: /Browser test agent/ });
+  await expect(row).toContainText("Read what you may read");
+  await expectAccessible();
+  await row.getByRole("button", { name: "Revoke Browser test agent" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revoke" }).click();
+  await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
+    "Revoked Browser test agent.",
+  );
+  expect((await agent.post("/mcp", { data: listTools })).status()).toBe(401);
+  await agent.dispose();
+  await asAdministrator("put", "/api/v1/settings/base-url", { base_url: null });
 });
 
 test("the administration is in the navigation, in a row that nothing lies over", async () => {
