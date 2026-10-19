@@ -18,6 +18,18 @@ def _valid_pattern(value: str) -> str:
 Pattern = Annotated[str, AfterValidator(_valid_pattern)]
 
 
+class ConnectedApp(BaseModel):
+    """An approval a user gave an application signed in with OAuth (MCP spec 7.6)."""
+
+    id: uuid.UUID
+    client: str  # the application's name, in its own words
+    redirect_host: str  # where it was sent back to
+    scopes: list[str] | None  # what it may do, narrowing the user's permissions; null: all
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime | None  # null: until it is revoked
+
+
 class TokenInfo(BaseModel):
     id: uuid.UUID
     name: str

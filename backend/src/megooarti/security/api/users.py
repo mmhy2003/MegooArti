@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
-from megooarti.security import tokens, users
-from megooarti.security.api.schemas import TokenInfo
+from megooarti.security import oauth, tokens, users
+from megooarti.security.api.schemas import ConnectedApp, TokenInfo
 from megooarti.security.authentication import Principal, require
 from megooarti.security.bootstrap import discard_initial_password
 from megooarti.security.guards import ensure_administrator_remains
@@ -186,6 +187,32 @@ async def list_user_tokens(
     user = await _load(db, user_id)
     items, total = await tokens.list_tokens(db, user.id, params.limit, params.offset)
     return page(items, total, params)
+
+
+@router.get("/{user_id}/connected-apps", response_model=Page[ConnectedApp])
+async def list_user_connected_apps(
+    user_id: uuid.UUID,
+    params: PageParams = Depends(),
+    _: Principal = Depends(require("admin:tokens:read")),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """The applications a user let sign in as them with OAuth."""
+    user = await _load(db, user_id)
+    every = await oauth.approvals(db, user.id, utcnow())
+    return page(every[params.offset : params.offset + params.limit], len(every), params)
+
+
+@router.delete("/{user_id}/connected-apps/{app_id}", status_code=204)
+async def revoke_user_connected_app(
+    user_id: uuid.UUID,
+    app_id: uuid.UUID,
+    principal: Principal = Depends(require("admin:tokens:write")),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    user = await _load(db, user_id)
+    await oauth.revoke(db, user.id, app_id)
+    await db.commit()
+    log.info("connected_app_revoked", username=user.username, by=principal.user.username)
 
 
 @router.delete("/{user_id}/tokens/{token_id}", status_code=204)

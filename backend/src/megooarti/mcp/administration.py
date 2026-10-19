@@ -19,7 +19,7 @@ from megooarti.security import roles, users
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
 from megooarti.security.api.roles import RoleContent, RoleCreate, RoleOut
-from megooarti.security.api.schemas import TokenInfo
+from megooarti.security.api.schemas import ConnectedApp, TokenInfo
 from megooarti.security.api.users import UserCreate, UserOut, UserUpdate
 from megooarti.security.models import ApiToken
 
@@ -97,6 +97,8 @@ class UserDetails(BaseModel):
     # Their API tokens: names, first characters, scopes, expiry, last use; never a value.
     # Null to those who may not read tokens.
     tokens: list[TokenInfo] | None
+    # The applications they let sign in as them with OAuth; null likewise.
+    connected_apps: list[ConnectedApp] | None
 
 
 @tool(annotations=READ, shown_to=holding("admin:users:read"))
@@ -119,7 +121,15 @@ async def user_details(username: Username) -> UserDetails:
                 ]
                 if not listed["items"] or len(held) >= listed["total"]:
                     break
-    return UserDetails(user=_user(view), tokens=held)
+        apps = None
+        if principal.allows("admin:tokens:read"):
+            listed = await users_api.list_user_connected_apps(
+                user_id, PageParams(limit=200, offset=0), principal, db
+            )
+            apps = [
+                ConnectedApp.model_validate(one, from_attributes=True) for one in listed["items"]
+            ]
+    return UserDetails(user=_user(view), tokens=held, connected_apps=apps)
 
 
 @tool(annotations=WRITE, shown_to=holding("admin:users:write"))
@@ -184,11 +194,28 @@ async def delete_user(username: Username) -> Gone:
 
 
 @tool(annotations=DESTRUCTIVE, shown_to=holding("admin:tokens:write"))
-async def revoke_token(username: Username, token: Annotated[str, Field(max_length=100)]) -> Gone:
-    """Revoke a user's API token, by its name as `user_details` shows it: whatever signed in
-    with it is refused from then on."""
+async def revoke_token(
+    username: Username,
+    token: Annotated[str | None, Field(max_length=100)] = None,
+    connected_app: uuid.UUID | None = None,
+) -> Gone:
+    """Revoke a user's API token, by its name, or an application they connected with
+    OAuth, by its id, as `user_details` shows them: whatever signed in with it is refused
+    from then on."""
+    if (token is None) == (connected_app is None):
+        raise ApiError(
+            422,
+            "validation_error",
+            "The request is not valid.",
+            [{"field": "token", "message": "Give a token's name, or a connected app's id."}],
+        )
     async with database() as db:
         user_id = await _user_id(db, username)
+        if connected_app is not None:
+            await users_api.revoke_user_connected_app(
+                user_id, connected_app, caller().principal, db
+            )
+            return Gone(deleted=str(connected_app))
         found = await db.scalar(
             select(ApiToken).where(ApiToken.user_id == user_id, ApiToken.name == token)
         )

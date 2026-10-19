@@ -11,8 +11,8 @@ from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
-from megooarti.security import tokens, users
-from megooarti.security.api.schemas import Pattern, TokenCreated, TokenInfo
+from megooarti.security import oauth, tokens, users
+from megooarti.security.api.schemas import ConnectedApp, Pattern, TokenCreated, TokenInfo
 from megooarti.security.authentication import (
     Principal,
     authenticate_password,
@@ -111,3 +111,26 @@ async def revoke_token(
     await tokens.revoke_token(db, principal.user.id, token_id)
     await db.commit()
     log.info("token_revoked", username=principal.user.username, by=principal.user.username)
+
+
+@router.get("/connected-apps", response_model=Page[ConnectedApp])
+async def list_connected_apps(
+    params: PageParams = Depends(),
+    principal: Principal = Depends(require_interactive()),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """The applications the caller let sign in as them with OAuth, the newest first."""
+    every = await oauth.approvals(db, principal.user.id, utcnow())
+    return page(every[params.offset : params.offset + params.limit], len(every), params)
+
+
+@router.delete("/connected-apps/{app_id}", status_code=204)
+async def revoke_connected_app(
+    app_id: uuid.UUID,
+    principal: Principal = Depends(require_interactive()),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    """Revoke an approval: the application's tokens stop working at once."""
+    await oauth.revoke(db, principal.user.id, app_id)
+    await db.commit()
+    log.info("connected_app_revoked", username=principal.user.username)
