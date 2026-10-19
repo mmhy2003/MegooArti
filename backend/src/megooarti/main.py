@@ -34,8 +34,8 @@ from megooarti.repositories.routes import router as content_router
 from megooarti.repositories.search_api import router as search_router
 from megooarti.repositories.yum import format as _yum_format  # noqa: F401  (registers it)
 from megooarti.request_id import RequestIdMiddleware
-from megooarti.security import oauth
 from megooarti.security import ldap as _ldap  # noqa: F401  (registers the kind of source)
+from megooarti.security import oauth
 from megooarti.security import oidc as _oidc  # noqa: F401  (registers the kind of source)
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
