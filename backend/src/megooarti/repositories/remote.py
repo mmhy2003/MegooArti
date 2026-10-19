@@ -179,16 +179,15 @@ def refusal(remote_url: str, address: str) -> str | None:
     return None
 
 
-# How long a client replaced after the trusted certificates changed is left to finish
-# the requests it has under way: longer than any one of them may take.
-RETIRED_SECONDS = 600
-
-
 def tls_context(pems: Sequence[str]) -> ssl.SSLContext:
     """What an outbound TLS connection trusts: the authorities the server trusts already
     (httpx's, which honours SSL_CERT_FILE), and the certificates an administrator added
     (spec 6)."""
     context = httpx.create_ssl_context()
+    # Python 3.13 checks certificates strictly, refusing what many organisations' own
+    # authorities sign (BasicConstraints not critical, no Authority Key Identifier):
+    # they are the very authorities added here. OpenSSL's own checks still hold.
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
     if pems:
         context.load_verify_locations(cadata="\n".join(pems))
     return context
@@ -227,29 +226,19 @@ def client_of(app: Any) -> httpx.AsyncClient:
 
 def trust(app: Any, pems: Sequence[str]) -> None:
     """Trust these certificates from now on. The client in use is retired: requests under
-    way finish with it, and it is closed a while after; new ones get a new client."""
+    way finish with it, however long they take, and it is closed at shutdown; new ones get
+    a new client. Changes are rare: the clients retired are few."""
     if list(pems) == app.state.trusted_certificates:
         return  # nothing changed: the client in use trusts these already
     app.state.trusted_certificates = list(pems)
     app.state.tls = None
     retired, app.state.http = app.state.http, None
     if retired is not None:
-        app.state.retired.add(retired)
-        task = asyncio.get_running_loop().create_task(_close_later(app, retired))
-        app.state.retiring.add(task)
-        task.add_done_callback(app.state.retiring.discard)
-
-
-async def _close_later(app: Any, client: httpx.AsyncClient) -> None:
-    await asyncio.sleep(RETIRED_SECONDS)
-    app.state.retired.discard(client)
-    await client.aclose()
+        app.state.retired.append(retired)
 
 
 async def close_clients(app: Any) -> None:
-    """At shutdown: the client in use, and those retired that are not closed yet."""
-    for task in list(app.state.retiring):
-        task.cancel()
+    """At shutdown: the client in use, and those retired."""
     for client in [app.state.http, *app.state.retired]:
         if client is not None:
             await client.aclose()

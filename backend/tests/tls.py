@@ -30,6 +30,7 @@ def _name(common_name: str) -> x509.Name:
 class Issued:
     certificate: x509.Certificate
     key: ec.EllipticCurvePrivateKey
+    legacy: bool = False
 
     @property
     def pem(self) -> str:
@@ -40,10 +41,12 @@ class Issued:
         return self.certificate.fingerprint(hashes.SHA256()).hex()
 
 
-def authority(common_name: str = "Corp Root CA") -> Issued:
+def authority(common_name: str = "Corp Root CA", *, legacy: bool = False) -> Issued:
+    """A CA. `legacy`, as older private authorities are: BasicConstraints not critical,
+    and the certificates it signs with no Authority Key Identifier."""
     key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.datetime.now(datetime.UTC)
-    certificate = (
+    builder = (
         x509.CertificateBuilder()
         .subject_name(_name(common_name))
         .issuer_name(_name(common_name))
@@ -51,7 +54,12 @@ def authority(common_name: str = "Corp Root CA") -> Issued:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - datetime.timedelta(days=1))
         .not_valid_after(now + datetime.timedelta(days=365))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=not legacy)
+    )
+    if legacy:
+        return Issued(builder.sign(key, hashes.SHA256()), key, legacy=True)
+    certificate = (
+        builder
         .add_extension(
             x509.KeyUsage(
                 digital_signature=True, content_commitment=False, key_encipherment=False,
@@ -83,12 +91,12 @@ def server_certificate(ca: Issued, host: str = "127.0.0.1") -> Issued:
         .add_extension(
             x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
         )
-        .add_extension(
+    )  # fmt: skip
+    if not ca.legacy:
+        certificate = certificate.add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.key.public_key()), critical=False
         )
-        .sign(ca.key, hashes.SHA256())
-    )  # fmt: skip
-    return Issued(certificate, key)
+    return Issued(certificate.sign(ca.key, hashes.SHA256()), key)
 
 
 async def _answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -105,6 +113,34 @@ async def _answer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) ->
         pass  # a client that refused our certificate, or only looked at it
     finally:
         writer.close()
+
+
+def unreadable_name() -> str:
+    """A certificate, in PEM, whose issuer's name is not one: read only when it is asked for."""
+    der = bytearray(authority("ZZZZ-name").certificate.public_bytes(serialization.Encoding.DER))
+    at = der.find(b"ZZZZ-name")  # the issuer's, which comes first
+    der[at - 2] = 0x01  # its string's type made a BOOLEAN
+    return (
+        x509.load_der_x509_certificate(bytes(der)).public_bytes(serialization.Encoding.PEM).decode()
+    )
+
+
+@asynccontextmanager
+async def silent_server() -> AsyncIterator[int]:
+    """A server that takes a connection and never says a word: its port."""
+    held: list[asyncio.StreamWriter] = []
+
+    async def hold(_: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        held.append(writer)
+
+    server = await asyncio.start_server(hold, "127.0.0.1", 0)
+    try:
+        yield server.sockets[0].getsockname()[1]
+    finally:
+        for writer in held:
+            writer.close()
+        server.close()
+        await server.wait_closed()
 
 
 @asynccontextmanager

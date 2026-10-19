@@ -131,6 +131,26 @@ describe("the trusted certificates (spec 6)", () => {
     expect(of(calls, "POST")[1]?.body).toEqual({ pem: PEM });
   });
 
+  test("say in the question why a certificate was not trusted, which stays open", async () => {
+    const user = userEvent.setup();
+    certificatesScreen({
+      "POST /certificates/fetch": {
+        json: { chain: [view("CN=Corp Root CA,O=Corp", "0f".repeat(32))] },
+      },
+      "POST /certificates": failure(409, "conflict", "This certificate is trusted already."),
+    });
+
+    await user.type(await screen.findByLabelText("Host"), "ldap.corp.example");
+    await user.click(screen.getByRole("button", { name: "Fetch" }));
+    const presented = await screen.findByRole("list", { name: "What the server presented" });
+    await user.click(within(presented).getByRole("button", { name: "Trust this certificate" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Trust this certificate?" });
+    await user.click(within(dialog).getByRole("button", { name: "Trust it" }));
+
+    expect(await within(dialog).findByText(/trusted already/)).toBeVisible();
+    expect(screen.getByRole("alertdialog", { name: "Trust this certificate?" })).toBeVisible();
+  });
+
   test("say why a server could not be asked", async () => {
     const user = userEvent.setup();
     certificatesScreen({

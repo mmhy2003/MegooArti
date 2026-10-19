@@ -88,7 +88,7 @@ function Trust({
             notify(t("trusted", { subject: asked.subject }));
             onDone(true);
           },
-          onError: () => onDone(false),
+          // Not closed: it says why, below the fingerprint.
         });
       }}
     >

@@ -56,9 +56,13 @@ class Fetched(BaseModel):
     chain: list[CertificateView]
 
 
-async def _trust_again(request: Request, db: AsyncSession) -> None:
-    """The outbound connections trust the certificates as they are now (spec 6)."""
-    remote.trust(request.app, await certificates.trusted_pems(db))
+async def _kept_and_trusted(request: Request, db: AsyncSession) -> None:
+    """Keep the change, and have the outbound connections trust the certificates as they
+    are kept with it (spec 6). Called holding the trust lock: two changes at once would
+    each read the other's list, or none, and the last given would be a stale one."""
+    pems = await certificates.trusted_pems(db)
+    await db.commit()
+    remote.trust(request.app, pems)
 
 
 @router.get("", response_model=Page[CertificateOut])
@@ -79,9 +83,10 @@ async def add_certificate(
     db: AsyncSession = Depends(get_session),
 ) -> TrustedCertificate:
     """Trust a certificate: an authority's, or a server's own. Check its fingerprint first."""
-    added = await certificates.add(db, certificates.read_one(body.pem), principal.user.username)
-    await db.commit()
-    await _trust_again(request, db)
+    described = certificates.read_one(body.pem)
+    async with request.app.state.trust_lock:
+        added = await certificates.add(db, described, principal.user.username)
+        await _kept_and_trusted(request, db)
     log.info(
         "certificate_trusted",
         subject=added.subject,
@@ -113,10 +118,11 @@ async def delete_certificate(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     """Trust a certificate no more. Connections made with it are not undone."""
-    held = await certificates.get_certificate(db, certificate_id)
-    if held is None:
-        raise ApiError(404, "not_found", "No such certificate.")
-    await db.delete(held)
-    await db.commit()
-    await _trust_again(request, db)
+    async with request.app.state.trust_lock:
+        held = await certificates.get_certificate(db, certificate_id)
+        if held is None:
+            raise ApiError(404, "not_found", "No such certificate.")
+        await db.delete(held)
+        await db.flush()
+        await _kept_and_trusted(request, db)
     log.info("certificate_removed", subject=held.subject, by=principal.user.username)

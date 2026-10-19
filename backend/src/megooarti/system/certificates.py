@@ -13,6 +13,7 @@ from datetime import datetime
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
@@ -59,9 +60,9 @@ def read_one(text: str) -> Described:
         raise _invalid("Paste one certificate at a time.")
     try:
         certificate = x509.load_pem_x509_certificate(text.strip().encode("ascii"))
+        return _described(certificate)  # its names are read here, and may not be names
     except (ValueError, UnicodeEncodeError):
         raise _invalid("This is not a certificate that can be read.") from None
-    return _described(certificate)
 
 
 # --- The records ----------------------------------------------------------------------
@@ -91,12 +92,16 @@ async def get_certificate(db: AsyncSession, certificate_id: uuid.UUID) -> Truste
     return await db.get(TrustedCertificate, certificate_id)
 
 
-async def add(db: AsyncSession, described: Described, by: str) -> TrustedCertificate:
-    held = await db.scalar(
-        select(TrustedCertificate.id).where(TrustedCertificate.fingerprint == described.fingerprint)
+async def _held(db: AsyncSession, fingerprint: str) -> uuid.UUID | None:
+    return await db.scalar(
+        select(TrustedCertificate.id).where(TrustedCertificate.fingerprint == fingerprint)
     )
-    if held is not None:
-        raise ApiError(409, "conflict", "This certificate is trusted already.")
+
+
+async def add(db: AsyncSession, described: Described, by: str) -> TrustedCertificate:
+    trusted_already = ApiError(409, "conflict", "This certificate is trusted already.")
+    if await _held(db, described.fingerprint) is not None:
+        raise trusted_already
     record = TrustedCertificate(
         subject=described.subject,
         issuer=described.issuer,
@@ -105,8 +110,11 @@ async def add(db: AsyncSession, described: Described, by: str) -> TrustedCertifi
         pem=described.pem,
         added_by=by,
     )
-    db.add(record)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(record)
+    except IntegrityError:  # added by another request a moment before
+        raise trusted_already from None
     return record
 
 
@@ -123,19 +131,26 @@ async def fetch(host: str, port: int, *, seconds: float = FETCH_SECONDS) -> list
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # to see what is presented, whoever signed it
+    where = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port, ssl=context, server_hostname=host),
             seconds,
         )
-    except (OSError, ssl.SSLError, TimeoutError) as error:
-        raise FetchFailed(f"{host}:{port} could not be reached over TLS: {error}") from None
+    except TimeoutError:
+        raise FetchFailed(f"{where} gave no answer over TLS within {seconds:g} seconds.") from None
+    except (OSError, ssl.SSLError) as error:
+        raise FetchFailed(f"{where} could not be reached over TLS: {error}") from None
+    except ValueError:  # UnicodeError among them: a host that is no name
+        raise FetchFailed(f"{where} is not a host that can be asked.") from None
     try:
         # Each as DER, its own first (Python 3.13).
         presented = writer.get_extra_info("ssl_object").get_unverified_chain() or []
         chain = [_described(x509.load_der_x509_certificate(der)) for der in presented]
+    except ValueError:
+        raise FetchFailed(f"{where} presented a certificate that cannot be read.") from None
     finally:
         writer.close()
     if not chain:
-        raise FetchFailed(f"{host}:{port} presented no certificate.")
+        raise FetchFailed(f"{where} presented no certificate.")
     return chain

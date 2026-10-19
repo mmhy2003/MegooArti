@@ -10,7 +10,7 @@ from megooarti.repositories import remote
 from megooarti.security import sources
 from megooarti.system import certificates
 from tests.clients import client_for
-from tests.tls import authority, https_server
+from tests.tls import authority, https_server, silent_server, unreadable_name
 
 
 def test_a_certificate_is_read_with_what_a_person_checks_it_by():
@@ -68,14 +68,21 @@ async def test_the_outbound_client_trusts_an_added_certificate_and_not_before(ap
     assert answered.text == "served over TLS"
 
 
-async def test_a_client_replaced_is_closed_only_when_the_server_shuts_down_or_later(app):
+async def test_a_client_replaced_is_closed_only_when_the_server_shuts_down(app, monkeypatch):
+    # A download under way with it may outlast any grace: it is never cut off.
+    import asyncio
+
+    monkeypatch.setattr(remote, "RETIRED_SECONDS", 0, raising=False)  # were there a grace
     first = remote.client_of(app)
 
     remote.trust(app, [authority().pem])
     second = remote.client_of(app)
+    await asyncio.sleep(0.1)
+    open_after_the_change = not first.is_closed
     await remote.close_clients(app)
 
     assert first is not second
+    assert open_after_the_change
     assert first.is_closed and second.is_closed
 
 
@@ -115,6 +122,48 @@ async def test_what_a_host_presents_is_fetched_its_own_certificate_first():
 
 async def test_a_host_that_does_not_answer_over_tls_is_said():
     with pytest.raises(certificates.FetchFailed) as failed:
-        await certificates.fetch("127.0.0.1", 1, seconds=2)
+        # Long enough for Windows to say that the port is closed, which takes it two seconds.
+        await certificates.fetch("127.0.0.1", 1, seconds=8)
 
     assert "127.0.0.1:1 could not be reached over TLS" in str(failed.value)
+
+
+async def test_an_older_private_authority_is_trusted_once_added(app):
+    # Not critical BasicConstraints, no Authority Key Identifier in what it signs: as
+    # many organisations' own authorities are, which Python 3.13's strict checks refuse.
+    ca = authority("Old Corp CA", legacy=True)
+    async with https_server(ca) as port:
+        remote.trust(app, [ca.pem])
+        answered = await remote.client_of(app).get(f"https://127.0.0.1:{port}/")
+    await remote.close_clients(app)
+
+    assert answered.text == "served over TLS"
+
+
+def test_a_certificate_whose_names_cannot_be_read_is_refused_at_the_pem():
+    with pytest.raises(ApiError) as refused:
+        certificates.read_one(unreadable_name())
+
+    assert (refused.value.status_code, refused.value.details[0]["field"]) == (422, "pem")
+
+
+async def test_a_host_that_takes_the_connection_and_says_nothing_is_said_so():
+    async with silent_server() as port:
+        with pytest.raises(certificates.FetchFailed) as failed:
+            await certificates.fetch("127.0.0.1", port, seconds=0.5)
+
+    assert str(failed.value) == f"127.0.0.1:{port} gave no answer over TLS within 0.5 seconds."
+
+
+async def test_a_host_named_so_that_it_is_no_name_is_said_not_raised():
+    with pytest.raises(certificates.FetchFailed) as failed:
+        await certificates.fetch("a..b", 443, seconds=2)
+
+    assert "a..b:443" in str(failed.value)
+
+
+async def test_an_ipv6_host_is_written_in_brackets():
+    with pytest.raises(certificates.FetchFailed) as failed:
+        await certificates.fetch("::1", 1, seconds=2)
+
+    assert str(failed.value).startswith("[::1]:1 ")

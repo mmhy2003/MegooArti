@@ -105,3 +105,59 @@ async def test_removing_a_certificate_that_is_not_there_is_said(admin_client):
     gone = await admin_client.delete(f"{CERTIFICATES}/{uuid.uuid4()}")
 
     assert (gone.status_code, error_code(gone)) == (404, "not_found")
+
+
+async def test_two_changes_at_once_leave_what_is_trusted_as_it_is_kept(
+    app, admin_client, monkeypatch
+):
+    import asyncio
+
+    from megooarti.system import certificates
+
+    x, y = authority("X"), authority("Y")
+    kept_y = (await admin_client.post(CERTIFICATES, json={"pem": y.pem})).json()
+    read = certificates.trusted_pems
+    first = asyncio.Event()
+
+    async def slow_the_first(db):
+        found = await read(db)
+        if not first.is_set():
+            first.set()
+            await asyncio.sleep(0.3)  # the add's answer arrives after the removal's
+        return found
+
+    monkeypatch.setattr(certificates, "trusted_pems", slow_the_first)
+
+    async def remove_y_meanwhile():
+        await first.wait()
+        return await admin_client.delete(f"{CERTIFICATES}/{kept_y['id']}")
+
+    added, removed = await asyncio.gather(
+        admin_client.post(CERTIFICATES, json={"pem": x.pem}), remove_y_meanwhile()
+    )
+
+    assert (added.status_code, removed.status_code) == (201, 204)
+    assert app.state.trusted_certificates == [x.pem]
+
+
+async def test_the_same_certificate_added_twice_at_once_is_said_to_be_trusted(
+    admin_client, monkeypatch
+):
+    from megooarti.system import certificates
+
+    ca = authority()
+    await admin_client.post(CERTIFICATES, json={"pem": ca.pem})
+
+    async def nobody_has_it(db, fingerprint):
+        return None  # as the second of two requests finds it, before the first commits
+
+    monkeypatch.setattr(certificates, "_held", nobody_has_it)
+    again = await admin_client.post(CERTIFICATES, json={"pem": ca.pem})
+
+    assert (again.status_code, error_code(again)) == (409, "conflict")
+
+
+async def test_a_name_that_is_no_host_is_refused_not_a_500(admin_client):
+    odd = await admin_client.post(f"{CERTIFICATES}/fetch", json={"host": "a..b"})
+
+    assert (odd.status_code, error_code(odd)) in {(422, "validation_error"), (502, "fetch_failed")}

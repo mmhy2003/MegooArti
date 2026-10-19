@@ -156,8 +156,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # start, and changed with the certificates (spec 6).
     app.state.trusted_certificates = []
     app.state.tls = None
-    app.state.retired = set()  # clients replaced, closed once their requests are done
-    app.state.retiring = set()
+    app.state.retired = []  # clients replaced, closed at shutdown: their requests may be long
+    # One change of what is trusted at a time: its list is read and given as it was kept.
+    app.state.trust_lock = asyncio.Lock()
     register_error_handlers(app)
     app.include_router(docs_router(f"{API_PREFIX}/openapi.json", "MegooArti API"))
     app.include_router(status_router, prefix=API_PREFIX)
