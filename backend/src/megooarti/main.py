@@ -34,8 +34,8 @@ from megooarti.repositories.routes import router as content_router
 from megooarti.repositories.search_api import router as search_router
 from megooarti.repositories.yum import format as _yum_format  # noqa: F401  (registers it)
 from megooarti.request_id import RequestIdMiddleware
+from megooarti.security import directory_check, oauth
 from megooarti.security import ldap as _ldap  # noqa: F401  (registers the kind of source)
-from megooarti.security import oauth
 from megooarti.security import oidc as _oidc  # noqa: F401  (registers the kind of source)
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
@@ -113,6 +113,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         cause = type(error).__name__
         log.warning("initial_admin_password_deferred", error=cause)
         background.append(asyncio.create_task(_first_start_when_possible(app, cause)))
+    # LDAP users no longer in their directory are disabled (spec 7, D4), by one container.
+    background.append(
+        asyncio.create_task(
+            run_periodically(
+                "directory_check",
+                directory_check.CHECK_SECONDS,
+                lambda: run_exclusively(
+                    app.state.engine, directory_check.LOCK_KEY, lambda: directory_check.run(app)
+                ),
+            )
+        )
+    )
     if settings.compaction_interval_seconds > 0:
         background.append(
             asyncio.create_task(
