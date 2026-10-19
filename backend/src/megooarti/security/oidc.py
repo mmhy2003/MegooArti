@@ -42,6 +42,8 @@ CLAIMS = {
     "email_claim": "email",
     "groups_claim": "groups",
 }
+# How long the provider is given: a person is waiting on the other side.
+TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # A scope as RFC 6749 3.3 has it; a claim's name as JSON keys go, without anything odd.
 _SCOPE = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]{1,128}")
 _CLAIM = re.compile(r"[A-Za-z0-9_.:/-]{1,128}")
@@ -73,7 +75,8 @@ def forget() -> None:
 
 
 def _url(value: Any, field: str) -> str:
-    text = str(value or "").strip().rstrip("/")
+    # Kept as it is given: an issuer is compared with what the provider calls itself.
+    text = str(value or "").strip()
     parts = urlsplit(text)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise invalid(field, "Must be an http or https address.")
@@ -134,7 +137,9 @@ async def _get_json(outbound: Outbound, url: str, fresh: bool) -> Any:
     if kept is not None and not fresh and time.monotonic() - kept[0] < KEPT_SECONDS:
         return kept[1]
     try:
-        response = await outbound.http.get(url, headers={"Accept": "application/json"})
+        response = await outbound.http.get(
+            url, headers={"Accept": "application/json"}, timeout=TIMEOUT
+        )
     except httpx.HTTPError as error:
         raise SourceUnavailable(f"{url} could not be reached: {type(error).__name__}.") from None
     if response.status_code != 200:
@@ -151,7 +156,8 @@ async def _get_json(outbound: Outbound, url: str, fresh: bool) -> Any:
 
 async def discover(outbound: Outbound, issuer: str, *, fresh: bool = False) -> Provider:
     """The provider's metadata, from `<issuer>/.well-known/openid-configuration`."""
-    said = await _get_json(outbound, f"{issuer}/.well-known/openid-configuration", fresh)
+    address = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+    said = await _get_json(outbound, address, fresh)
     # The metadata must name the very issuer it was asked of (OpenID Discovery 4.3).
     if said.get("issuer") != issuer:
         raise SourceUnavailable(f"The provider calls itself {said.get('issuer')!r}, not {issuer}.")
@@ -164,11 +170,19 @@ async def discover(outbound: Outbound, issuer: str, *, fresh: bool = False) -> P
     return Provider(
         issuer=issuer,
         **endpoints,
-        algorithms=frozenset(said.get("id_token_signing_alg_values_supported") or ["RS256"]),
-        auth_methods=frozenset(
-            said.get("token_endpoint_auth_methods_supported") or ["client_secret_basic"]
-        ),
+        algorithms=_names(said, "id_token_signing_alg_values_supported", "RS256"),
+        auth_methods=_names(said, "token_endpoint_auth_methods_supported", "client_secret_basic"),
     )
+
+
+def _names(said: dict, name: str, otherwise: str) -> frozenset[str]:
+    """A list of names in the metadata, or what it means when there is none."""
+    value = said.get(name)
+    if value is None:
+        return frozenset({otherwise})
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise SourceUnavailable(f"The provider's metadata gives {name} as no list of names.")
+    return frozenset(value)
 
 
 async def _keys(outbound: Outbound, provider: Provider, *, fresh: bool = False) -> dict:
@@ -244,7 +258,9 @@ async def exchange(
     else:
         form["client_id"] = settings["client_id"]  # a public client: PKCE alone
     try:
-        response = await outbound.http.post(provider.token_endpoint, data=form, auth=auth)
+        response = await outbound.http.post(
+            provider.token_endpoint, data=form, auth=auth, timeout=TIMEOUT
+        )
     except httpx.HTTPError as error:
         raise SourceUnavailable(
             f"The token endpoint could not be reached: {type(error).__name__}."
@@ -312,7 +328,7 @@ async def verify(
     except jwt.PyJWTError as error:
         raise NotChecked(f"The ID token does not check: {error}.") from None
     if not isinstance(claims.get("nonce"), str) or not secrets.compare_digest(
-        claims["nonce"], nonce
+        claims["nonce"].encode(), nonce.encode()
     ):
         raise NotChecked("The ID token is not of this sign-in (its nonce).")
     audience = claims["aud"]

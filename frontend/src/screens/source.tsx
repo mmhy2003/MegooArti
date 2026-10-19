@@ -94,6 +94,10 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
     name: NAME.test(name) ? undefined : t("nameRule"),
     issuer: /^https?:\/\/[^/]+/.test(settings.issuer.trim()) ? undefined : t("issuerRule"),
     client_id: settings.client_id.trim() === "" ? t("clientIdNeeded") : undefined,
+    // A row with a group and no role, or a role and no group, would be dropped unsaid.
+    mapping: grants.some(({ group, role }) => (group.trim() === "") !== (role === ""))
+      ? t("rowIncomplete")
+      : undefined,
   };
   const at = (field: string, mine?: string) =>
     tried ? (mine ?? refused.at[field === "name" ? "name" : `settings.${field}`]) : undefined;
@@ -223,7 +227,7 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
             grants={grants}
             roles={(roles.data?.items ?? []).map((role) => role.name)}
             onChange={setGrants}
-            error={tried ? refused.at.group_mapping : undefined}
+            error={tried ? (own.mapping ?? refused.at.group_mapping) : undefined}
           />
         </Panel>
       </fieldset>

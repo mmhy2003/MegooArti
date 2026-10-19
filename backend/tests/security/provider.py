@@ -52,6 +52,8 @@ class FakeProvider:
         self.claims_changed: dict[str, Any] = {}
         self.signer: Key | None = None
         self.token_error: str | None = None
+        self.metadata_changed: dict[str, Any] = {}
+        self.timeouts: list[dict[str, Any]] = []  # how long each request was let take
 
     def person(self, login: str, **claims: Any) -> None:
         self.people[login] = {"sub": f"subject-of-{login}", "preferred_username": login, **claims}
@@ -84,6 +86,7 @@ class FakeProvider:
 
     def _answer(self, request: httpx.Request) -> httpx.Response:
         self.asked.append(request.url.path)
+        self.timeouts.append(request.extensions.get("timeout", {}))
         if self.down:
             raise httpx.ConnectError("the provider is down", request=request)
         path = request.url.path
@@ -103,6 +106,7 @@ class FakeProvider:
             "jwks_uri": f"{ISSUER}/protocol/openid-connect/certs",
             "id_token_signing_alg_values_supported": ["RS256"],
             "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+            **self.metadata_changed,
         }
 
     def _token(self, request: httpx.Request) -> httpx.Response:

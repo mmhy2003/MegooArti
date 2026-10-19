@@ -24,12 +24,12 @@ def oidc(name: str = "Corp SSO", **settings) -> dict:
 
 
 async def test_an_oidc_source_is_kept_with_its_defaults_and_its_secret_sealed(admin_client):
-    made = await admin_client.post(SOURCES, json=oidc(issuer=f"{ISSUER}/", scopes="email groups"))
+    made = await admin_client.post(SOURCES, json=oidc(issuer=f" {ISSUER} ", scopes="email groups"))
 
     assert made.status_code == 201, made.text
     body = made.json()
     assert body["settings"] == {
-        "issuer": ISSUER,  # without the slash it was given with
+        "issuer": ISSUER,  # without the spaces it was given with
         "client_id": CLIENT_ID,
         "scopes": ["openid", "email", "groups"],
         "require_verified_email": False,
@@ -116,3 +116,15 @@ async def test_a_provider_that_does_not_answer_or_names_another_issuer_fails_its
 
     assert down["ok"] is False and "could not be reached" in down["message"]
     assert other["ok"] is False and "https://elsewhere.example" in other["message"]
+
+
+async def test_an_issuer_that_ends_in_a_slash_is_the_providers_own(admin_client, provider):
+    # As Auth0 names itself: the slash is part of the issuer, in its metadata and tokens.
+    provider.issuer_said = f"{ISSUER}/"
+    made = (await admin_client.post(SOURCES, json=oidc(issuer=f"{ISSUER}/"))).json()
+
+    tested = (await admin_client.post(f"{SOURCES}/{made['id']}/test", json={})).json()
+
+    assert made["settings"]["issuer"] == f"{ISSUER}/"
+    assert tested["ok"] is True, tested
+    assert provider.asked[0] == "/realms/corp/.well-known/openid-configuration"

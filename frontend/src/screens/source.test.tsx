@@ -132,6 +132,21 @@ describe("a new OIDC source (spec 5)", () => {
     );
   });
 
+  test("says so of a row with a group and no role, and sends nothing", async () => {
+    const user = userEvent.setup();
+    const { calls } = newSource();
+
+    await user.type(await screen.findByLabelText("Name"), "Corp SSO");
+    await user.type(screen.getByLabelText("Issuer"), "https://sso.example/realms/corp");
+    await user.type(screen.getByLabelText("Client ID"), "megooarti");
+    await user.click(screen.getByRole("button", { name: "Give a group a role" }));
+    await user.type(screen.getByLabelText("Group 1"), "developers");
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+
+    expect(await screen.findByText("Each row needs a group and a role.")).toBeVisible();
+    expect(of(calls, "POST")).toHaveLength(0);
+  });
+
   test("is not offered to whoever may only read sources", () => {
     newSource({}, holding("admin:security:read"));
 

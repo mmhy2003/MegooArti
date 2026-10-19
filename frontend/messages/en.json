@@ -744,7 +744,8 @@
     "saved": "Saved {name}.",
     "redirectUri": "Redirect address",
     "redirectUriHint": "Register this address at the provider, as the client's redirect address.",
-    "noForm": "A source of the kind {kind} is set up through the API."
+    "noForm": "A source of the kind {kind} is set up through the API.",
+    "rowIncomplete": "Each row needs a group and a role."
   },
   "members": {
     "none": "It has no member yet, and so answers nothing.",

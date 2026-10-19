@@ -14,11 +14,12 @@ from urllib.parse import quote, urlencode
 import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
-from megooarti.secrets_box import seal_at, unseal_within
+from megooarti.secrets_box import SecretUnreadable, seal_at, unseal_within
 from megooarti.security import oidc, sources, users
 from megooarti.security.api.auth import start_session
 from megooarti.security.api.sources import redirect_uri
@@ -50,10 +51,38 @@ async def _source(db: AsyncSession, source_id: uuid.UUID) -> AuthSource | None:
     return source
 
 
-def _opened(request: Request, source: AuthSource) -> dict:
-    return sources.opened_settings(
-        request.app.state.settings, sources.KINDS[oidc.KIND], source.settings
+def _opened(request: Request, source: AuthSource) -> dict | None:
+    """The source's settings with its secret, or None when the server cannot read the
+    secret any more (its secret key was lost or changed)."""
+    try:
+        return sources.opened_settings(
+            request.app.state.settings, sources.KINDS[oidc.KIND], source.settings
+        )
+    except SecretUnreadable:
+        log.warning("oidc_secret_unreadable", source=source.name)
+        return None
+
+
+_KEPT = ("source", "state", "nonce", "verifier", "next", "redirect_uri")
+
+
+def _kept(request: Request) -> dict | None:
+    """What this browser's sign-in keeps, if the cookie is one of ours and fresh."""
+    sealed = request.cookies.get(COOKIE, "")
+    opened = (
+        unseal_within(request.app.state.settings, sealed, LASTS_SECONDS, utcnow())
+        if sealed
+        else None
     )
+    try:
+        kept = json.loads(opened) if opened else None
+    except ValueError:
+        return None
+    if not isinstance(kept, dict) or kept.get("for") != "oidc":
+        return None  # sealed for something else, such as a registry token
+    if not all(isinstance(kept.get(name), str) for name in _KEPT):
+        return None
+    return kept
 
 
 @router.get("/{source_id}/start", response_class=RedirectResponse, status_code=302)
@@ -69,6 +98,8 @@ async def start(
     if source is None:
         return await _sign_in_screen(db, error="unavailable", next=next)
     settings = _opened(request, source)
+    if settings is None:
+        return await _sign_in_screen(db, error="unavailable", next=next)
     try:
         provider = await oidc.discover(sources.outbound(request.app), settings["issuer"])
     except sources.SourceUnavailable as error:
@@ -77,6 +108,7 @@ async def start(
     started = oidc.Started.new()
     back = await redirect_uri(db, request, source)
     kept = {
+        "for": "oidc",  # what was sealed, so that nothing sealed for another use is taken
         "source": str(source.id),
         "state": started.state,
         "nonce": started.nonce,
@@ -111,13 +143,7 @@ async def callback(
 ) -> RedirectResponse:
     """Where the provider sends the browser back: the code traded, the ID token checked,
     the user made or brought up to date (spec 4.2), and a session started."""
-    sealed = request.cookies.get(COOKIE, "")
-    opened = (
-        unseal_within(request.app.state.settings, sealed, LASTS_SECONDS, utcnow())
-        if sealed
-        else None
-    )
-    kept = json.loads(opened) if opened else None
+    kept = _kept(request)
     next = "" if kept is None else kept["next"]
 
     async def failed(why: str, said: str) -> RedirectResponse:
@@ -129,7 +155,9 @@ async def callback(
 
     if kept is None:
         return await failed("expired", "no sign-in was started here, or it took too long")
-    if kept["source"] != str(source_id) or not secrets.compare_digest(kept["state"], state):
+    if kept["source"] != str(source_id) or not secrets.compare_digest(
+        kept["state"].encode(), state.encode()
+    ):
         return await failed("failed", "the state is not this browser's sign-in")
     source = await _source(db, source_id)
     if source is None:
@@ -137,6 +165,8 @@ async def callback(
     if error:
         return await failed("denied", f"the provider answered {error}")
     settings = _opened(request, source)
+    if settings is None:
+        return await failed("unavailable", "the source's secret cannot be read")
     reach = sources.outbound(request.app)
     try:
         provider = await oidc.discover(reach, settings["issuer"])
@@ -154,7 +184,10 @@ async def callback(
         return await failed("failed", str(problem))
     except oidc.Refused as problem:
         return await failed("refused", str(problem))
-    user = await sources.provision(db, source, identity)
+    try:
+        user = await sources.provision(db, source, identity)
+    except DBAPIError as problem:  # an identity that cannot be kept, or a name taken at once
+        return await failed("failed", f"the user could not be kept: {type(problem.orig).__name__}")
     if not await users.can_act(db, user):
         return await failed("refused", f"{user.username} may not sign in")
     response = await _sign_in_screen(db, next=next, signed_in="1")

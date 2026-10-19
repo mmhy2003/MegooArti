@@ -305,3 +305,120 @@ async def test_a_user_of_a_provider_has_no_password_here_and_makes_api_tokens(
     assert made.status_code == 201
     assert by_token.json()["user"]["username"] == "kim"
     assert by_password.status_code == 401
+
+
+async def test_a_provider_whose_issuer_ends_in_a_slash_signs_people_in(
+    client, provider, add_oidc_source
+):
+    provider.issuer_said = f"{ISSUER}/"
+    provider.claims_changed = {"iss": f"{ISSUER}/"}
+    source = await add_oidc_source(issuer=f"{ISSUER}/")
+    provider.person("kim")
+
+    back = await sign_in(client, provider, source, "kim")
+
+    assert landed(back)[1].get("signed_in") == "1", landed(back)
+
+
+async def test_a_client_secret_the_server_can_no_longer_read_is_said_not_a_500(
+    client, provider, add_oidc_source, sessionmaker
+):
+    from megooarti.security.models import AuthSource
+
+    source = await add_oidc_source()
+    async with sessionmaker() as db:
+        # As after the server's secret key was lost or changed.
+        stored = await db.get(AuthSource, source.id)
+        stored.settings = {**stored.settings, "client_secret": "sealed with another key"}
+        await db.commit()
+
+    started = await client.get(oidc_path(source, "start"), params={"next": "/search"})
+
+    assert landed(started) == ("/login", {"error": "unavailable", "next": "/search"})
+
+
+async def test_a_state_of_any_characters_is_refused_not_a_500(client, provider, add_oidc_source):
+    source = await add_oidc_source()
+    provider.person("kim")
+    started = await client.get(oidc_path(source, "start"), params={"next": "/search"})
+    code = provider.authorize(started.headers["location"], "kim")
+
+    odd = await client.get(oidc_path(source, "callback"), params={"code": code, "state": "é"})
+
+    assert landed(odd)[1]["error"] == "failed"
+
+
+async def test_a_nonce_of_any_characters_in_the_token_is_refused_not_a_500(
+    client, provider, add_oidc_source
+):
+    source = await add_oidc_source()
+    provider.person("kim")
+    provider.claims_changed = {"nonce": "é"}
+
+    failed = await sign_in(client, provider, source, "kim")
+
+    assert landed(failed)[1]["error"] == "failed"
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"id_token_signing_alg_values_supported": 5},
+        {"id_token_signing_alg_values_supported": [["RS256"]]},
+        {"id_token_signing_alg_values_supported": "RS256"},
+        {"token_endpoint_auth_methods_supported": {"basic": True}},
+    ],
+    ids=["a-number", "a-list-of-lists", "a-string", "an-object"],
+)
+async def test_metadata_of_the_wrong_shape_is_said_not_a_500(
+    client, provider, add_oidc_source, metadata
+):
+    source = await add_oidc_source()
+    provider.metadata_changed = metadata
+
+    started = await client.get(oidc_path(source, "start"), params={"next": "/search"})
+
+    assert landed(started) == ("/login", {"error": "unavailable", "next": "/search"})
+
+
+async def test_a_cookie_sealed_for_something_else_is_no_sign_in(
+    client, provider, add_oidc_source, settings
+):
+    import json
+
+    from megooarti.clock import utcnow
+    from megooarti.secrets_box import seal_at
+
+    source = await add_oidc_source()
+    for forged in (json.dumps({"for": "registry", "user": "x"}), json.dumps([1, 2]), "not json"):
+        client.cookies.set("megooarti_oidc", seal_at(settings, forged, utcnow()))
+
+        answer = await client.get(oidc_path(source, "callback"), params={"code": "c", "state": "s"})
+
+        assert landed(answer)[1] == {"error": "expired"}, forged
+        client.cookies.clear()
+
+
+async def test_an_identity_the_server_cannot_keep_is_said_not_a_500(
+    client, provider, add_oidc_source, sessionmaker
+):
+    source = await add_oidc_source()
+    provider.person("kim", sub="s" * 600)  # longer than an identity is kept
+
+    failed = await sign_in(client, provider, source, "kim")
+
+    assert landed(failed)[1]["error"] == "failed"
+    assert await stored(sessionmaker, "kim") is None
+
+
+async def test_the_provider_is_given_seconds_not_minutes(client, provider, add_oidc_source):
+    source = await add_oidc_source()
+    provider.person("kim")
+
+    await sign_in(client, provider, source, "kim")
+
+    assert provider.timeouts and all(
+        0 < timeout.get(name, 999) <= 10
+        for timeout in provider.timeouts
+        for name in ("connect", "read", "write", "pool")
+    ), provider.timeouts
