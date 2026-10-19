@@ -9,6 +9,10 @@ from megooarti.system.models import SystemSetting
 DEFAULTS: dict[str, Any] = {
     "base_url": None,
     "anonymous_access": {"enabled": False},
+    # The role every signed-in user has besides their own, by its name (spec 4.1).
+    "default_role": None,
+    # Whether MegooArti's own users sign in: off, only the built-in `admin` does (E1).
+    "local_sign_in": {"enabled": True},
 }
 
 

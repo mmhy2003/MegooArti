@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.security.keys import TOKEN_PREFIX
-from megooarti.security.models import Role, User, UserRole
+from megooarti.security.models import AuthSource, Role, User, UserRole
 from megooarti.security.passwords import hash_password, password_problem
-from megooarti.security.roles import effective_patterns, roles_named
+from megooarti.security.roles import effective_patterns, get_role, roles_named
 from megooarti.security.sessions import delete_user_sessions
+from megooarti.system.settings_store import get_setting
 
 # The name Python's packaging tools send with an API token (`__token__` and the token
 # as HTTP Basic credentials). It stands for whoever owns the token, so nobody has it.
@@ -60,6 +61,37 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
 async def user_patterns(db: AsyncSession, user: User) -> frozenset[str]:
     role_ids = await db.scalars(select(UserRole.role_id).where(UserRole.user_id == user.id))
     return await effective_patterns(db, list(role_ids))
+
+
+async def signed_in_patterns(db: AsyncSession, user: User) -> frozenset[str]:
+    """What a signed-in user may do: what their roles give, and what the default role
+    gives, which every signed-in user has without its being kept on any (spec 4.1)."""
+    role_ids = list(await db.scalars(select(UserRole.role_id).where(UserRole.user_id == user.id)))
+    default = await get_setting(db, "default_role")
+    role = None if default is None else await get_role(db, default)
+    if role is not None:
+        role_ids.append(role.id)
+    return await effective_patterns(db, role_ids)
+
+
+def is_builtin_admin(user: User) -> bool:
+    """The built-in administrator, who signs in with a password of MegooArti's own
+    whatever sources are on or off (E1)."""
+    return user.builtin and user.username == "admin"
+
+
+async def can_act(db: AsyncSession, user: User) -> bool:
+    """Whether a user may be anybody now: active, and signing in where sign-in is on. A
+    user of a source that is off, or one of ours while our own sign-in is off, is refused
+    as a disabled user is (spec 4.1, 4.2)."""
+    if user.status != "active":
+        return False
+    if user.source_id is not None:
+        source = await db.get(AuthSource, user.source_id)
+        return source is not None and source.enabled
+    if user.external_id is not None:
+        return False  # their source was deleted
+    return is_builtin_admin(user) or (await get_setting(db, "local_sign_in"))["enabled"]
 
 
 async def describe(db: AsyncSession, user: User) -> UserView:

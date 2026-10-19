@@ -110,7 +110,7 @@ async def build_principal(
     return Principal(
         user,
         method,
-        await users.user_patterns(db, user),
+        await users.signed_in_patterns(db, user),
         scopes,
         session,
         public,
@@ -179,7 +179,7 @@ async def authenticate_password(
         user = await users.get_user_by_username(db, username)
         stored = None if user is None else user.password_hash
         matched = await asyncio.to_thread(verify_password, stored, password)
-        if user is None or not matched or user.status != "active":
+        if user is None or not matched or not await users.can_act(db, user):
             return None
         if needs_rehash(user.password_hash):
             user.password_hash = await asyncio.to_thread(hash_password, password)
@@ -197,7 +197,7 @@ async def _authenticate_token(
         if token is None:
             return None
         user = await users.get_user(db, token.user_id)
-        if user is None or user.status != "active":
+        if user is None or not await users.can_act(db, user):
             return None
         if username is not None and user.username != users.normalise_username(username):
             return None
@@ -289,7 +289,7 @@ async def _from_registry_token(db: AsyncSession, request: Request, value: str) -
         user, patterns = anonymous
         return Principal(user, "anonymous", patterns, public=patterns)
     user = await users.get_user(db, claims.user_id)
-    if user is None or user.status != "active" or claims.method == "anonymous":
+    if user is None or not await users.can_act(db, user) or claims.method == "anonymous":
         raise refused
     if (claims.method == "token") != (claims.token_id is not None):
         raise refused
@@ -353,7 +353,7 @@ async def resolve_principal(
         )
         if record is not None:
             user = await users.get_user(db, record.user_id)
-            if user is not None and user.status == "active":
+            if user is not None and await users.can_act(db, user):
                 sessions.touch(record, now)
                 return await build_principal(db, user, "session", session=record)
 
@@ -505,7 +505,7 @@ async def _agent(request: Request, db: AsyncSession, value: str) -> Principal:
         return await build_principal(db, user, "token", token=token)
     grant = await oauth.find_access(db, value, utcnow())
     user = None if grant is None else await users.get_user(db, grant.user_id)
-    if grant is None or user is None or user.status != "active":
+    if grant is None or user is None or not await users.can_act(db, user):
         # Counted against the address, as a token that is not one is.
         return await _checked(db, request, None, _no_match)
     principal = await build_principal(db, user, "token")

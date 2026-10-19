@@ -18,6 +18,8 @@ from megooarti.db.base import Base
 
 class User(Base):
     __tablename__ = "users"
+    # One user for each identity a source has: a name taken by two is two users (E2).
+    __table_args__ = (UniqueConstraint("source_id", "external_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(64), unique=True)
@@ -32,6 +34,34 @@ class User(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where the user signs in: None for MegooArti's own users, else a sign-in source, and
+    # who they are there (an OIDC subject, an LDAP DN, a header's name). E2.
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("auth_sources.id", ondelete="SET NULL"), index=True
+    )
+    external_id: Mapped[str | None] = mapped_column(String(512))
+
+
+class AuthSource(Base):
+    """Somewhere people sign in from besides MegooArti's own users: a directory (LDAP),
+    an identity provider (OIDC), or a reverse proxy that says who they are (spec 4.1)."""
+
+    __tablename__ = "auth_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    enabled: Mapped[bool] = mapped_column(default=False)
+    # Where it is asked, after MegooArti's own users: the lowest first.
+    position: Mapped[int]
+    # What its kind needs to reach it; its secrets sealed (E5).
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # [{"group": ..., "roles": [...]}]: the roles a member of a group is given (E4).
+    group_mapping: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class Role(Base):
@@ -74,6 +104,9 @@ class UserRole(Base):
     role_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
     )
+    # Who gave it: an administrator ("admin"), or a source's group mapping ("source"),
+    # which takes back at the next sign-in what the groups no longer give (E4).
+    granted_by: Mapped[str] = mapped_column(String(8), default="admin", server_default="admin")
 
 
 class UserSession(Base):

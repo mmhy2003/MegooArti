@@ -4,11 +4,14 @@ from urllib.parse import urlsplit
 
 import structlog
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.db.session import get_session
+from megooarti.errors import ApiError
 from megooarti.security.authentication import Principal, require
+from megooarti.security.guards import ensure_administrator_remains
+from megooarti.security.roles import get_role
 from megooarti.system.settings_store import get_setting, set_setting
 
 log = structlog.get_logger(__name__)
@@ -23,6 +26,22 @@ class AnonymousAccess(BaseModel):
 class SettingsOut(BaseModel):
     base_url: str | None
     anonymous_access: AnonymousAccess
+
+
+class LocalSignIn(BaseModel):
+    enabled: bool
+
+
+class DefaultRole(BaseModel):
+    default_role: str | None = Field(max_length=64)
+
+
+class SignInSettings(BaseModel):
+    """How people sign in, besides the sources (spec 4.1): the role every signed-in user
+    has, and whether MegooArti's own users sign in."""
+
+    default_role: str | None
+    local_sign_in: LocalSignIn
 
 
 class BaseUrl(BaseModel):
@@ -49,6 +68,13 @@ async def _current(db: AsyncSession) -> SettingsOut:
     return SettingsOut(
         base_url=await get_setting(db, "base_url"),
         anonymous_access=AnonymousAccess(**await get_setting(db, "anonymous_access")),
+    )
+
+
+async def _sign_in(db: AsyncSession) -> SignInSettings:
+    return SignInSettings(
+        default_role=await get_setting(db, "default_role"),
+        local_sign_in=LocalSignIn(**await get_setting(db, "local_sign_in")),
     )
 
 
@@ -87,5 +113,53 @@ async def set_anonymous_access(
         setting="anonymous_access",
         enabled=body.enabled,
         by=principal.user.username,
+    )
+    return result
+
+
+@router.get("/sign-in", response_model=SignInSettings)
+async def read_sign_in_settings(
+    _: Principal = Depends(require("admin:security:read")),
+    db: AsyncSession = Depends(get_session),
+) -> SignInSettings:
+    return await _sign_in(db)
+
+
+@router.put("/default-role", response_model=SignInSettings)
+async def set_default_role(
+    body: DefaultRole,
+    principal: Principal = Depends(require("admin:security:write")),
+    db: AsyncSession = Depends(get_session),
+) -> SignInSettings:
+    """The role every signed-in user has, besides their own; null for none."""
+    if body.default_role is not None and await get_role(db, body.default_role) is None:
+        details = [{"field": "default_role", "message": f"Unknown role: {body.default_role}"}]
+        raise ApiError(422, "validation_error", "The request is not valid.", details)
+    await set_setting(db, "default_role", body.default_role)
+    result = await _sign_in(db)
+    await db.commit()
+    log.info(
+        "setting_changed",
+        setting="default_role",
+        role=body.default_role,
+        by=principal.user.username,
+    )
+    return result
+
+
+@router.put("/local-sign-in", response_model=SignInSettings)
+async def set_local_sign_in(
+    body: LocalSignIn,
+    principal: Principal = Depends(require("admin:security:write")),
+    db: AsyncSession = Depends(get_session),
+) -> SignInSettings:
+    """Whether MegooArti's own users sign in. Off, the built-in `admin` still does (E1),
+    and must then hold full access: else nobody who signs in would."""
+    await set_setting(db, "local_sign_in", {"enabled": body.enabled})
+    await ensure_administrator_remains(db)
+    result = await _sign_in(db)
+    await db.commit()
+    log.info(
+        "setting_changed", setting="local_sign_in", enabled=body.enabled, by=principal.user.username
     )
     return result

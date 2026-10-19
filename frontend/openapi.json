@@ -502,6 +502,27 @@
         "title": "Database",
         "type": "object"
       },
+      "DefaultRole": {
+        "properties": {
+          "default_role": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Role"
+          }
+        },
+        "required": [
+          "default_role"
+        ],
+        "title": "DefaultRole",
+        "type": "object"
+      },
       "Entry": {
         "properties": {
           "component": {
@@ -800,6 +821,19 @@
           "next"
         ],
         "title": "Listing",
+        "type": "object"
+      },
+      "LocalSignIn": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "LocalSignIn",
         "type": "object"
       },
       "LoginRequest": {
@@ -1998,6 +2032,31 @@
           "anonymous_access"
         ],
         "title": "SettingsOut",
+        "type": "object"
+      },
+      "SignInSettings": {
+        "description": "How people sign in, besides the sources (spec 4.1): the role every signed-in user\nhas, and whether MegooArti's own users sign in.",
+        "properties": {
+          "default_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Role"
+          },
+          "local_sign_in": {
+            "$ref": "#/components/schemas/LocalSignIn"
+          }
+        },
+        "required": [
+          "default_role",
+          "local_sign_in"
+        ],
+        "title": "SignInSettings",
         "type": "object"
       },
       "SigningKeyGenerate": {
@@ -4796,6 +4855,121 @@
           }
         },
         "summary": "Set Base Url",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/default-role": {
+      "put": {
+        "description": "The role every signed-in user has, besides their own; null for none.",
+        "operationId": "set_default_role_api_v1_settings_default_role_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Set Default Role",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/local-sign-in": {
+      "put": {
+        "description": "Whether MegooArti's own users sign in. Off, the built-in `admin` still does (E1),\nand must then hold full access: else nobody who signs in would.",
+        "operationId": "set_local_sign_in_api_v1_settings_local_sign_in_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalSignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Set Local Sign In",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/sign-in": {
+      "get": {
+        "operationId": "read_sign_in_settings_api_v1_settings_sign_in_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Read Sign In Settings",
         "tags": [
           "settings"
         ]

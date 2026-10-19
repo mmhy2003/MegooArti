@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.errors import ApiError
 from megooarti.security.models import RoleMember, RolePermission, User, UserRole
 from megooarti.security.permissions import FULL_ACCESS
+from megooarti.system.settings_store import get_setting
 
 # Arbitrary constant, distinct from the migration lock key.
 ADMINISTRATOR_LOCK_KEY = 0x4D45474F50
@@ -30,12 +31,16 @@ async def ensure_administrator_remains(db: AsyncSession) -> None:
     granting = granting.union(
         select(RoleMember.role_id).join(granting, RoleMember.member_role_id == granting.c.id)
     )
+    # Who signs in with a password of ours: while our own sign-in is off, `admin` alone (E1).
+    signs_in = [User.password_hash.is_not(None), User.source_id.is_(None)]
+    if not (await get_setting(db, "local_sign_in"))["enabled"]:
+        signs_in += [User.builtin.is_(True), User.username == "admin"]
     administrator = await db.scalar(
         select(User.id)
         .join(UserRole, UserRole.user_id == User.id)
         .where(
             User.status == "active",
-            User.password_hash.is_not(None),
+            *signs_in,
             UserRole.role_id.in_(select(granting.c.id)),
         )
         .limit(1)
