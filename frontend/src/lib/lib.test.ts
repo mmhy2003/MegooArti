@@ -9,7 +9,14 @@ import { ADMIN, NOBODY, VISITOR } from "@/test/render";
 import { mockUploads } from "@/test/xhr";
 
 import { deleteFolder, may, takesUploads } from "./content";
-import { exactTime, formatBytes, readChecksum, relativeTime } from "./format";
+import {
+  exactTime,
+  formatBytes,
+  formatFingerprint,
+  readChecksum,
+  relativeTime,
+  shortFingerprint,
+} from "./format";
 import {
   browseHref,
   componentHref,
@@ -23,6 +30,20 @@ import {
   split,
   uploadHref,
 } from "./paths";
+
+describe("a fingerprint", () => {
+  const SHA256 = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
+
+  test("is read out in pairs, in capitals, as people compare them", () => {
+    expect(formatFingerprint(SHA256)).toBe(
+      "0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0:0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0",
+    );
+  });
+
+  test("is cut to its first eight pairs in a list", () => {
+    expect(shortFingerprint(SHA256)).toBe("0F:1E:2D:3C:4B:5A:69:78…");
+  });
+});
 
 describe("a size", () => {
   test.each([

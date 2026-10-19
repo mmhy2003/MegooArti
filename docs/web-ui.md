@@ -73,6 +73,11 @@ repositories, blob stores and the installation's own settings.
     settings are changed and the redirect address to register at the provider is
     shown, with a copy button; New OIDC source makes one, off until it is turned on.
     A group's roles are rows: a group, and the role its members are given.
+  - **Certificates** lists what the server trusts when it connects out over TLS,
+    besides the usual public authorities, with each one's fingerprint and expiry.
+    Fetch asks a server what it presents, its own certificate first; a certificate
+    is trusted after a question that shows its whole fingerprint, to check with
+    whoever runs the server. One can also be pasted in PEM, and removed.
   - **Manage repositories** lists every repository as it is set up. A new one is made
     on one page: choose the format and the type, and the page shows what that
     combination has. A hosted repository has a deployment policy; a proxy has its

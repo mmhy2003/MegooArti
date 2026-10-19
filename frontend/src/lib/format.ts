@@ -16,6 +16,16 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${UNITS[unit]}`;
 }
 
+/** A SHA-256 fingerprint as people read it out to each other: `AB:CD:…`, in pairs. */
+export function formatFingerprint(hex: string): string {
+  return (hex.toUpperCase().match(/../g) ?? []).join(":");
+}
+
+/** Its first eight pairs, enough to tell certificates apart in a list. */
+export function shortFingerprint(hex: string): string {
+  return `${formatFingerprint(hex.slice(0, 16))}…`;
+}
+
 const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 24 * 3600],
   ["month", 30 * 24 * 3600],

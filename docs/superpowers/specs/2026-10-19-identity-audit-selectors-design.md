@@ -135,6 +135,17 @@ Settled here, by the designer:
 - The screen (Administration, Certificates): add one by pasting PEM, or by fetching what a host and port present (`POST /api/v1/certificates/fetch`, which adds nothing), then confirming its fingerprint; delete one. Permissions `admin:certificates:read` and `write`.
 - Every outbound TLS connection (proxies' remotes, OIDC providers, LDAP's `ldaps://` and StartTLS) trusts the system's authorities and these. The shared HTTP client is made again when the list changes.
 
+### Settled while building plan 15c
+
+| # | What | Why |
+| --- | --- | --- |
+| C1 | What outbound TLS trusts is one SSL context, `remote.tls_context(pems)`: httpx's own authorities (certifi's, or those of `SSL_CERT_FILE`) and the added certificates. The shared client is built with it, and `sources.Outbound.tls` gives it to what is not HTTP (LDAP, 15d). | Section 6: the system's authorities and these, for every outbound connection. |
+| C2 | The certificates are read at start, before anything goes out, and given anew when they change (`remote.trust`): new requests get a new client; the one in use is closed ten minutes after, or at shutdown. A list that did not change changes nothing. The server is one process, so this is the whole of it. | Section 6: the shared client is made again. Requests under way are not cut off. |
+| C3 | A certificate is pasted one at a time, in PEM: an authority's or a server's own, expired or not (an expired one is kept, and shown as such). Its fingerprint is SHA-256 of its DER bytes, one record each (`409`); subject and issuer are kept as RFC 4514 says them. Who added it is kept by name. | Section 6's record. A name outlives the user. |
+| C4 | Fetch connects over TLS directly (no StartTLS), without checking what is presented, for ten seconds, and answers the certificates the host sent, its own first (Python 3.13's unverified chain); a host that cannot be reached so is `502 fetch_failed`. It needs `admin:certificates:write`: it reaches out. | Section 6: fetch adds nothing; the fingerprint is checked by a person. A StartTLS server's authority is pasted. |
+| C5 | Removing a certificate stops new connections trusting it; connections open are not undone. | As C2. |
+| C6 | The screen is `/admin/certificates`: the list shows a fingerprint's first eight pairs; trusting a fetched certificate asks first, showing its whole fingerprint, in pairs. | Section 6: a fingerprint is confirmed before it is trusted. |
+
 ## 7. LDAP (plan 15d)
 
 - Settings: the server's address (`ldap://` or `ldaps://`), StartTLS, the bind DN and password (sealed; none for an anonymous bind), the users' base DN and filter (`(uid={username})`, `(sAMAccountName={username})`; `{username}` escaped as RFC 4515 has it), the attributes of the user name, display name and email; groups from an attribute of the user (`memberOf`) or from a search (base, filter with `{dn}` or `{username}`, the group's name attribute); the group mapping. Timeouts of ten seconds.

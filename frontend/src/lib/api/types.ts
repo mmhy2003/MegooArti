@@ -61,6 +61,10 @@ export type Redirect = Schemas["Redirect"];
 /** A format the server has: its types, and the public repository a new proxy is given. */
 export type FormatOut = Schemas["FormatOut"];
 export type BlobStoreCreate = Schemas["BlobStoreCreate"];
+/** A certificate outbound TLS trusts besides the usual authorities (spec 6). */
+export type CertificateOut = Schemas["CertificateOut"];
+/** A certificate as a person checks it: what a host presented, before it is trusted. */
+export type CertificateView = Schemas["CertificateView"];
 /** What is running: version, schema, runtime, database. */
 export type Information = Schemas["Information"];
 

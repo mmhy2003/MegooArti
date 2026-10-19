@@ -30,6 +30,7 @@ export const MANAGE_REPOSITORIES = "/admin/repositories" as Route;
 // As for a role: a repository may be called "new", and has `~` in no name.
 export const NEW_REPOSITORY = "/admin/repositories/~new" as Route;
 export const BLOB_STORES = "/admin/blob-stores" as Route;
+export const CERTIFICATES = "/admin/certificates" as Route;
 export const SYSTEM = "/admin/system" as Route;
 
 const segments = (path: string) => path.split("/").filter((segment) => segment !== "");

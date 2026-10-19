@@ -83,6 +83,7 @@ describe("the navigation as it is", () => {
       ["roles", "/admin/roles"],
       ["anonymousAccess", "/admin/anonymous-access"],
       ["authentication", "/admin/authentication"],
+      ["certificates", "/admin/certificates"],
       ["manageRepositories", "/admin/repositories"],
       ["blobStores", "/admin/blob-stores"],
       ["system", "/admin/system"],
@@ -90,6 +91,10 @@ describe("the navigation as it is", () => {
     // How people sign in is security's, not a setting's (spec 4.3).
     expect(administration({ ...ADMIN, permissions: ["admin:security:read"] })).toEqual([
       ["authentication", "/admin/authentication"],
+    ]);
+    // What outbound TLS trusts is an area of its own (spec 6).
+    expect(administration({ ...ADMIN, permissions: ["admin:certificates:read"] })).toEqual([
+      ["certificates", "/admin/certificates"],
     ]);
     expect(administration({ ...ADMIN, permissions: ["admin:roles:read"] })).toEqual([
       ["roles", "/admin/roles"],

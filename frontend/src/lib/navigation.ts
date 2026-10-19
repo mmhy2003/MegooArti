@@ -3,6 +3,7 @@
  * with the permission its API needs: the item is then shown only to those who hold it.
  */
 import {
+  BadgeCheck,
   Boxes,
   HardDrive,
   KeyRound,
@@ -22,6 +23,7 @@ import {
   ANONYMOUS_ACCESS,
   AUTHENTICATION,
   BLOB_STORES,
+  CERTIFICATES,
   MANAGE_REPOSITORIES,
   ROLES,
   SYSTEM,
@@ -38,6 +40,7 @@ export type ItemKey =
   | "roles"
   | "anonymousAccess"
   | "authentication"
+  | "certificates"
   | "manageRepositories"
   | "blobStores"
   | "system";
@@ -96,6 +99,12 @@ export const NAVIGATION: readonly NavArea[] = [
         href: AUTHENTICATION,
         icon: KeyRound,
         permission: "admin:security:read",
+      },
+      {
+        key: "certificates",
+        href: CERTIFICATES,
+        icon: BadgeCheck,
+        permission: "admin:certificates:read",
       },
       {
         key: "manageRepositories",

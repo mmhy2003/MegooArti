@@ -77,6 +77,7 @@ describe("the shell", () => {
       ["Roles", "/admin/roles"],
       ["Anonymous access", "/admin/anonymous-access"],
       ["Authentication", "/admin/authentication"],
+      ["Certificates", "/admin/certificates"],
       // Not "Repositories": that is the list for browsing, in the same navigation (R14).
       ["Manage repositories", "/admin/repositories"],
       ["Blob stores", "/admin/blob-stores"],
@@ -85,6 +86,7 @@ describe("the shell", () => {
     // One user's page is among the users.
     expect(links.map((link) => link.getAttribute("aria-current"))).toEqual([
       "page",
+      null,
       null,
       null,
       null,

@@ -246,6 +246,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/certificates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Certificates */
+        get: operations["list_certificates_api_v1_certificates_get"];
+        put?: never;
+        /**
+         * Add Certificate
+         * @description Trust a certificate: an authority's, or a server's own. Check its fingerprint first.
+         */
+        post: operations["add_certificate_api_v1_certificates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/certificates/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fetch Certificates
+         * @description What a host presents over TLS at a port, trusted or not: to choose one to add,
+         *     once its fingerprint is checked. Nothing is added.
+         */
+        post: operations["fetch_certificates_api_v1_certificates_fetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/certificates/{certificate_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Certificate
+         * @description Trust a certificate no more. Connections made with it are not undone.
+         */
+        delete: operations["delete_certificate_api_v1_certificates__certificate_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/content": {
         parameters: {
             query?: never;
@@ -1119,6 +1181,58 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** CertificateIn */
+        CertificateIn: {
+            /** Pem */
+            pem: string;
+        };
+        /** CertificateOut */
+        CertificateOut: {
+            /**
+             * Added At
+             * Format: date-time
+             */
+            added_at: string;
+            /** Added By */
+            added_by: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issuer */
+            issuer: string;
+            /**
+             * Not After
+             * Format: date-time
+             */
+            not_after: string;
+            /** Pem */
+            pem: string;
+            /** Subject */
+            subject: string;
+        };
+        /**
+         * CertificateView
+         * @description A certificate as a person checks it: by its fingerprint, which its owner can tell.
+         */
+        CertificateView: {
+            /** Fingerprint */
+            fingerprint: string;
+            /** Issuer */
+            issuer: string;
+            /**
+             * Not After
+             * Format: date-time
+             */
+            not_after: string;
+            /** Pem */
+            pem: string;
+            /** Subject */
+            subject: string;
+        };
         /** ComponentDetail */
         ComponentDetail: {
             /**
@@ -1270,6 +1384,24 @@ export interface components {
         ErrorResponse: {
             error: components["schemas"]["ErrorBody"];
         };
+        /** FetchIn */
+        FetchIn: {
+            /** Host */
+            host: string;
+            /**
+             * Port
+             * @default 443
+             */
+            port: number;
+        };
+        /**
+         * Fetched
+         * @description What the host presented, its own certificate first. Nothing was added.
+         */
+        Fetched: {
+            /** Chain */
+            chain: components["schemas"]["CertificateView"][];
+        };
         /** FolderDeleted */
         FolderDeleted: {
             /** Deleted */
@@ -1382,6 +1514,17 @@ export interface components {
         Page_BlobStoreOut_: {
             /** Items */
             items: components["schemas"]["BlobStoreOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[CertificateOut] */
+        Page_CertificateOut_: {
+            /** Items */
+            items: components["schemas"]["CertificateOut"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -2685,6 +2828,133 @@ export interface operations {
             header?: never;
             path: {
                 name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_certificates_api_v1_certificates_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CertificateOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_certificate_api_v1_certificates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CertificateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificateOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    fetch_certificates_api_v1_certificates_fetch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FetchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fetched"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_certificate_api_v1_certificates__certificate_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                certificate_id: string;
             };
             cookie?: never;
         };

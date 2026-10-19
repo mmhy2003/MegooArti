@@ -10,6 +10,8 @@ import { api } from "@/lib/api/client";
 import type {
   BlobStoreCreate,
   BlobStoreOut,
+  CertificateOut,
+  CertificateView,
   FormatOut,
   IndexRebuilt,
   Information,
@@ -31,6 +33,7 @@ const MOST = 200;
 
 const REPOSITORIES = "repositories";
 const BLOB_STORES = "blob-stores";
+const CERTIFICATES = "certificates";
 // What the browsing screens fetched (lib/content.ts): a repository that was made,
 // changed or deleted is another one there too.
 const CONTENT = "content";
@@ -205,6 +208,40 @@ export function useDeleteBlobStore() {
   return useMutation({
     mutationFn: (name: string) => api.delete<void>(`/blob-stores/${encodeURIComponent(name)}`),
     onSuccess: () => client.invalidateQueries({ queryKey: [BLOB_STORES] }),
+  });
+}
+
+// --- Trusted certificates -------------------------------------------------------------------
+
+export function useCertificates(page: number) {
+  return useQuery({
+    queryKey: [CERTIFICATES, "list", page],
+    queryFn: () => api.get<Page<CertificateOut>>("/certificates", { query: paged(page) }),
+  });
+}
+
+export function useAddCertificate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (pem: string) => api.post<CertificateOut>("/certificates", { pem }),
+    onSuccess: () => client.invalidateQueries({ queryKey: [CERTIFICATES] }),
+  });
+}
+
+/** What a host presents over TLS, to choose one to trust. Nothing is kept of it. */
+export function useFetchCertificates() {
+  return useMutation({
+    mutationFn: (where: { host: string; port: number }) =>
+      api.post<{ chain: CertificateView[] }>("/certificates/fetch", where),
+    gcTime: 0,
+  });
+}
+
+export function useDeleteCertificate() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/certificates/${encodeURIComponent(id)}`),
+    onSuccess: () => client.invalidateQueries({ queryKey: [CERTIFICATES] }),
   });
 }
 

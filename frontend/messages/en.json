@@ -22,6 +22,7 @@
       "roles": "Roles",
       "anonymousAccess": "Anonymous access",
       "authentication": "Authentication",
+      "certificates": "Certificates",
       "manageRepositories": "Manage repositories",
       "blobStores": "Blob stores",
       "system": "System"
@@ -746,6 +747,48 @@
     "redirectUriHint": "Register this address at the provider, as the client's redirect address.",
     "noForm": "A source of the kind {kind} is set up through the API.",
     "rowIncomplete": "Each row needs a group and a role."
+  },
+  "certificates": {
+    "title": "Certificates",
+    "intro": "What this server trusts when it connects out over TLS (to proxies' remotes, OIDC providers and LDAP servers), besides the usual public authorities.",
+    "fetchTitle": "Fetch from a server",
+    "fetchIntro": "Ask a server what it presents, then trust one of its certificates: its authority's, to trust every server it signed, or its own. Nothing is trusted until you choose.",
+    "pasteTitle": "Paste a certificate",
+    "fields": {
+      "pem": "Certificate (PEM)",
+      "host": "Host",
+      "port": "Port"
+    },
+    "hints": {
+      "pem": "One certificate: -----BEGIN CERTIFICATE----- and what follows."
+    },
+    "portRule": "A port is a number from 1 to 65535.",
+    "fetch": "Fetch",
+    "presented": "What the server presented",
+    "own": "The server's own",
+    "authority": "Its authority {number}",
+    "fingerprint": "Fingerprint (SHA-256)",
+    "trustThis": "Trust this certificate",
+    "trustAsk": "Trust this certificate?",
+    "trustBody": "Check its fingerprint with whoever runs the authority or the server, by another way than this connection: whoever sits between you and the server could present anything.",
+    "trust": "Trust it",
+    "trusted": "Trusted {subject}.",
+    "add": "Trust this certificate",
+    "none": "No certificate is added: the usual public authorities alone are trusted.",
+    "columns": {
+      "subject": "Subject",
+      "issuer": "Issuer",
+      "fingerprint": "Fingerprint",
+      "expires": "Expires",
+      "added": "Added",
+      "actions": "Actions"
+    },
+    "expired": "Expired",
+    "remove": "Remove",
+    "removeNamed": "Remove {subject}",
+    "removeAsk": "Trust {subject} no more?",
+    "removeBody": "New connections no longer trust it; connections already open are not undone.",
+    "removed": "{subject} is trusted no more."
   },
   "members": {
     "none": "It has no member yet, and so answers nothing.",
