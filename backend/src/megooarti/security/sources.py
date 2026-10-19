@@ -68,11 +68,15 @@ class Outbound:
     HTTP (LDAP) what its TLS trusts: the usual authorities and the added certificates."""
 
     http: httpx.AsyncClient
-    tls: ssl.SSLContext
+    tls: ssl.SSLContext  # the shared client's own: read it, never change it
+    # The certificates trusted besides the usual authorities, for a context of one's own.
+    trusted: tuple[str, ...] = ()
 
 
 def outbound(app: Any) -> Outbound:
-    return Outbound(http=client_of(app), tls=tls_of(app))
+    return Outbound(
+        http=client_of(app), tls=tls_of(app), trusted=tuple(app.state.trusted_certificates)
+    )
 
 
 class SourceUnavailable(Exception):

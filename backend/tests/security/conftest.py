@@ -3,9 +3,11 @@ from typing import Any
 
 import pytest
 
-from megooarti.security import oidc, sources
+from megooarti.security import ldap, oidc, sources
 from megooarti.security.models import AuthSource, User
 from tests.security.directory import SECRET, Directory, Portal
+from tests.security.ldap_directory import PEOPLE, READER, READER_PASSWORD
+from tests.security.ldap_directory import Directory as LdapDirectory
 from tests.security.provider import CLIENT_ID, CLIENT_SECRET, ISSUER, FakeProvider
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -21,8 +23,8 @@ async def dana(db) -> User:
 
 @pytest.fixture
 def kinds(monkeypatch) -> dict[str, sources.Kind]:
-    """The kinds of source of the tests, in place of whatever the server has."""
-    registered = {kind.name: kind for kind in (Directory(), Portal())}
+    """The kinds of source of the tests, beside those the server has."""
+    registered = {**sources.KINDS, **{kind.name: kind for kind in (Directory(), Portal())}}
     monkeypatch.setattr(sources, "KINDS", registered)
     return registered
 
@@ -106,6 +108,48 @@ def add_oidc_source(sessionmaker, settings):
                 enabled=enabled,
                 position=await sources.next_position(db),
                 settings=sources.kept_settings(settings, sources.KINDS["oidc"], sent, None),
+                group_mapping=mapping or [],
+            )
+            db.add(source)
+            await db.commit()
+            return source
+
+    return add
+
+
+@pytest.fixture
+def directory(monkeypatch) -> LdapDirectory:
+    """A directory of the test's own, in place of the connections LDAP sources open."""
+    found = LdapDirectory()
+    monkeypatch.setattr(ldap, "_open", found.open)
+    return found
+
+
+@pytest.fixture
+def add_ldap_source(sessionmaker, settings):
+    """Keep an LDAP source of the test's directory, enabled, after those before it."""
+
+    async def add(
+        name: str = "Corp LDAP",
+        *,
+        enabled: bool = True,
+        mapping: list[dict[str, Any]] | None = None,
+        **more: Any,
+    ) -> AuthSource:
+        sent = {
+            "url": "ldap://ldap.corp.example",
+            "bind_dn": READER,
+            "bind_password": READER_PASSWORD,
+            "user_base": PEOPLE,
+            **more,
+        }
+        async with sessionmaker() as db:
+            source = AuthSource(
+                kind="ldap",
+                name=name,
+                enabled=enabled,
+                position=await sources.next_position(db),
+                settings=sources.kept_settings(settings, sources.KINDS["ldap"], sent, None),
                 group_mapping=mapping or [],
             )
             db.add(source)
