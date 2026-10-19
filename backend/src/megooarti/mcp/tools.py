@@ -186,7 +186,7 @@ def tool(
                     "mcp_tool_called",
                     tool=function.__name__,
                     user=principal.user.username,
-                    token=None if principal.token_id is None else str(principal.token_id),
+                    token=str(principal.token_id or principal.grant_id or "") or None,
                     arguments=loggable(arguments),
                     outcome=outcome,
                     duration_ms=round((time.perf_counter() - started) * 1000),

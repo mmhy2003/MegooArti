@@ -34,8 +34,10 @@ from megooarti.repositories.routes import router as content_router
 from megooarti.repositories.search_api import router as search_router
 from megooarti.repositories.yum import format as _yum_format  # noqa: F401  (registers it)
 from megooarti.request_id import RequestIdMiddleware
+from megooarti.security import oauth
 from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
+from megooarti.security.api import oauth as oauth_api
 from megooarti.security.api import roles as roles_api
 from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
@@ -77,6 +79,9 @@ async def _compact(app: FastAPI) -> None:
     settings = app.state.settings
 
     async def job() -> None:
+        async with app.state.sessionmaker() as db:
+            await oauth.forget(db, utcnow())  # OAuth's codes, tokens and approvals that ended
+            await db.commit()
         # First, so that what upkeep removes starts its wait for compaction now.
         await upkeep.run(app.state.sessionmaker, settings, utcnow())
         removed = await blobs.compact(
@@ -159,6 +164,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(registry_router)  # /v2/..., the container registry API
     app.state.mcp = McpServer()
     app.include_router(mcp_router)  # /mcp, for AI agents
+    app.include_router(oauth_api.well_known)  # /.well-known/..., how agents sign in
+    app.include_router(oauth_api.endpoints)  # /oauth/..., where they do
+    app.include_router(oauth_api.consent, prefix=API_PREFIX)  # the consent page's
 
     # Middleware added later wraps middleware added earlier. Keep UnhandledErrorMiddleware
     # first, so its 500 response passes through every other middleware, and keep

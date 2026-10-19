@@ -14,6 +14,38 @@
         "title": "AnonymousAccess",
         "type": "object"
       },
+      "Answer": {
+        "properties": {
+          "request": {
+            "maxLength": 4096,
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "title": "Answer",
+        "type": "object"
+      },
+      "Asked": {
+        "properties": {
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "redirect_host": {
+            "title": "Redirect Host",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client",
+          "redirect_host"
+        ],
+        "title": "Asked",
+        "type": "object"
+      },
       "AssetView": {
         "properties": {
           "blob_store": {
@@ -349,6 +381,40 @@
           "modified"
         ],
         "title": "ComponentView",
+        "type": "object"
+      },
+      "Consent": {
+        "properties": {
+          "access": {
+            "enum": [
+              "read",
+              "all"
+            ],
+            "title": "Access",
+            "type": "string"
+          },
+          "lasts": {
+            "enum": [
+              "1d",
+              "30d",
+              "90d",
+              "forever"
+            ],
+            "title": "Lasts",
+            "type": "string"
+          },
+          "request": {
+            "maxLength": 4096,
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "access",
+          "lasts"
+        ],
+        "title": "Consent",
         "type": "object"
       },
       "Database": {
@@ -1154,6 +1220,19 @@
           "last_error"
         ],
         "title": "ProxyStatus",
+        "type": "object"
+      },
+      "Redirect": {
+        "properties": {
+          "redirect": {
+            "title": "Redirect",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirect"
+        ],
+        "title": "Redirect",
         "type": "object"
       },
       "RemoteAuthIn": {
@@ -3433,6 +3512,132 @@
           }
         },
         "summary": "Revoke Token",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/v1/oauth/consent": {
+      "get": {
+        "description": "What a client asks of the signed-in person, for the consent page to show.",
+        "operationId": "asked_api_v1_oauth_consent_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "maxLength": 4096,
+              "title": "Request",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asked"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Asked",
+        "tags": [
+          "account"
+        ]
+      },
+      "post": {
+        "description": "The person approves: a code for the client, back at its redirect address.",
+        "operationId": "approve_api_v1_oauth_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Consent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Redirect"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Approve",
+        "tags": [
+          "account"
+        ]
+      }
+    },
+    "/api/v1/oauth/refusal": {
+      "post": {
+        "description": "The person refuses: the client is told so (`access_denied`).",
+        "operationId": "refuse_api_v1_oauth_refusal_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Redirect"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Refuse",
         "tags": [
           "account"
         ]

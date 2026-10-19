@@ -107,6 +107,55 @@ class ApiToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class OAuthClient(Base):
+    """A client that registered itself for OAuth (RFC 7591): an agent's host."""
+
+    __tablename__ = "oauth_clients"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    redirect_uris: Mapped[list[Any]] = mapped_column(JSONB)
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    registered_from: Mapped[str] = mapped_column(String(64))
+
+
+class OAuthGrant(Base):
+    """An approval: what a user let a client do as them, and until when."""
+
+    __tablename__ = "oauth_grants"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("oauth_clients.id", ondelete="CASCADE"), index=True
+    )
+    # Patterns that narrow the user's permissions, as an API token's scopes do; null: none.
+    scopes: Mapped[list[Any] | None] = mapped_column(JSONB(none_as_null=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OAuthToken(Base):
+    """A code, an access token or a refresh token of a grant, kept as its hash."""
+
+    __tablename__ = "oauth_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    grant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("oauth_grants.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16))  # "code", "access" or "refresh"
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A code's: what the token request must show again (RFC 7636, RFC 6749 4.1.3).
+    code_challenge: Mapped[str | None] = mapped_column(String(128))
+    redirect_uri: Mapped[str | None] = mapped_column(String(2048))
+
+
 class LoginFailure(Base):
     __tablename__ = "login_failures"
 

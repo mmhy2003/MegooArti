@@ -5,7 +5,7 @@ import base64
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.security import registry_tokens, sessions, throttle, tokens, users
+from megooarti.security import oauth, registry_tokens, sessions, throttle, tokens, users
 from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
@@ -50,6 +50,8 @@ class Principal:
     public: frozenset[str] = frozenset()
     # The API token the caller presented, if any: what a registry token is issued for.
     token_id: uuid.UUID | None = None
+    # The OAuth approval the caller's access token stands for, if it held one (MCP 7).
+    grant_id: uuid.UUID | None = None
 
     @property
     def is_anonymous(self) -> bool:
@@ -492,19 +494,47 @@ async def registry_credentials(
 
 # Who is calling, if anyone. Both enforce CSRF for cookie requests; they differ only in
 # the challenge a 401 carries.
+async def _resource_metadata(request: Request, db: AsyncSession) -> str:
+    base = (await get_setting(db, "base_url") or str(request.base_url)).rstrip("/")
+    return f"{base}/.well-known/oauth-protected-resource/mcp"
+
+
+async def _agent(request: Request, db: AsyncSession, value: str) -> Principal:
+    if value.startswith(TOKEN_PREFIX):
+        user, token = await _authenticate_token(db, request, value)
+        return await build_principal(db, user, "token", token=token)
+    grant = await oauth.find_access(db, value, utcnow())
+    user = None if grant is None else await users.get_user(db, grant.user_id)
+    if grant is None or user is None or user.status != "active":
+        # Counted against the address, as a token that is not one is.
+        return await _checked(db, request, None, _no_match)
+    principal = await build_principal(db, user, "token")
+    scopes = None if grant.scopes is None else frozenset(grant.scopes)
+    return replace(principal, scopes=scopes, grant_id=grant.id)
+
+
 async def agent_principal(request: Request, db: AsyncSession = Depends(get_session)) -> Principal:
-    """Dependency of the MCP endpoint: an API token as a bearer token, and nothing else.
+    """Dependency of the MCP endpoint: an API token, or an OAuth access token, as a bearer
+    token, and nothing else.
 
     No cookie, no password and no anonymous access: an agent always acts for someone,
-    who made the token it holds. Raises 401, or 429 after too many failed attempts.
+    who made its token or approved it. Raises 401, naming where a client finds how to
+    sign in (RFC 9728), or 429 after too many failed attempts.
     """
     scheme, _, value = request.headers.get("Authorization", "").partition(" ")
     value = value.strip()
-    if scheme.lower() != "bearer" or not value.startswith(TOKEN_PREFIX):
-        raise unauthorized("Sign in with an API token, as a bearer token.")
-    user, token = await _authenticate_token(db, request, value)
-    principal = await build_principal(db, user, "token", token=token)
-    await db.commit()  # when the token was last used
+    try:
+        if scheme.lower() != "bearer" or not value.startswith((TOKEN_PREFIX, oauth.ACCESS_PREFIX)):
+            raise unauthorized("Sign in with an API token, or with OAuth, as a bearer token.")
+        principal = await _agent(request, db, value)
+    except ApiError as error:
+        if error.status_code == 401:
+            metadata = await _resource_metadata(request, db)
+            error.headers = {
+                "WWW-Authenticate": f'Bearer realm="MegooArti", resource_metadata="{metadata}"'
+            }
+        raise
+    await db.commit()  # when the token, or the approval, was last used
     return principal
 
 

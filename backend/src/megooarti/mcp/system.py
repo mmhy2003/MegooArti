@@ -9,15 +9,15 @@ from megooarti import __version__
 from megooarti.mcp.tools import caller, database, tool
 from megooarti.pagination import PageParams
 from megooarti.security import users
-from megooarti.security.models import ApiToken
+from megooarti.security.models import ApiToken, OAuthClient, OAuthGrant
 from megooarti.storage import api as blob_stores_api
 from megooarti.system import information_api, status
 
 
 class TokenView(BaseModel):
-    kind: str  # "api_token": made under Account, Tokens
-    name: str
-    prefix: str  # its first characters, as the web UI shows them
+    kind: str  # "api_token", made under Account, Tokens; or "oauth", an approval
+    name: str  # the token's; or the client's, in its own words
+    prefix: str  # an API token's first characters, as the web UI shows them
     scopes: list[str] | None  # what it narrows its owner's permissions to; null: none
     expires_at: datetime | None
 
@@ -40,21 +40,33 @@ async def whoami() -> Whoami:
     async with database() as db:
         view = await users.describe(db, principal.user)
         token = None if principal.token_id is None else await db.get(ApiToken, principal.token_id)
+        grant = None if principal.grant_id is None else await db.get(OAuthGrant, principal.grant_id)
+        client = None if grant is None else await db.get(OAuthClient, grant.client_id)
+    if grant is not None and client is not None:
+        held: TokenView | None = TokenView(
+            kind="oauth",
+            name=client.name,
+            prefix="",
+            scopes=grant.scopes,
+            expires_at=grant.expires_at,
+        )
+    elif token is not None:
+        held = TokenView(
+            kind="api_token",
+            name=token.name,
+            prefix=token.display_prefix,
+            scopes=token.scopes,
+            expires_at=token.expires_at,
+        )
+    else:
+        held = None
     return Whoami(
         username=view.username,
         display_name=view.display_name,
         email=view.email,
         roles=view.roles,
         permissions=sorted(principal.patterns),
-        token=None
-        if token is None
-        else TokenView(
-            kind="api_token",
-            name=token.name,
-            prefix=token.display_prefix,
-            scopes=token.scopes,
-            expires_at=token.expires_at,
-        ),
+        token=held,
     )
 
 

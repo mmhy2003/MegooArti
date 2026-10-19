@@ -16,6 +16,15 @@ OPEN = {
     "/api/v1/status/live",  # health checks, required to be unauthenticated (SYS-2)
     "/api/v1/status/ready",
     "/api/v1/auth/login",  # this is where credentials are presented
+    # OAuth (MCP spec 7): what a client discovers is public (RFC 9728, RFC 8414); any
+    # client may register (RFC 7591); authorize sends a person to the consent page, where
+    # they sign in; token takes a code or a refresh token, which are the credentials.
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/.well-known/oauth-authorization-server",
+    "/oauth/register",
+    "/oauth/authorize",
+    "/oauth/token",
 }
 # The API description, its viewer and the files the viewer loads. They describe the
 # API's shape, not its data, and are left open by design.
