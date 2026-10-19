@@ -256,6 +256,106 @@
         "title": "BlobStoreOut",
         "type": "object"
       },
+      "CertificateIn": {
+        "properties": {
+          "pem": {
+            "maxLength": 65536,
+            "title": "Pem",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pem"
+        ],
+        "title": "CertificateIn",
+        "type": "object"
+      },
+      "CertificateOut": {
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "added_by": {
+            "title": "Added By",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "not_after": {
+            "format": "date-time",
+            "title": "Not After",
+            "type": "string"
+          },
+          "pem": {
+            "title": "Pem",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "issuer",
+          "fingerprint",
+          "not_after",
+          "pem",
+          "id",
+          "added_by",
+          "added_at"
+        ],
+        "title": "CertificateOut",
+        "type": "object"
+      },
+      "CertificateView": {
+        "description": "A certificate as a person checks it: by its fingerprint, which its owner can tell.",
+        "properties": {
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "not_after": {
+            "format": "date-time",
+            "title": "Not After",
+            "type": "string"
+          },
+          "pem": {
+            "title": "Pem",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "issuer",
+          "fingerprint",
+          "not_after",
+          "pem"
+        ],
+        "title": "CertificateView",
+        "type": "object"
+      },
       "ComponentDetail": {
         "properties": {
           "created": {
@@ -631,6 +731,44 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FetchIn": {
+        "properties": {
+          "host": {
+            "pattern": "^[A-Za-z0-9.-]{1,253}$|^[0-9A-Fa-f:.]{2,45}$",
+            "title": "Host",
+            "type": "string"
+          },
+          "port": {
+            "default": 443,
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "FetchIn",
+        "type": "object"
+      },
+      "Fetched": {
+        "description": "What the host presented, its own certificate first. Nothing was added.",
+        "properties": {
+          "chain": {
+            "items": {
+              "$ref": "#/components/schemas/CertificateView"
+            },
+            "title": "Chain",
+            "type": "array"
+          }
+        },
+        "required": [
+          "chain"
+        ],
+        "title": "Fetched",
+        "type": "object"
+      },
       "FolderDeleted": {
         "properties": {
           "deleted": {
@@ -947,6 +1085,37 @@
           "offset"
         ],
         "title": "Page[BlobStoreOut]",
+        "type": "object"
+      },
+      "Page_CertificateOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CertificateOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[CertificateOut]",
         "type": "object"
       },
       "Page_ComponentView_": {
@@ -3797,6 +3966,181 @@
         "summary": "Get Blob Store",
         "tags": [
           "blob stores"
+        ]
+      }
+    },
+    "/api/v1/certificates": {
+      "get": {
+        "operationId": "list_certificates_api_v1_certificates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_CertificateOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "List Certificates",
+        "tags": [
+          "certificates"
+        ]
+      },
+      "post": {
+        "description": "Trust a certificate: an authority's, or a server's own. Check its fingerprint first.",
+        "operationId": "add_certificate_api_v1_certificates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertificateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Add Certificate",
+        "tags": [
+          "certificates"
+        ]
+      }
+    },
+    "/api/v1/certificates/fetch": {
+      "post": {
+        "description": "What a host presents over TLS at a port, trusted or not: to choose one to add,\nonce its fingerprint is checked. Nothing is added.",
+        "operationId": "fetch_certificates_api_v1_certificates_fetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fetched"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Fetch Certificates",
+        "tags": [
+          "certificates"
+        ]
+      }
+    },
+    "/api/v1/certificates/{certificate_id}": {
+      "delete": {
+        "description": "Trust a certificate no more. Connections made with it are not undone.",
+        "operationId": "delete_certificate_api_v1_certificates__certificate_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "certificate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Certificate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Delete Certificate",
+        "tags": [
+          "certificates"
         ]
       }
     },

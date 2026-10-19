@@ -106,6 +106,32 @@ the code flow, then make the source under Authentication, New OIDC source, or at
   and give package clients an API token, which they make under Account. Their tokens
   work until an administrator disables them, or turns the source off.
 
+### Trusted certificates
+
+MegooArti trusts the usual public authorities when it connects out over TLS: to a
+proxy's remote, to an OIDC provider, to an LDAP server. An organisation's own
+authority, or a server's self-signed certificate, is added under Administration,
+Certificates, or at `/api/v1/certificates`, and is trusted by all of them at once.
+
+- **Adding one.** Paste the certificate in PEM (`POST /api/v1/certificates` with
+  `{"pem": ...}`), one at a time. Or ask what a host presents: Fetch
+  (`POST /api/v1/certificates/fetch` with `{"host": ..., "port": 443}`) lists the
+  certificates the host sent, its own first and its authorities after, and adds
+  nothing. Check the fingerprint (SHA-256) of the one you choose with whoever runs
+  the authority or the server before you add it: whoever sits between you and the
+  host could present anything. A host that cannot be reached over TLS is said with
+  `502 fetch_failed`; for a server that starts TLS only when asked (LDAP's StartTLS),
+  paste its authority's certificate.
+- **Which one to add.** The authority's (the last of what a host presents) when the
+  organisation's servers are signed by it: every one of them is then trusted. The
+  server's own when it signs itself.
+- **Removing one** stops new connections trusting it; connections already open are
+  not undone. A certificate past its date is kept, and shown as expired: a connection
+  it would vouch for is refused.
+- The authorities trusted already are those the server's image comes with (Mozilla's,
+  through `certifi`), or those of the file named by `SSL_CERT_FILE`, as for any
+  Python program.
+
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.
 
@@ -124,6 +150,7 @@ area's name alone gives both.
 | `admin:blobstores` | The blob stores |
 | `admin:settings` | The base URL and anonymous access; to read, also what is running (`/api/v1/system/information`) |
 | `admin:security` | How people sign in: the sign-in sources and their order, the default role, and whether MegooArti's own users sign in |
+| `admin:certificates` | The certificates outbound TLS trusts besides the usual authorities; to write, also fetching what a host presents |
 
 What a repository holds is not given by these, but by `repository:` permissions:
 see [Repositories](repositories.md). Whoever may change roles, or the roles a user
