@@ -108,6 +108,25 @@ Settled here, by the designer:
 - "Test" fetches the metadata and the keys, and says what was found.
 - Tokens are checked with `pyjwt[crypto]` (already a dependency, through the MCP SDK).
 
+### Settled while building plan 15b
+
+| # | What | Why |
+| --- | --- | --- |
+| O1 | A kind reaches its source through `sources.Outbound`, the server's one outbound HTTP client, given to `Kind.password` and `Kind.test` first. `pyjwt[crypto]` is a dependency of the backend's own. | 15c makes that client trust the added certificates, and every kind with it. The MCP SDK's dependency could go with the SDK. |
+| O2 | An OIDC source's settings: `issuer` (http or https, without a slash at its end), `client_id`, `client_secret` (optional: a public client signs in with PKCE alone), `scopes` (`openid profile email` unless set; `openid` always, first), the four claims (`preferred_username`, `name`, `email`, `groups` unless set) and `require_verified_email`. The secret goes with `issuer` and `client_id` (S16). | Section 5. http is for a provider on the server's own network, as Keycloak is in the tests. |
+| O3 | The metadata must name the very issuer it was asked of, and have the authorization and token endpoints and `jwks_uri`. Algorithms are RS256 and authentication `client_secret_basic` where it names none; the client's ID and secret are form-encoded in Basic (RFC 6749 2.3.1). | OpenID Discovery 4.3: metadata naming another issuer is another provider's. |
+| O4 | Metadata and keys are kept an hour by their address, in the process. Test asks afresh; a key ID not among the kept keys is asked for afresh once (a key rolled over). | Section 5. |
+| O5 | Each source has its own redirect address, `<base URL>/api/v1/auth/oidc/{id}/callback` (the address the request came to without a base URL), given by `Kind.callback_path` and shown as `SourceOut.redirect_uri`. | Section 5's paths. A redirect address of its own keeps one provider's answer from being taken for another's. |
+| O6 | What a sign-in keeps (the source, state, nonce, PKCE verifier, `next` and the redirect address) is sealed (`secrets_box.seal_at`) in the cookie `megooarti_oidc`: ten minutes, HttpOnly, SameSite=Lax, path `/api/v1/auth/oidc/`, Secure as the session's is. | Section 5. Lax: the cookie must come back with the provider's redirect, a top-level GET. |
+| O7 | Both routes end at the sign-in screen: signed in, `/login?next=…&signed_in=1`, from where the UI's gate goes on to `next` if it is an address of its own; else `/login?error=<denied, failed, refused, expired or unavailable>&next=…`. Under the base URL where one is set. | One check of `next`, the UI's, which a password sign-in already uses: the server never redirects to it. |
+| O8 | An ID token is taken signed with RS, PS, ES or EdDSA algorithms that the provider says it uses, never `none` or `HS*`; with `exp`, `iat`, `iss`, `aud` and `sub`; at most five minutes' skew; this sign-in's nonce; `azp` naming the client where there are several audiences; and, where the provider sends `iss` with the code (RFC 9207), this provider's. | Section 5, and 14's "an ID token accepted from the wrong provider, or replayed". |
+| O9 | Who someone is: `sub` is their identity; their name is the user-name claim, else their email, else `sub`; groups are a list or one string. A source that requires a verified email refuses (`refused`) one whose `email_verified` is not true. | Section 5's claims. Google, for one, has no `preferred_username`. |
+| O10 | A sign-in that fails makes nothing (rolled back), is logged as `oidc_sign_in_failed` with why, and is not counted against the sign-in limit: no password was tried. | Section 5: said and logged, nothing created. |
+| O11 | A user of an OIDC source has no password here: HTTP Basic with a password is refused; their API tokens work. | E2, SEC-14. |
+| O12 | The sign-in screen offers "Sign in with <name>" for each source `GET /api/v1/auth/sources` lists, with `next`, and says each `error` in words of its own; shown with `signed_in=1`, it says the browser did not keep the session. | Section 5. The screen is shown after a sign-in only when there is no session. |
+| O13 | A source has a page, `/admin/authentication/{id}`, and a new one is made at `/admin/authentication/~new`, off. The form is OIDC's; a source of another kind is said to be set up through the API until its plan brings its form. A group's roles are rows of a group and a role. The secret is written, never read back. | S15. |
+| O14 | The container test runs Keycloak 26.0 beside the stack, on its network as `keycloak:8080` (the issuer's name), its realm imported at start; the test reaches it at port 18080, saying `keycloak:8080` in the Host header. The person's browser is played by HTTP requests through the gateway, which post Keycloak's own sign-in form: the UI's "Sign in with" is a plain link, which Task 3's tests hold to its address. | Section 12. One name for the provider, for the backend and for the browser. |
+
 ## 6. Trusted certificates (plan 15c)
 
 - `trusted_certificates`: id, subject, issuer, fingerprint (SHA-256), not-after, PEM, added by and when.

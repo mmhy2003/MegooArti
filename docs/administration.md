@@ -74,6 +74,38 @@ directory, an OIDC provider, or a reverse proxy that says who they are. Each is 
 - The sign-in screen asks `GET /api/v1/auth/sources`, open to anyone, for the sources
   people sign in to in the browser.
 
+#### OIDC
+
+People sign in at an OpenID Connect provider (Keycloak, Entra ID, Okta, Google), which
+sends them back signed in. Register MegooArti as a confidential client there, with
+the code flow, then make the source under Authentication, New OIDC source, or at
+`POST /api/v1/auth-sources` with `"kind": "oidc"`:
+
+| Setting | What it is |
+| --- | --- |
+| `issuer` | The provider's address, exactly as its metadata names it: Keycloak's is `https://<host>/realms/<realm>`. Its metadata is read from `<issuer>/.well-known/openid-configuration`, and its keys from the address that names; both are kept for an hour |
+| `client_id`, `client_secret` | What the provider gave the client. The secret is kept sealed, shown to nobody, and asked again when the issuer or the client ID changes |
+| `scopes` | What is asked for: `openid profile email` unless you say otherwise; `openid` is always asked for. Ask for `groups` too where the provider gives groups only so |
+| `username_claim`, `name_claim`, `email_claim`, `groups_claim` | The claims of the ID token that say who someone is: `preferred_username`, `name`, `email` and `groups` unless you say otherwise. Without a user name, the email is the name, and without that, the subject |
+| `require_verified_email` | Refuse anyone whose `email_verified` is not true |
+
+- **The redirect address** to register at the provider is shown on the source's page,
+  and is `<base URL>/api/v1/auth/oidc/<id>/callback`: set the base URL first, under
+  `/api/v1/settings`, if the server is reached at another address than it sees.
+- **Groups.** Keycloak sends groups only with a mapper: add a "Group Membership"
+  mapper to the client, named `groups`, with "Full group path" off and "Add to ID
+  token" on. Entra ID sends group IDs, not names, in `groups`: map those.
+- **Signing in.** The sign-in screen offers "Sign in with <name>" for each enabled
+  source. The browser goes to the provider with a state, a nonce and PKCE (S256),
+  kept sealed in a cookie for ten minutes, and comes back with a code, which is
+  traded for an ID token. The token is checked (its signature by the provider's keys,
+  its issuer, audience, expiry and nonce, with five minutes' grace for a clock) before
+  anyone is made or signed in. Whatever goes wrong is said on the sign-in screen and
+  written to the log as `oidc_sign_in_failed`, with why.
+- **A user of an OIDC source** has no password here: they sign in at the provider,
+  and give package clients an API token, which they make under Account. Their tokens
+  work until an administrator disables them, or turns the source off.
+
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.
 

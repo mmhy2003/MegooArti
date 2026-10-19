@@ -1,0 +1,48 @@
+{
+  "realm": "megooarti",
+  "enabled": true,
+  "sslRequired": "none",
+  "groups": [{ "name": "developers", "path": "/developers" }],
+  "users": [
+    {
+      "username": "kim",
+      "enabled": true,
+      "email": "kim@corp.example",
+      "emailVerified": true,
+      "firstName": "Kim",
+      "lastName": "Lee",
+      "credentials": [{ "type": "password", "value": "kim's password", "temporary": false }],
+      "groups": ["/developers"],
+      "requiredActions": []
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "megooarti",
+      "name": "MegooArti",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "the realm's secret for megooarti",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://127.0.0.1:18000/api/v1/auth/oidc/*"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}
