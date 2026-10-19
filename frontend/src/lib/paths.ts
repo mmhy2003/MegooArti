@@ -24,6 +24,8 @@ export const ROLES = "/admin/roles" as Route;
 export const NEW_ROLE = "/admin/roles/~new" as Route;
 export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
 export const AUTHENTICATION = "/admin/authentication" as Route;
+// As for a role: a source may be called "new", and has `~` in no id.
+export const NEW_SOURCE = "/admin/authentication/~new" as Route;
 export const MANAGE_REPOSITORIES = "/admin/repositories" as Route;
 // As for a role: a repository may be called "new", and has `~` in no name.
 export const NEW_REPOSITORY = "/admin/repositories/~new" as Route;
@@ -89,6 +91,10 @@ export function userHref(id: string): Route {
  */
 export function isAddressable(name: string): boolean {
   return name !== "." && name !== "..";
+}
+
+export function sourceHref(id: string): Route {
+  return `${AUTHENTICATION}/${encodeURIComponent(id)}` as Route;
 }
 
 export function roleHref(name: string): Route {
@@ -165,6 +171,12 @@ function one(pathname: string, list: string): string | null {
 /** The id of the user an address is about. `new` is the form for one that is not there yet. */
 export function parseUser(pathname: string): { id: string } | null {
   const id = one(pathname, USERS);
+  return id === null ? null : { id };
+}
+
+/** The id of the sign-in source an address is about. */
+export function parseSource(pathname: string): { id: string } | null {
+  const id = one(pathname, AUTHENTICATION);
   return id === null ? null : { id };
 }
 

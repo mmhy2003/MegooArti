@@ -20,6 +20,7 @@ import type {
   RoleOut,
   SettingsOut,
   SignInSettings,
+  SourceCreate,
   SourceIn,
   SourceOut,
   SourceTested,
@@ -348,6 +349,23 @@ export function useSources() {
   return useQuery({
     queryKey: [SOURCES],
     queryFn: () => api.get<Page<SourceOut>>("/auth-sources", { query: { limit: EVERY } }),
+  });
+}
+
+/** One source, as the server has it now: its form opens on it. */
+export function useSource(id: string | null) {
+  return useQuery({
+    queryKey: [SOURCES, "one", id],
+    queryFn: () => api.get<SourceOut>(source(id ?? "")),
+    enabled: id !== null,
+  });
+}
+
+export function useCreateSource() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (wanted: SourceCreate) => api.post<SourceOut>("/auth-sources", wanted),
+    onSuccess: () => client.invalidateQueries({ queryKey: [SOURCES] }),
   });
 }
 

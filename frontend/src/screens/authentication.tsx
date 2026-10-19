@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
 
@@ -9,11 +9,13 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Fact, Facts } from "@/components/ui/details";
 import { SelectField } from "@/components/ui/inputs";
+import { AppLink } from "@/components/ui/link";
 import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Table, Td, Th } from "@/components/ui/table";
 import type { SourceOut } from "@/lib/api/types";
+import { NEW_SOURCE, sourceHref } from "@/lib/paths";
 import {
   useDeleteSource,
   useEveryRole,
@@ -126,7 +128,14 @@ function Sources({ mayWrite }: { mayWrite: boolean }) {
           </tr>
           {listed.map((source, index) => (
             <tr key={source.id} className="hover:bg-raised">
-              <Td className="font-medium break-all">{source.name}</Td>
+              <Td className="font-medium break-all">
+                <AppLink
+                  href={sourceHref(source.id)}
+                  className="text-ink-cyan underline-offset-4 hover:underline"
+                >
+                  {source.name}
+                </AppLink>
+              </Td>
               <Td className="font-mono text-fg-muted">{source.kind}</Td>
               <Td className="text-right font-mono">{source.users}</Td>
               <Td>
@@ -302,7 +311,17 @@ export function AuthenticationScreen() {
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <PageHeader title={t("title")} intro={t("intro")} />
       <Panel>
-        <h2 className={`${H2} px-4 pt-4`}>{t("sourcesTitle")}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
+          <h2 className={H2}>{t("sourcesTitle")}</h2>
+          {mayWrite ? (
+            <Button asChild size="sm">
+              <AppLink href={NEW_SOURCE}>
+                <Plus aria-hidden="true" className="size-4" />
+                {t("newOidc")}
+              </AppLink>
+            </Button>
+          ) : null}
+        </div>
         <Sources mayWrite={mayWrite} />
       </Panel>
       <Panel className="p-6">

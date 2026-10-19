@@ -35,6 +35,9 @@ export type SignInSettings = Schemas["SignInSettings"];
 /** A sign-in source as an administrator sees it: never its secrets. */
 export type SourceOut = Schemas["SourceOut"];
 export type SourceIn = Schemas["SourceIn"];
+export type SourceCreate = Schemas["SourceCreate"];
+/** A source the sign-in screen offers: signed in to at a provider, in the browser. */
+export type SignInSource = Schemas["SignInSource"];
 /** What testing a source found. */
 export type SourceTested = Schemas["TestOut"];
 /** A repository as an administrator sees it: how it is set up, and a proxy's state. */

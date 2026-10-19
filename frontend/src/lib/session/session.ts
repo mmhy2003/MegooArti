@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { api, ApiError, setCsrfToken } from "@/lib/api/client";
-import type { SessionInfo } from "@/lib/api/types";
+import type { Page, SessionInfo, SignInSource } from "@/lib/api/types";
 import { leaveTo } from "@/lib/browser";
 
 import { HOME } from "./rules";
@@ -45,6 +45,18 @@ export type Credentials = { username: string; password: string };
  * whether the browser kept the cookie. If it did not, the error's code is
  * `cookie_not_kept`.
  */
+/**
+ * The sources the sign-in screen offers besides a password: signed in to at a provider.
+ * Asked of a server that may have none, or be an older one: then there are none.
+ */
+export function useSignInSources() {
+  return useQuery({
+    queryKey: ["sign-in-sources"],
+    queryFn: () => api.get<Page<SignInSource>>("/auth/sources", { query: { limit: 200 } }),
+    retry: false,
+  });
+}
+
 export function useSignIn() {
   const client = useQueryClient();
   return useMutation({

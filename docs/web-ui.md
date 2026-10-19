@@ -69,7 +69,10 @@ repositories, blob stores and the installation's own settings.
     users it has. A source is turned on or off, moved up or down, tested, and deleted
     after you type its name. Turning MegooArti's own users off asks first: only the
     built-in `admin` signs in here then. The default role, which every signed-in
-    user has, is chosen from the roles.
+    user has, is chosen from the roles. A source's name leads to its page, where its
+    settings are changed and the redirect address to register at the provider is
+    shown, with a copy button; New OIDC source makes one, off until it is turned on.
+    A group's roles are rows: a group, and the role its members are given.
   - **Manage repositories** lists every repository as it is set up. A new one is made
     on one page: choose the format and the type, and the page shows what that
     combination has. A hosted repository has a deployment policy; a proxy has its
@@ -105,7 +108,9 @@ repositories, blob stores and the installation's own settings.
   browser keeps it over HTTPS, and over plain HTTP only on the machine itself
   (`localhost`). If you reach the UI over plain HTTP at another name or address,
   signing in will say that the browser did not keep the session: use HTTPS, or set
-  `MEGOOARTI_SESSION_COOKIE_SECURE=false`.
+  `MEGOOARTI_SESSION_COOKIE_SECURE=false`. The sign-in screen also offers "Sign in
+  with <name>" for each OIDC source that is on: the provider signs you in, and sends
+  you back to where you were going. If it does not, the screen says why.
 - **Anonymous access.** If it is on, a visitor who is not signed in sees what the
   anonymous user may browse, and a "Sign in" button. If it is off, the sign-in screen.
 - **Light and dark.** The mode switch in the header chooses light, dark, or as the

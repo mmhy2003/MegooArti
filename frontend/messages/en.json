@@ -51,7 +51,16 @@
     "wrong": "The user name or the password is not correct.",
     "tooManyAttempts": "Too many attempts. Wait a little, and try again.",
     "cookieNotKeptTitle": "Your browser did not keep the session",
-    "cookieNotKept": "The name and password were right, but the session cookie was not kept. It is marked Secure, and this address is plain HTTP on a host that is not localhost. Use HTTPS, or ask the administrator to set MEGOOARTI_SESSION_COOKIE_SECURE=false."
+    "cookieNotKept": "The name and password were right, but the session cookie was not kept. It is marked Secure, and this address is plain HTTP on a host that is not localhost. Use HTTPS, or ask the administrator to set MEGOOARTI_SESSION_COOKIE_SECURE=false.",
+    "or": "or",
+    "with": "Sign in with {name}",
+    "provider": {
+      "denied": "The provider did not let you sign in.",
+      "failed": "Signing in at the provider did not work. The administrator can see why in the server's log.",
+      "refused": "You may not sign in here. Ask the administrator.",
+      "expired": "The sign-in took too long, or your browser did not keep its cookie. Try again.",
+      "unavailable": "The provider cannot be reached now. Try again later, or sign in with your password."
+    }
   },
   "password": {
     "title": "Change password",
@@ -685,7 +694,57 @@
     "noDefaultRole": "None",
     "save": "Save",
     "defaultRoleSet": "Every signed-in user has the role {role}.",
-    "defaultRoleCleared": "There is no default role."
+    "defaultRoleCleared": "There is no default role.",
+    "newOidc": "New OIDC source"
+  },
+  "source": {
+    "newTitle": "New OIDC source",
+    "oneTitle": "Sign-in source",
+    "newIntro": "People sign in at an identity provider (Keycloak, Entra ID, Okta, Google). The source is made off: test it on the list, then turn it on.",
+    "intro": "Where people sign in, and what their groups give them.",
+    "path": "Path",
+    "authentication": "Authentication",
+    "providerTitle": "Provider",
+    "claimsTitle": "Claims",
+    "claimsIntro": "The claims of the ID token that say who someone is. The provider's own names are given unless you change them.",
+    "fields": {
+      "name": "Name",
+      "issuer": "Issuer",
+      "clientId": "Client ID",
+      "clientSecret": "Client secret",
+      "scopes": "Scopes",
+      "verifiedEmail": "A verified email is required",
+      "username_claim": "User name",
+      "name_claim": "Display name",
+      "email_claim": "Email",
+      "groups_claim": "Groups"
+    },
+    "hints": {
+      "name": "Shown on the sign-in screen: Sign in with this name.",
+      "issuer": "The provider's address, as its metadata names it: https://sso.example.com/realms/corp.",
+      "secret": "As the provider gave it. Shown to nobody again.",
+      "secretKept": "One is kept, and shown to nobody. Leave this empty to keep it.",
+      "scopes": "Separated by spaces. openid is always asked for.",
+      "verifiedEmail": "Somebody whose email the provider has not verified is not let in."
+    },
+    "nameRule": "A source's name is 1 to 64 letters, digits, spaces or . _ - , beginning with a letter or a digit.",
+    "issuerRule": "The issuer is an http or https address.",
+    "clientIdNeeded": "The client ID the provider gave is needed.",
+    "mapping": "Groups and roles",
+    "mappingHint": "The members of a group are given its role at each sign-in, and lose it when they leave the group. Roles you give a user yourself are kept.",
+    "noMapping": "No group gives a role: a user has the default role and what you give them.",
+    "group": "Group {number}",
+    "role": "Role {number}",
+    "chooseRole": "Choose a role",
+    "addGrant": "Give a group a role",
+    "removeGrant": "Remove row {number}",
+    "create": "Create source",
+    "save": "Save",
+    "created": "Created the sign-in source {name}. Test it, then turn it on.",
+    "saved": "Saved {name}.",
+    "redirectUri": "Redirect address",
+    "redirectUriHint": "Register this address at the provider, as the client's redirect address.",
+    "noForm": "A source of the kind {kind} is set up through the API."
   },
   "members": {
     "none": "It has no member yet, and so answers nothing.",

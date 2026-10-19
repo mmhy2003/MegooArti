@@ -31,6 +31,7 @@ describe("signing in", () => {
         return { json: ADMIN };
       },
       "GET /auth/session": () => ({ json: signedIn ? ADMIN : NOBODY }),
+      "GET /auth/sources": { json: { items: [], total: 0, limit: 200, offset: 0 } },
     });
   }
 
@@ -46,8 +47,7 @@ describe("signing in", () => {
     await user.keyboard("ada{Tab}right{Enter}");
 
     await waitFor(() => expect(client.getQueryData(["session"])).toEqual(ADMIN));
-    expect(calls[0]).toMatchObject({
-      method: "POST",
+    expect(calls.find((call) => call.method === "POST")).toMatchObject({
       path: "/auth/login",
       body: { username: "ada", password: "right" },
     });
@@ -122,6 +122,69 @@ describe("signing in", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The server could not be reached.");
+  });
+});
+
+describe("signing in at a provider (spec 5)", () => {
+  const SOURCES = {
+    items: [
+      { id: "id-of-corp", name: "Corp SSO", kind: "oidc" },
+      { id: "id-of-lab", name: "Lab SSO", kind: "oidc" },
+    ],
+    total: 2,
+    limit: 200,
+    offset: 0,
+  };
+
+  test("offers each provider, leaving for it with where to go after", async () => {
+    mockApi({ "GET /auth/sources": { json: SOURCES } });
+    navigation.at("/login?next=%2Fsearch%3Fq%3Dcommons");
+    renderUi(<SignInScreen />, { session: NOBODY });
+
+    const corp = await screen.findByRole("link", { name: "Sign in with Corp SSO" });
+    expect(corp).toHaveAttribute(
+      "href",
+      "/api/v1/auth/oidc/id-of-corp/start?next=%2Fsearch%3Fq%3Dcommons",
+    );
+    expect(screen.getByRole("link", { name: "Sign in with Lab SSO" })).toBeVisible();
+    expect(screen.getByLabelText("User name")).toBeVisible(); // a password still signs in
+    await expectAccessible();
+  });
+
+  test("offers none where there is none, or where they cannot be asked for", async () => {
+    mockApi({ "GET /auth/sources": failure(404, "not_found", "Not found.") });
+    navigation.at("/login");
+    renderUi(<SignInScreen />, { session: NOBODY });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sign in" })).toBeVisible());
+    expect(screen.queryByText("or")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Sign in with/ })).toBeNull();
+  });
+
+  test.each([
+    ["denied", "The provider did not let you sign in."],
+    ["refused", "You may not sign in here. Ask the administrator."],
+    ["expired", "The sign-in took too long"],
+    ["unavailable", "The provider cannot be reached now."],
+    ["failed", "Signing in at the provider did not work."],
+    ["something-else", "Signing in at the provider did not work."],
+  ])("says why a sign-in came back with %s", async (error, said) => {
+    mockApi({ "GET /auth/sources": { json: SOURCES } });
+    navigation.at(`/login?error=${error}&next=%2Fsearch`);
+    renderUi(<SignInScreen />, { session: NOBODY });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(said);
+  });
+
+  test("says why when the browser did not keep the session the provider's sign-in made", async () => {
+    mockApi({ "GET /auth/sources": { json: SOURCES } });
+    // The gate shows this screen after a sign-in only when the session is not there.
+    navigation.at("/login?signed_in=1&next=%2Fsearch");
+    renderUi(<SignInScreen />, { session: NOBODY });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your browser did not keep the session",
+    );
   });
 });
 

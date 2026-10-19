@@ -82,6 +82,19 @@ describe("the sign-in sources (SEC-15)", () => {
     await expectAccessible();
   });
 
+  test("lead to each source's page, and to a new one for whoever may write", async () => {
+    authentication();
+
+    expect(await screen.findByRole("link", { name: "Corp LDAP" })).toHaveAttribute(
+      "href",
+      "/admin/authentication/corp-ldap",
+    );
+    expect(screen.getByRole("link", { name: "New OIDC source" })).toHaveAttribute(
+      "href",
+      "/admin/authentication/~new",
+    );
+  });
+
   test("say so when there is none but ours", async () => {
     authentication({ "GET /auth-sources": { json: page([]) } });
 
@@ -178,6 +191,7 @@ describe("the sign-in sources (SEC-15)", () => {
 
     expect((await rows()).length).toBe(3);
     expect(screen.queryByRole("button", { name: /Delete|Turn|Move|Test/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: "New OIDC source" })).toBeNull();
     expect(screen.getByText("None")).toBeVisible();
     expect(screen.queryByLabelText("Default role")).toBeNull();
   });
