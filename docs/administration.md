@@ -78,7 +78,7 @@ directory, an OIDC provider, or a reverse proxy that says who they are. Each is 
 
 People sign in at an OpenID Connect provider (Keycloak, Entra ID, Okta, Google), which
 sends them back signed in. Register MegooArti as a confidential client there, with
-the code flow, then make the source under Authentication, New OIDC source, or at
+the code flow, then make the source under Authentication, New source, OIDC, or at
 `POST /api/v1/auth-sources` with `"kind": "oidc"`:
 
 | Setting | What it is |
@@ -105,6 +105,39 @@ the code flow, then make the source under Authentication, New OIDC source, or at
 - **A user of an OIDC source** has no password here: they sign in at the provider,
   and give package clients an API token, which they make under Account. Their tokens
   work until an administrator disables them, or turns the source off.
+
+#### LDAP
+
+People sign in here with the name and password their directory (OpenLDAP, Active
+Directory) knows them by, in the web UI and from package clients alike. Make the source
+under Authentication, New source, LDAP, or at `POST /api/v1/auth-sources` with
+`"kind": "ldap"`:
+
+| Setting | What it is |
+| --- | --- |
+| `url` | `ldaps://<host>` (port 636), or `ldap://<host>` (port 389) with `starttls`. Over plain `ldap://` without StartTLS, passwords cross the network in the clear |
+| `starttls` | Start TLS on an `ldap://` address before anything is sent |
+| `bind_dn`, `bind_password` | Who the server searches the directory as: a DN, or for Active Directory a user principal name (`svc-megooarti@corp.example`). Without them, it searches anonymously. The password is kept sealed, shown to nobody, and asked again when the address or StartTLS changes |
+| `user_base`, `user_filter` | Where people are, and how one is found by the name they type: `(uid={username})` unless you say otherwise; `(sAMAccountName={username})` for Active Directory. The name is escaped (RFC 4515): nothing typed changes the filter |
+| `username_attribute`, `name_attribute`, `email_attribute` | The attributes of a user's name, display name and email: `uid`, `cn` and `mail` unless you say otherwise; `sAMAccountName` and `displayName` for Active Directory |
+| `groups` | Where a person's groups are read from: `member_of`, an attribute of their entry (`member_of_attribute`, `memberOf` unless you say otherwise, as Active Directory gives it); `search`, a search of `group_base` with `group_filter` (`(member={dn})` unless you say otherwise; `{dn}` and `{username}` are filled in) and the group's name in `group_name_attribute` (`cn`); or `none` |
+
+- **Signing in.** The server binds as the bind DN, finds the one entry the filter
+  gives for the name (none, or several, is a failed sign-in), and binds as that entry
+  with the password; then it reads the entry's groups. A group is mapped to roles by
+  its name or by its DN. An empty password is refused before the directory is asked:
+  a directory takes it as an anonymous bind. A wrong password at the first directory
+  that knows the name is not tried at any other.
+- **TLS** trusts the usual authorities and the certificates added under Certificates:
+  add your directory's authority there.
+- **Every hour**, each enabled LDAP source's users are looked up by their DN. One the
+  directory no longer has is disabled, signed out, and their API tokens refused with
+  them; `directory_user_gone` is logged. A directory that cannot be reached disables
+  nobody (`directory_check_skipped` is logged).
+- **Test** connects and binds; given a user name, it finds the entry and its groups
+  and says the roles they would give. No password is tried.
+- A directory that does not answer within ten seconds is said by name:
+  `503 source_unavailable`.
 
 ### Trusted certificates
 

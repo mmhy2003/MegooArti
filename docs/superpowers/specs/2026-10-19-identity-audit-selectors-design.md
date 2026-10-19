@@ -156,6 +156,21 @@ Settled here, by the designer:
 - Every hour, each enabled LDAP source's users are looked up by their DN; one not found is disabled (and its tokens with it), and logged. A server that cannot be reached disables no one.
 - The library is `ldap3`, called in a thread.
 
+### Settled while building plan 15d
+
+| # | What | Why |
+| --- | --- | --- |
+| L1 | `ldap3` 2.9.1, a dependency of the backend's own, called in a thread; `ldap._open` is where a connection is opened, which the tests answer with ldap3's mock strategy. | Section 7 and 12. |
+| L2 | LDAP's TLS (ldaps, StartTLS) trusts the usual authorities and the added certificates in a context of its own, `ldap.context_for(outbound.trusted)`, made from `Outbound.trusted` (the certificates themselves) and kept for the same list; the host's name is checked. The shared context is never changed. | 15c's review: the shared context is the HTTP client's own. |
+| L3 | An LDAP source's settings: `url` (`ldap://` or `ldaps://`, a host and a port only), `starttls` (not with `ldaps://`), `bind_dn` (a DN, or a user principal name as Active Directory takes) and `bind_password`, `user_base` and `user_filter` (with `{username}`; only `{username}` and `{dn}` in braces), the three attributes, and `groups` (`member_of`, `search` with `group_base`, `group_filter` and `group_name_attribute`, or `none`). The password goes with `url` and `starttls` (S16): without StartTLS it would go in the clear. | Section 7; D1's Active Directory. |
+| L4 | A directory answers a sign-in so: no entry for the name is `unknown` (the next source is asked); several, or a wrong password, is `refused`; an empty password is `refused` before the directory is asked. A user of the source is read by their DN. | Section 7, E3. |
+| L5 | A group is known by its name (the value of its DN's first part, or of `group_name_attribute`) and by its DN: a mapping may name either, whatever its case. | Directories give `memberOf` as DNs; people write names. |
+| L6 | A directory that cannot be reached, or that refuses the bind DN, answers `503 source_unavailable`. Each request is given ten seconds. | Section 11, 7. |
+| L7 | Test binds; given a name, it finds the entry and its groups, and says the roles they give. No password is tried. | Section 7. |
+| L8 | The hourly check runs in one container at a time (an advisory lock), over the enabled LDAP sources' active users, each read by their DN: `noSuchObject` disables the user and signs them out; any other answer, or none, skips the source. | Section 7, D4: a directory that cannot be reached disables nobody. |
+| L9 | A new source's page asks its kind first (OIDC or LDAP); the form is one, each kind's settings its own fields (`components/source-fields.tsx`). The list's button is "New source". | 15b's O13: LDAP's form comes with its plan. |
+| L10 | The container test runs `osixia/openldap:1.5.0` beside the stack as `openldap`, with StartTLS by a certificate of an authority made in the test and RFC 7919's ffdhe2048 parameters (computed: generating some takes slapd minutes); groups are found by a search there, and by `memberOf` in the mock's tests. curl, with a directory password, is the package client. | Section 12. |
+
 ## 8. Trusted header and proxies (plan 15e)
 
 - A setting `trusted_proxies`: addresses and networks (CIDR). From them only, `X-Forwarded-For`'s last address not of a trusted proxy is the client's address, for throttling, sessions and the audit log. The gateway is trusted by default where Compose runs it.

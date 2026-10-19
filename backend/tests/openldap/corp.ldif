@@ -1,0 +1,20 @@
+dn: ou=people,dc=corp,dc=example
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=corp,dc=example
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=kim,ou=people,dc=corp,dc=example
+objectClass: inetOrgPerson
+uid: kim
+cn: Kim Lee
+sn: Lee
+mail: kim@corp.example
+userPassword: kims-directory-password
+
+dn: cn=developers,ou=groups,dc=corp,dc=example
+objectClass: groupOfNames
+cn: developers
+member: uid=kim,ou=people,dc=corp,dc=example

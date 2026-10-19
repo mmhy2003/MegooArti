@@ -2,12 +2,14 @@
 signed by a CA nobody else trusts, served on 127.0.0.1 from this process."""
 
 import asyncio
+import base64
 import datetime
 import ssl
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from decimal import Decimal, getcontext
 from ipaddress import IPv4Address
 from pathlib import Path
 
@@ -74,6 +76,14 @@ def authority(common_name: str = "Corp Root CA", *, legacy: bool = False) -> Iss
     return Issued(certificate, key)
 
 
+def _alternative(host: str) -> x509.GeneralName:
+    """A host as a certificate names it: an address, or a DNS name."""
+    try:
+        return x509.IPAddress(IPv4Address(host))
+    except ValueError:
+        return x509.DNSName(host)
+
+
 def server_certificate(ca: Issued, host: str = "127.0.0.1") -> Issued:
     key = ec.generate_private_key(ec.SECP256R1())
     now = datetime.datetime.now(datetime.UTC)
@@ -85,9 +95,7 @@ def server_certificate(ca: Issued, host: str = "127.0.0.1") -> Issued:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - datetime.timedelta(days=1))
         .not_valid_after(now + datetime.timedelta(days=30))
-        .add_extension(
-            x509.SubjectAlternativeName([x509.IPAddress(IPv4Address(host))]), critical=False
-        )
+        .add_extension(x509.SubjectAlternativeName([_alternative(host)]), critical=False)
         .add_extension(
             x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
         )
@@ -165,3 +173,33 @@ async def https_server(ca: Issued) -> AsyncIterator[int]:
     finally:
         server.close()
         await server.wait_closed()
+
+
+def _der_integer(value: int) -> bytes:
+    body = value.to_bytes((value.bit_length() + 8) // 8, "big")  # a leading 0: positive
+    return b"\x02" + _der_length(len(body)) + body
+
+
+def _der_length(length: int) -> bytes:
+    if length < 0x80:
+        return bytes([length])
+    size = length.to_bytes((length.bit_length() + 7) // 8, "big")
+    return bytes([0x80 | len(size)]) + size
+
+
+def ffdhe2048() -> bytes:
+    """RFC 7919's ffdhe2048 group as PKCS #3 DH parameters, in PEM: how a TLS server is
+    given them. Computed from the RFC's definition, at once, where generating some takes
+    minutes."""
+    getcontext().prec = 800
+    e, term = Decimal(0), Decimal(1)
+    for k in range(1, 400):
+        e += term
+        term /= k
+    p = 2**2048 - 2**1984 + (int(Decimal(2) ** 1918 * e) + 560316) * 2**64 - 1
+    body = _der_integer(p) + _der_integer(2)
+    der = b"\x30" + _der_length(len(body)) + body
+    text = base64.b64encode(der).decode()
+    lines = [text[at : at + 64] for at in range(0, len(text), 64)]
+    pem = ["-----BEGIN DH PARAMETERS-----", *lines, "-----END DH PARAMETERS-----", ""]
+    return "\n".join(pem).encode()
