@@ -3417,6 +3417,130 @@
         ]
       }
     },
+    "/api/v1/auth/oidc/{source_id}/callback": {
+      "get": {
+        "description": "Where the provider sends the browser back: the code traded, the ID token checked,\nthe user made or brought up to date (spec 4.2), and a session started.",
+        "operationId": "callback_api_v1_auth_oidc__source_id__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Error",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "iss",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Iss",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/oidc/{source_id}/start": {
+      "get": {
+        "description": "Send the browser to the provider to sign in, with a state, a nonce and PKCE.",
+        "operationId": "start_api_v1_auth_oidc__source_id__start_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "next",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Next",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Start",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
     "/api/v1/auth/session": {
       "get": {
         "description": "Describe the caller. Answers 200 when nobody is signed in, so a UI can start here.",

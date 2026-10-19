@@ -20,6 +20,7 @@ from megooarti.security.authentication import (
     current_principal,
     refuse_cross_site,
 )
+from megooarti.security.models import User
 
 log = structlog.get_logger(__name__)
 
@@ -80,15 +81,12 @@ def session_info(principal: Principal | None) -> SessionInfo:
     )
 
 
-@router.post("/login", response_model=SessionInfo, dependencies=[Depends(refuse_cross_site)])
-async def login(
-    body: LoginRequest,
-    request: Request,
-    response: Response,
-    db: AsyncSession = Depends(get_session),
+async def start_session(
+    db: AsyncSession, request: Request, response: Response, user: User, **logged: str
 ) -> SessionInfo:
+    """Sign a user in to the web UI: a session, its cookie, and the session's description.
+    The user was checked already, by a password or by a provider."""
     settings = request.app.state.settings
-    user = await authenticate_password(db, request, body.username, body.password)
     now = utcnow()
     user.last_login_at = now
     record, value = await sessions.create_session(
@@ -109,8 +107,19 @@ async def login(
         samesite="lax",
         path="/",
     )
-    log.info("login_succeeded", username=user.username, ip=client_ip(request))
+    log.info("login_succeeded", username=user.username, ip=client_ip(request), **logged)
     return session_info(principal)
+
+
+@router.post("/login", response_model=SessionInfo, dependencies=[Depends(refuse_cross_site)])
+async def login(
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_session),
+) -> SessionInfo:
+    user = await authenticate_password(db, request, body.username, body.password)
+    return await start_session(db, request, response, user)
 
 
 @router.post("/logout", status_code=204)

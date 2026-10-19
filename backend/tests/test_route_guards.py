@@ -17,6 +17,9 @@ OPEN = {
     "/api/v1/status/ready",
     "/api/v1/auth/login",  # this is where credentials are presented
     "/api/v1/auth/sources",  # the sources the sign-in screen offers, before anyone signs in
+    # Sign-in at an OIDC provider: the browser is sent there, and comes back with a code.
+    "/api/v1/auth/oidc/{source_id}/start",
+    "/api/v1/auth/oidc/{source_id}/callback",
     # OAuth (MCP spec 7): what a client discovers is public (RFC 9728, RFC 8414); any
     # client may register (RFC 7591); authorize sends a person to the consent page, where
     # they sign in; token takes a code or a refresh token, which are the credentials.

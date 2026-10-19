@@ -3,21 +3,26 @@ ID, Okta, Google), which sends them back with a code; the code is traded for an 
 which says who they are.
 
 Here are the kind, its settings, and the provider's side of it: its metadata and keys,
-kept for an hour.
+kept for an hour, the token request, and the checks of an ID token. The routes a browser
+goes through are in `security/api/oidc.py`.
 """
 
+import base64
+import hashlib
 import re
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
+import jwt
 import structlog
 
 from megooarti.security import sources
-from megooarti.security.sources import Outbound, SourceUnavailable, Tested, invalid
+from megooarti.security.sources import Identity, Outbound, SourceUnavailable, Tested, invalid
 
 log = structlog.get_logger(__name__)
 
@@ -40,6 +45,10 @@ CLAIMS = {
 # A scope as RFC 6749 3.3 has it; a claim's name as JSON keys go, without anything odd.
 _SCOPE = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]{1,128}")
 _CLAIM = re.compile(r"[A-Za-z0-9_.:/-]{1,128}")
+
+
+class NotChecked(Exception):
+    """What a provider answered does not check: said on the sign-in screen, and logged."""
 
 
 @dataclass(frozen=True)
@@ -167,6 +176,185 @@ async def _keys(outbound: Outbound, provider: Provider, *, fresh: bool = False) 
     if not isinstance(keys.get("keys"), list):
         raise SourceUnavailable("The provider's keys are not a JSON Web Key Set.")
     return keys
+
+
+# --- One sign-in --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Started:
+    """What one sign-in keeps until the provider sends the person back."""
+
+    state: str
+    nonce: str
+    verifier: str
+
+    @classmethod
+    def new(cls) -> "Started":
+        return cls(secrets.token_urlsafe(32), secrets.token_urlsafe(32), secrets.token_urlsafe(48))
+
+    @property
+    def challenge(self) -> str:
+        digest = hashlib.sha256(self.verifier.encode()).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+def authorization_address(
+    provider: Provider, settings: dict[str, Any], started: Started, redirect_uri: str
+) -> str:
+    """Where the browser is sent to sign in: the code flow, with PKCE (S256)."""
+    query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": settings["client_id"],
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(settings["scopes"]),
+            "state": started.state,
+            "nonce": started.nonce,
+            "code_challenge": started.challenge,
+            "code_challenge_method": "S256",
+        }
+    )
+    joiner = "&" if "?" in provider.authorization_endpoint else "?"
+    return f"{provider.authorization_endpoint}{joiner}{query}"
+
+
+async def exchange(
+    outbound: Outbound,
+    provider: Provider,
+    settings: dict[str, Any],
+    code: str,
+    verifier: str,
+    redirect_uri: str,
+) -> str:
+    """Trade the code for tokens at the token endpoint; the ID token."""
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "code_verifier": verifier,
+    }
+    auth = None
+    secret = settings.get("client_secret")
+    if secret and "client_secret_basic" in provider.auth_methods:
+        # Each form-encoded first (RFC 6749 2.3.1): a secret may hold a colon.
+        auth = httpx.BasicAuth(quote(settings["client_id"], safe=""), quote(secret, safe=""))
+    elif secret:
+        form |= {"client_id": settings["client_id"], "client_secret": secret}
+    else:
+        form["client_id"] = settings["client_id"]  # a public client: PKCE alone
+    try:
+        response = await outbound.http.post(provider.token_endpoint, data=form, auth=auth)
+    except httpx.HTTPError as error:
+        raise SourceUnavailable(
+            f"The token endpoint could not be reached: {type(error).__name__}."
+        ) from None
+    try:
+        said = response.json()
+    except ValueError:
+        said = {}
+    if response.status_code != 200:
+        error = said.get("error") if isinstance(said, dict) else None
+        raise NotChecked(f"The token endpoint answered {response.status_code} ({error}).")
+    token = said.get("id_token") if isinstance(said, dict) else None
+    if not isinstance(token, str):
+        raise NotChecked("The token endpoint gave no ID token.")
+    return token
+
+
+def _key(keys: dict, kid: str | None, algorithm: str) -> jwt.PyJWK | None:
+    usable = [
+        key
+        for key in keys.get("keys", [])
+        if isinstance(key, dict)
+        and key.get("use", "sig") == "sig"
+        and (kid is None or key.get("kid") == kid)
+    ]
+    if len(usable) != 1:
+        return None
+    try:
+        return jwt.PyJWK(usable[0], algorithm=algorithm)
+    except jwt.PyJWTError:
+        return None
+
+
+async def verify(
+    outbound: Outbound,
+    provider: Provider,
+    settings: dict[str, Any],
+    token: str,
+    nonce: str,
+) -> dict[str, Any]:
+    """The claims of an ID token, if it checks: signed by the provider's keys, for this
+    client, from this issuer, not expired, and of this sign-in (its nonce). Else NotChecked."""
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        raise NotChecked("The ID token is not a JWT.") from None
+    algorithm, kid = header.get("alg"), header.get("kid")
+    if algorithm not in ALGORITHMS or algorithm not in provider.algorithms:
+        raise NotChecked(f"The ID token is signed with {algorithm!r}, which is not taken.")
+    key = _key(await _keys(outbound, provider), kid, algorithm)
+    if key is None:  # a key the provider has since rolled over to
+        key = _key(await _keys(outbound, provider, fresh=True), kid, algorithm)
+    if key is None:
+        raise NotChecked(f"No key of the provider's signs this ID token (kid {kid!r}).")
+    try:
+        claims = jwt.decode(
+            token,
+            key,
+            algorithms=[algorithm],
+            audience=settings["client_id"],
+            issuer=provider.issuer,
+            leeway=SKEW_SECONDS,
+            options={"require": ["exp", "iat", "iss", "aud", "sub"]},
+        )
+    except jwt.PyJWTError as error:
+        raise NotChecked(f"The ID token does not check: {error}.") from None
+    if not isinstance(claims.get("nonce"), str) or not secrets.compare_digest(
+        claims["nonce"], nonce
+    ):
+        raise NotChecked("The ID token is not of this sign-in (its nonce).")
+    audience = claims["aud"]
+    if (
+        isinstance(audience, list)
+        and len(audience) > 1
+        and claims.get("azp") != settings["client_id"]
+    ):
+        raise NotChecked("The ID token was given to another client (azp).")
+    return claims
+
+
+class Refused(Exception):
+    """The provider signed someone in whom this source does not let in."""
+
+
+def identity(claims: dict[str, Any], settings: dict[str, Any]) -> Identity:
+    """Who an ID token says someone is, by the claims the source names."""
+
+    def text(name: str) -> str | None:
+        value = claims.get(settings[name])
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    subject = str(claims["sub"])
+    email = text("email_claim")
+    if settings["require_verified_email"] and (
+        email is None or claims.get("email_verified") is not True
+    ):
+        raise Refused("The provider has not verified this person's email.")
+    username = text("username_claim") or email or subject
+    groups = claims.get(settings["groups_claim"])
+    if isinstance(groups, str):
+        groups = [groups]
+    if not isinstance(groups, list):
+        groups = []
+    return Identity(
+        external_id=subject,
+        username=username,
+        display_name=text("name_claim") or username,
+        email=email,
+        groups=frozenset(group for group in groups if isinstance(group, str) and group),
+    )
 
 
 sources.register(OidcKind())
