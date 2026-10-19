@@ -7,6 +7,7 @@ secrets, and the users they make at a first sign-in and bring up to date at each
 
 import itertools
 import re
+import ssl
 import uuid
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.config import Settings
 from megooarti.errors import ApiError
-from megooarti.repositories.remote import client_of
+from megooarti.repositories.remote import client_of, tls_of
 from megooarti.secrets_box import seal, unseal
 from megooarti.security.models import AuthSource, Role, User, UserRole, UserSession
 from megooarti.security.sessions import delete_user_sessions
@@ -63,14 +64,15 @@ class Tested:
 
 @dataclass(frozen=True)
 class Outbound:
-    """How a source is reached: the server's one outbound HTTP client, which trusts what
-    the server trusts."""
+    """How a source is reached: the server's one outbound HTTP client, and for what is not
+    HTTP (LDAP) what its TLS trusts: the usual authorities and the added certificates."""
 
     http: httpx.AsyncClient
+    tls: ssl.SSLContext
 
 
 def outbound(app: Any) -> Outbound:
-    return Outbound(http=client_of(app))
+    return Outbound(http=client_of(app), tls=tls_of(app))
 
 
 class SourceUnavailable(Exception):

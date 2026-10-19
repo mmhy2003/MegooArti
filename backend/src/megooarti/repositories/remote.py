@@ -11,10 +11,11 @@ import ipaddress
 import json
 import re
 import socket
+import ssl
 import time
 import weakref
 import zlib
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from http.cookiejar import CookieJar
 from typing import Any
@@ -178,9 +179,27 @@ def refusal(remote_url: str, address: str) -> str | None:
     return None
 
 
-def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
+# How long a client replaced after the trusted certificates changed is left to finish
+# the requests it has under way: longer than any one of them may take.
+RETIRED_SECONDS = 600
+
+
+def tls_context(pems: Sequence[str]) -> ssl.SSLContext:
+    """What an outbound TLS connection trusts: the authorities the server trusts already
+    (httpx's, which honours SSL_CERT_FILE), and the certificates an administrator added
+    (spec 6)."""
+    context = httpx.create_ssl_context()
+    if pems:
+        context.load_verify_locations(cadata="\n".join(pems))
+    return context
+
+
+def new_client(
+    transport: httpx.AsyncBaseTransport | None = None, verify: ssl.SSLContext | bool = True
+) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=transport,
+        verify=verify,
         follow_redirects=True,  # httpx drops Authorization when the host changes
         max_redirects=5,
         timeout=httpx.Timeout(60.0, connect=10.0),
@@ -190,15 +209,52 @@ def new_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.Async
     )
 
 
-def client_of(app: Any) -> httpx.AsyncClient:
-    """The application's one outbound client, built the first time it is needed.
+def tls_of(app: Any) -> ssl.SSLContext:
+    """What the application's outbound TLS connections trust, built when first needed:
+    loading the authorities takes a noticeable fraction of a second."""
+    if app.state.tls is None:
+        app.state.tls = tls_context(app.state.trusted_certificates)
+    return app.state.tls
 
-    Building it loads the system's TLS trust store, which takes a noticeable fraction
-    of a second: too slow to do for every application start that never proxies.
-    """
+
+def client_of(app: Any) -> httpx.AsyncClient:
+    """The application's one outbound client, built the first time it is needed, and
+    again after the certificates it trusts changed (`trust`)."""
     if app.state.http is None:
-        app.state.http = new_client()
+        app.state.http = new_client(verify=tls_of(app))
     return app.state.http
+
+
+def trust(app: Any, pems: Sequence[str]) -> None:
+    """Trust these certificates from now on. The client in use is retired: requests under
+    way finish with it, and it is closed a while after; new ones get a new client."""
+    if list(pems) == app.state.trusted_certificates:
+        return  # nothing changed: the client in use trusts these already
+    app.state.trusted_certificates = list(pems)
+    app.state.tls = None
+    retired, app.state.http = app.state.http, None
+    if retired is not None:
+        app.state.retired.add(retired)
+        task = asyncio.get_running_loop().create_task(_close_later(app, retired))
+        app.state.retiring.add(task)
+        task.add_done_callback(app.state.retiring.discard)
+
+
+async def _close_later(app: Any, client: httpx.AsyncClient) -> None:
+    await asyncio.sleep(RETIRED_SECONDS)
+    app.state.retired.discard(client)
+    await client.aclose()
+
+
+async def close_clients(app: Any) -> None:
+    """At shutdown: the client in use, and those retired that are not closed yet."""
+    for task in list(app.state.retiring):
+        task.cancel()
+    for client in [app.state.http, *app.state.retired]:
+        if client is not None:
+            await client.aclose()
+    app.state.http = None
+    app.state.retired.clear()
 
 
 def authorization(settings: Settings, remote_auth: dict[str, Any]) -> str | None:

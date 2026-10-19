@@ -259,7 +259,10 @@ def test_a_credential_sealed_with_another_key_is_unreadable(tmp_path):
 
 
 async def test_the_outbound_client_is_built_once_when_first_needed():
-    application = SimpleNamespace(state=SimpleNamespace(http=None))
+    # As create_app leaves the state: no client yet, and nothing added to trust.
+    application = SimpleNamespace(
+        state=SimpleNamespace(http=None, tls=None, trusted_certificates=[])
+    )
 
     first = remote.client_of(application)
     try:

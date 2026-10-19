@@ -19,7 +19,7 @@ from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.mcp.endpoint import router as mcp_router
 from megooarti.mcp.server import Server as McpServer
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
-from megooarti.repositories import upkeep
+from megooarti.repositories import remote, upkeep
 from megooarti.repositories.api import router as repositories_router
 from megooarti.repositories.apk import format as _apk_format  # noqa: F401  (registers it)
 from megooarti.repositories.apt import format as _apt_format  # noqa: F401  (registers it)
@@ -46,6 +46,7 @@ from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
 from megooarti.storage import blobs
 from megooarti.storage.api import router as blob_stores_router
+from megooarti.system import certificates
 from megooarti.system.information_api import router as information_router
 from megooarti.system.settings_api import router as settings_router
 from megooarti.system.status import router as status_router
@@ -63,6 +64,8 @@ async def _first_start(app: FastAPI) -> None:
     await ensure_initial_admin_password(
         app.state.sessionmaker, app.state.settings, app.state.head_revision
     )
+    async with app.state.sessionmaker() as db:
+        remote.trust(app, await certificates.trusted_pems(db))  # before anything goes out
 
 
 async def _first_start_when_possible(app: FastAPI, last_error: str) -> None:
@@ -122,8 +125,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     for task in background:
         with suppress(asyncio.CancelledError):
             await task
-    if app.state.http is not None:
-        await app.state.http.aclose()
+    await remote.close_clients(app)
     await app.state.engine.dispose()
 
 
@@ -149,6 +151,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.started_at = utcnow()
     # The one client for requests to proxy remotes. Tests replace it with a fake remote.
     app.state.http = None  # built by remote.client_of on first use: it is slow to create
+    # What outbound TLS trusts besides the usual authorities: read from the database at
+    # start, and changed with the certificates (spec 6).
+    app.state.trusted_certificates = []
+    app.state.tls = None
+    app.state.retired = set()  # clients replaced, closed once their requests are done
+    app.state.retiring = set()
     register_error_handlers(app)
     app.include_router(docs_router(f"{API_PREFIX}/openapi.json", "MegooArti API"))
     app.include_router(status_router, prefix=API_PREFIX)
