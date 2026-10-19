@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.security import oauth, registry_tokens, sessions, throttle, tokens, users
+from megooarti.security import oauth, registry_tokens, sessions, sources, throttle, tokens, users
 from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
@@ -177,11 +177,19 @@ async def authenticate_password(
 
     async def attempt() -> User | None:
         user = await users.get_user_by_username(db, username)
-        stored = None if user is None else user.password_hash
-        matched = await asyncio.to_thread(verify_password, stored, password)
-        if user is None or not matched or not await users.can_act(db, user):
+        if user is None or users.is_external(user):
+            # A name nobody has here, or a user of a source: the sources decide (E3).
+            found = await sources.password_sign_in(
+                db, request.app.state.settings, username, password, user
+            )
+            if found is None and user is None:
+                # As long as a wrong password of somebody's takes.
+                await asyncio.to_thread(verify_password, None, password)
+            return found if found is not None and await users.can_act(db, found) else None
+        matched = await asyncio.to_thread(verify_password, user.password_hash, password)
+        if not matched or not await users.can_act(db, user):
             return None
-        if needs_rehash(user.password_hash):
+        if user.password_hash is not None and needs_rehash(user.password_hash):
             user.password_hash = await asyncio.to_thread(hash_password, password)
         return user
 

@@ -80,6 +80,11 @@ def is_builtin_admin(user: User) -> bool:
     return user.builtin and user.username == "admin"
 
 
+def is_external(user: User) -> bool:
+    """A user of a sign-in source, or of one that was deleted: their password is not ours."""
+    return user.source_id is not None or user.external_id is not None
+
+
 async def can_act(db: AsyncSession, user: User) -> bool:
     """Whether a user may be anybody now: active, and signing in where sign-in is on. A
     user of a source that is off, or one of ours while our own sign-in is off, is refused
@@ -129,11 +134,28 @@ def _check_password(password: str, username: str) -> None:
 
 
 async def set_roles(db: AsyncSession, user: User, role_names: Iterable[str]) -> None:
+    """Give the user these roles, as an administrator does. One a source's group mapping
+    gave stays the source's, to be taken back when the groups no longer give it (E4)."""
     chosen = await roles_named(db, role_names)
+    from_source = set(
+        await db.scalars(
+            select(UserRole.role_id).where(
+                UserRole.user_id == user.id, UserRole.granted_by == "source"
+            )
+        )
+    )
     await db.execute(delete(UserRole).where(UserRole.user_id == user.id))
     if chosen:
         await db.execute(
-            insert(UserRole), [{"user_id": user.id, "role_id": role.id} for role in chosen]
+            insert(UserRole),
+            [
+                {
+                    "user_id": user.id,
+                    "role_id": role.id,
+                    "granted_by": "source" if role.id in from_source else "admin",
+                }
+                for role in chosen
+            ],
         )
 
 
@@ -193,6 +215,10 @@ async def set_password(
 ) -> None:
     if user.builtin and user.username == "anonymous":
         raise ApiError(409, "builtin_protected", "The anonymous user cannot have a password.")
+    if is_external(user):
+        raise ApiError(
+            409, "external_user", f"{user.username} signs in through a source, with its password."
+        )
     _check_password(password, user.username)
     user.password_hash = await asyncio.to_thread(hash_password, password)
     user.must_change_password = must_change_password
