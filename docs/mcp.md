@@ -11,9 +11,22 @@ and a token whose scopes are narrower narrows it too.
 
 ## Signing in
 
-Make an API token in the web UI under Account, Tokens (or at `/api/v1/me/tokens`), and
-give it to the agent as a bearer token: `Authorization: Bearer mga_...`. Nothing else
-signs in to `/mcp`: not a password, not the web UI's session, and not anonymous access.
+An agent signs in in one of two ways, and in no other: not with a password, not with
+the web UI's session, and not as an anonymous visitor.
+
+- **With an API token.** Make one in the web UI under Account, Tokens (or at
+  `/api/v1/me/tokens`), and give it to the agent as a bearer token:
+  `Authorization: Bearer mga_...`.
+- **With OAuth.** A client that signs in with OAuth (claude.ai's connectors, and other
+  clients when they are given no token) sends you to MegooArti's consent page. Signed in
+  there, you see the name the client gave itself and where your browser goes back to,
+  and you choose what it may do (read what you can read, or everything you can do) and
+  for how long (a day, 30 or 90 days, or until you revoke it). The client is given an
+  access token for an hour at a time, which it renews; a token that leaks works at
+  `/mcp` only, and a renewal used twice ends the approval. Account, Connected apps lists
+  what you have connected, and revokes it at once; an administrator sees a user's under
+  their user. OAuth needs the server's base URL, set under System: the server is named
+  by it.
 
 Give an agent a token of its own, with the scopes it needs, and an expiry. For an agent
 that only reads, `repository:*:*:browse` and `repository:*:*:read`. The token's
@@ -62,8 +75,8 @@ claude mcp add --transport http megooarti https://artifacts.example.org/mcp \
 }
 ```
 
-A client that only signs in with OAuth, such as claude.ai's connectors, cannot connect
-yet.
+**claude.ai:** add a custom connector with the address `https://artifacts.example.org/mcp`.
+It signs in with OAuth: you are sent to the consent page to approve it.
 
 ## The tools
 

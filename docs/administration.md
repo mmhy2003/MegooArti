@@ -51,7 +51,7 @@ area's name alone gives both.
 | --- | --- |
 | `admin:users` | The users: making, changing and deleting them, the roles they hold, and setting another user's password |
 | `admin:roles` | The roles, and the permission patterns they hold |
-| `admin:tokens` | Seeing which API tokens another user has, and revoking one. Nobody sees a token's value but its owner, once, when it is made |
+| `admin:tokens` | Seeing which API tokens another user has, and revoking one; and the applications they connected with OAuth, and revoking one. Nobody sees a token's value but its owner, once, when it is made |
 | `admin:repositories` | Making, changing and deleting repositories, having a proxy check its remote again, rebuilding an index, and the keys repositories sign with |
 | `admin:blobstores` | The blob stores |
 | `admin:settings` | The base URL and anonymous access; to read, also what is running (`/api/v1/system/information`) |
