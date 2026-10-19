@@ -8,14 +8,16 @@ An approval's request is sealed into the address of the consent page, not stored
 import base64
 import hashlib
 import json
+import re
 import secrets
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti import secrets_box
@@ -50,6 +52,15 @@ LASTS = {
     "forever": None,
 }
 _LOOPBACK = {"127.0.0.1", "localhost", "[::1]", "::1"}
+# A host as a browser goes to it: a name, or an address (IPv6's without its brackets).
+_HOST = re.compile(r"[a-z0-9.-]{1,253}|[0-9a-f:.]{2,45}")
+
+
+def shown(name: str) -> str:
+    """A client's name as a person is shown it: its own words, without the characters
+    that hide or reorder what follows them (control, format and bidirectional ones)."""
+    kept = "".join(ch for ch in name if unicodedata.category(ch) not in ("Cc", "Cf"))
+    return kept.strip()[:200] or "An application"
 
 
 class OAuthError(Exception):
@@ -69,9 +80,14 @@ def acceptable_redirect(address: str) -> bool:
     fragment or credentials (RFC 6749 3.1.2, the MCP authorization spec)."""
     try:
         parts = urlsplit(address)
+        parts.port  # noqa: B018  (a port that is not a number raises)
     except ValueError:
         return False
     if parts.fragment or parts.username or parts.password or not parts.hostname:
+        return False
+    # No backslash, which a browser reads as a slash, nor a space or a control character,
+    # which it drops: the host a person is shown would not be the one gone to.
+    if not _HOST.fullmatch(parts.hostname):
         return False
     if parts.scheme == "https":
         return True
@@ -106,7 +122,7 @@ async def register(
                 "A redirect address is https, or http to this machine, with no fragment.",
             )
     client = OAuthClient(
-        name=(name.strip() or "An application")[:200],
+        name=shown(name),
         redirect_uris=redirect_uris,
         registered_at=now,
         registered_from=address[:64],
@@ -239,6 +255,18 @@ async def _held(db: AsyncSession, kind: str, value: str) -> tuple[OAuthToken, OA
     return None if grant is None else (found, grant)
 
 
+async def _spend(db: AsyncSession, token: OAuthToken, now: datetime) -> bool:
+    """Mark a code or a refresh token used, if no other request has: in one statement, so
+    that of two requests racing for it one spends it, and the other is told it was used."""
+    spent = await db.execute(
+        update(OAuthToken)
+        .where(OAuthToken.id == token.id, OAuthToken.used_at.is_(None))
+        .values(used_at=now)
+        .returning(OAuthToken.id)
+    )
+    return spent.first() is not None
+
+
 def _invalid(description: str) -> OAuthError:
     return OAuthError("invalid_grant", description)
 
@@ -273,7 +301,9 @@ async def exchange_code(
         raise _invalid("The redirect address is not the one the code was given with.")
     if not secrets.compare_digest(_challenge_of(verifier), token.code_challenge or ""):
         raise _invalid("The code verifier is not the code challenge's.")
-    token.used_at = now
+    if not await _spend(db, token, now):
+        await db.delete(grant)
+        raise _invalid("The code was used already; the approval is revoked.")
     return await _issue(db, grant, now)
 
 
@@ -291,7 +321,9 @@ async def refresh(db: AsyncSession, client_id: str, value: str, now: datetime) -
         raise _invalid("The approval has expired.")
     if str(grant.client_id) != client_id:
         raise _invalid("The refresh token was given to another client.")
-    token.used_at = now
+    if not await _spend(db, token, now):
+        await db.delete(grant)
+        raise _invalid("The refresh token was used already; the approval is revoked.")
     return await _issue(db, grant, now)
 
 

@@ -95,7 +95,7 @@ async def authorization_server(db: AsyncSession = Depends(get_session)) -> JSONR
 
 
 class Registration(BaseModel):
-    client_name: str = Field(default="", max_length=200)
+    client_name: str = Field(default="", max_length=4096)  # cut to 200 when kept
     redirect_uris: list[str] = Field(default=[], max_length=10)
 
 
@@ -138,8 +138,7 @@ async def authorize(
 ) -> JSONResponse | RedirectResponse:
     """Check what a client asks, and send the person to the consent page with it sealed.
 
-    A client or redirect address that is not known is answered here, never redirected
-    to (RFC 6749 4.1.2.1); anything else wrong goes back to the client.
+    Whatever is wrong is answered here, never at the client's redirect address.
     """
     try:
         base = await issuer(db)
@@ -153,18 +152,16 @@ async def authorize(
             oauth.OAuthError("invalid_request", "The redirect address is not one it registered.")
         )
 
-    def back(error: str, description: str) -> RedirectResponse:
-        address = oauth.redirect_with(
-            redirect_uri, error=error, error_description=description, state=state
-        )
-        return RedirectResponse(address, status_code=302)
-
+    # Any other fault is answered here too, not at the client's address: anyone may
+    # register one, and this server's address must not be a link to it (RFC 9700 4.11.2).
     if response_type != "code":
-        return back("unsupported_response_type", "Only the code flow is offered.")
+        return _answer(
+            oauth.OAuthError("unsupported_response_type", "Only the code flow is offered.")
+        )
     if code_challenge_method != "S256" or not 43 <= len(code_challenge) <= 128:
-        return back("invalid_request", "PKCE with S256 is required.")
+        return _answer(oauth.OAuthError("invalid_request", "PKCE with S256 is required."))
     if resource.rstrip("/") != f"{base}/mcp":
-        return back("invalid_target", f"The resource is {base}/mcp.")
+        return _answer(oauth.OAuthError("invalid_target", f"The resource is {base}/mcp."))
     sealed = oauth.seal_request(
         request.app.state.settings,
         oauth.Request(str(client.id), redirect_uri, code_challenge, state),

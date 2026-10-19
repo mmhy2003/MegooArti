@@ -105,31 +105,44 @@ async def test_registrations_from_one_address_are_limited_an_hour(client, based)
     assert (refused.status_code, refused.json()["error"]) == (429, "too_many_registrations")
 
 
-async def test_authorize_answers_a_stranger_itself_and_sends_other_faults_back(client, based):
-    client_id = await register(client)
+async def test_authorize_answers_every_fault_itself_and_sends_nobody_anywhere(client, based):
+    # Anyone may register a client with an address of theirs: a fault sent there would
+    # make this server's address a link to it (RFC 9700 4.11.2).
+    client_id = await register(client, "https://evil.example/phish")
     _, challenge = pkce()
 
     unknown = await client.get("/oauth/authorize", params=authorization("nobody", challenge))
+    phish = "https://evil.example/phish"
     elsewhere = await client.get(
         "/oauth/authorize",
         params=authorization(client_id, challenge, redirect_uri="http://127.0.0.1:1/x"),
     )
+    token = await client.get(
+        "/oauth/authorize",
+        params=authorization(client_id, challenge, redirect_uri=phish, response_type="token"),
+    )
     plain = await client.get(
         "/oauth/authorize",
-        params=authorization(client_id, challenge, code_challenge_method="plain"),
+        params=authorization(
+            client_id, challenge, redirect_uri=phish, code_challenge_method="plain"
+        ),
     )
     other = await client.get(
         "/oauth/authorize",
-        params=authorization(client_id, challenge, resource="https://other.example/mcp"),
+        params=authorization(
+            client_id, challenge, redirect_uri=phish, resource="https://other.example/mcp"
+        ),
     )
 
     assert (unknown.status_code, unknown.json()["error"]) == (400, "invalid_client")
     assert (elsewhere.status_code, elsewhere.json()["error"]) == (400, "invalid_request")
-    for answer, error in ((plain, "invalid_request"), (other, "invalid_target")):
-        assert answer.status_code == 302
-        back = query_of(answer.headers["Location"])
-        assert answer.headers["Location"].startswith(REDIRECT)
-        assert (back["error"], back["state"]) == (error, "the-clients-state")
+    for answer, error in (
+        (token, "unsupported_response_type"),
+        (plain, "invalid_request"),
+        (other, "invalid_target"),
+    ):
+        assert (answer.status_code, answer.json()["error"]) == (400, error)
+        assert "Location" not in answer.headers
 
 
 async def test_the_consent_page_is_told_who_asks_and_only_a_person_signed_in_may_answer(
@@ -321,3 +334,97 @@ async def test_what_ended_is_forgotten_and_a_client_no_one_approved_after_a_mont
 
     assert client_id in kept
     assert lonely not in kept
+
+
+async def test_a_code_two_requests_race_for_is_spent_by_one_and_the_other_revokes_it(
+    client, browser, monkeypatch
+):
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    client_id, code = await approved_code(client, browser)
+    first = await tokens(client, client_id, code)
+    held = oauth._held
+
+    async def stale(db, kind, value):
+        # As a second request finds it, having read it before the first one spent it.
+        found = await held(db, kind, value)
+        if found is not None:
+            set_committed_value(found[0], "used_at", None)
+        return found
+
+    monkeypatch.setattr(oauth, "_held", stale)
+    second = await client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code.split(" ")[0],
+            "redirect_uri": REDIRECT,
+            "code_verifier": code.split(" ")[1],
+        },
+    )
+    after = await mcp(client, first["access_token"])
+
+    assert (second.status_code, second.json()["error"]) == (400, "invalid_grant")
+    assert after.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "https://evil.example\\.megooarti.example/cb",
+        "https://evil example.org/cb",
+        "https://exa\x07mple.org/cb",
+        "https://example.org:notaport/cb",
+    ],
+    ids=["backslash", "space", "control", "port"],
+)
+async def test_a_redirect_address_whose_host_is_no_host_is_refused(client, based, redirect):
+    answer = await client.post("/oauth/register", json={"redirect_uris": [redirect]})
+
+    assert (answer.status_code, answer.json()["error"]) == (400, "invalid_redirect_uri")
+
+
+async def test_a_clients_name_is_shown_without_control_or_direction_characters_and_cut(
+    client, based
+):
+    spoofed = await client.post(
+        "/oauth/register",
+        json={"client_name": "Claude\u202egnp.exe\n\x07", "redirect_uris": [REDIRECT]},
+    )
+    long = await client.post(
+        "/oauth/register", json={"client_name": "x" * 300, "redirect_uris": [REDIRECT]}
+    )
+
+    assert spoofed.json()["client_name"] == "Claudegnp.exe"
+    assert (long.status_code, len(long.json()["client_name"])) == (201, 200)
+
+
+async def test_an_oauth_token_is_no_password_nor_an_api_key(client, browser):
+    import base64
+
+    client_id, code = await approved_code(client, browser)
+    access = (await tokens(client, client_id, code))["access_token"]
+    as_basic = base64.b64encode(f"__token__:{access}".encode()).decode()
+    as_dev = base64.b64encode(f"dev:{access}".encode()).decode()
+
+    basic = await client.get("/api/v1/search", headers={"Authorization": f"Basic {as_basic}"})
+    named = await client.get("/api/v1/search", headers={"Authorization": f"Basic {as_dev}"})
+    nuget = await client.put("/repository/anything/", headers={"X-NuGet-ApiKey": access})
+    registry = await client.get("/v2/token", headers={"Authorization": f"Basic {as_basic}"})
+
+    assert (basic.status_code, named.status_code, nuget.status_code) == (401, 401, 401)
+    assert registry.status_code == 401
+
+
+async def test_the_consent_is_refused_without_the_sessions_csrf_token(client, browser):
+    client_id = await register(client)
+    _, challenge = pkce()
+    sealed = await sealed_request(client, client_id, challenge)
+    del browser.headers["X-CSRF-Token"]
+
+    said = await browser.post(
+        "/api/v1/oauth/consent", json={"request": sealed, "access": "all", "lasts": "forever"}
+    )
+
+    assert said.status_code == 403
