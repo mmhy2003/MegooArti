@@ -89,7 +89,7 @@ describe("the sign-in sources (SEC-15)", () => {
       "href",
       "/admin/authentication/corp-ldap",
     );
-    expect(screen.getByRole("link", { name: "New OIDC source" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "New source" })).toHaveAttribute(
       "href",
       "/admin/authentication/~new",
     );
@@ -191,7 +191,7 @@ describe("the sign-in sources (SEC-15)", () => {
 
     expect((await rows()).length).toBe(3);
     expect(screen.queryByRole("button", { name: /Delete|Turn|Move|Test/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: "New OIDC source" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "New source" })).toBeNull();
     expect(screen.getByText("None")).toBeVisible();
     expect(screen.queryByLabelText("Default role")).toBeNull();
   });

@@ -53,13 +53,13 @@ function newSource(more: Routes = {}, session = ADMIN) {
   return { ...renderUi(<NewSourceScreen />, { session }), ...api };
 }
 
-function oneSource(more: Routes = {}, session = ADMIN) {
+function oneSource(more: Routes = {}, session = ADMIN, id = "corp") {
   const api = mockApi({
     "GET /auth-sources/corp": { json: CORP },
     "GET /roles": { json: ROLES },
     ...more,
   });
-  navigation.at("/admin/authentication/corp");
+  navigation.at(`/admin/authentication/${id}`);
   return { ...renderUi(<SourceScreen />, { session }), ...api };
 }
 
@@ -202,12 +202,131 @@ describe("an OIDC source", () => {
 
   test("of another kind is said to be set up through the API", async () => {
     oneSource({
-      "GET /auth-sources/corp": { json: { ...CORP, kind: "ldap", redirect_uri: null } },
+      "GET /auth-sources/corp": { json: { ...CORP, kind: "header", redirect_uri: null } },
     });
 
     expect(
-      await screen.findByText("A source of the kind ldap is set up through the API."),
+      await screen.findByText("A source of the kind header is set up through the API."),
     ).toBeVisible();
     expect(within(document.body).queryByLabelText("Issuer")).toBeNull();
+  });
+});
+
+describe("an LDAP source (spec 7)", () => {
+  const DIRECTORY = {
+    ...CORP,
+    id: "directory",
+    kind: "ldap",
+    name: "Corp LDAP",
+    settings: {
+      url: "ldap://ldap.corp.example",
+      starttls: true,
+      bind_dn: "cn=reader,dc=corp,dc=example",
+      user_base: "ou=people,dc=corp,dc=example",
+      user_filter: "(uid={username})",
+      groups: "search",
+      username_attribute: "uid",
+      name_attribute: "cn",
+      email_attribute: "mail",
+      member_of_attribute: "memberOf",
+      group_base: "ou=groups,dc=corp,dc=example",
+      group_filter: "(member={dn})",
+      group_name_attribute: "cn",
+    },
+    secrets: ["bind_password"],
+    redirect_uri: null,
+  };
+
+  test("is made with its directory's settings, its groups found as chosen", async () => {
+    const user = userEvent.setup();
+    const { calls } = newSource({
+      "POST /auth-sources": (call) => ({
+        status: 201,
+        json: { ...DIRECTORY, ...(call.body as object) },
+      }),
+    });
+
+    await user.click(await screen.findByRole("radio", { name: /LDAP/ }));
+    await user.type(screen.getByLabelText("Name"), "Corp LDAP");
+    await user.type(screen.getByLabelText("Address"), "ldap://ldap.corp.example");
+    await user.click(screen.getByRole("checkbox", { name: "StartTLS" }));
+    await user.type(screen.getByLabelText("Bind DN"), "cn=reader,dc=corp,dc=example");
+    await user.type(screen.getByLabelText("Bind password"), "s3cret");
+    await user.type(screen.getByLabelText("Users' base DN"), "ou=people,dc=corp,dc=example");
+    expect(screen.queryByLabelText("Groups' base DN")).toBeNull();
+    await user.click(screen.getByRole("radio", { name: /From a search/ }));
+    await user.type(screen.getByLabelText("Groups' base DN"), "ou=groups,dc=corp,dc=example");
+    await expectAccessible();
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+
+    await waitFor(() =>
+      expect(notices()).toHaveTextContent("Created the sign-in source Corp LDAP."),
+    );
+    expect(of(calls, "POST")[0]?.body).toEqual({
+      kind: "ldap",
+      name: "Corp LDAP",
+      enabled: false,
+      settings: {
+        url: "ldap://ldap.corp.example",
+        starttls: true,
+        bind_dn: "cn=reader,dc=corp,dc=example",
+        bind_password: "s3cret",
+        user_base: "ou=people,dc=corp,dc=example",
+        user_filter: "(uid={username})",
+        username_attribute: "uid",
+        name_attribute: "cn",
+        email_attribute: "mail",
+        groups: "search",
+        group_base: "ou=groups,dc=corp,dc=example",
+        group_filter: "(member={dn})",
+        group_name_attribute: "cn",
+      },
+      group_mapping: [],
+    });
+  });
+
+  test("says what is wrong with its address, its base and its filter before sending", async () => {
+    const user = userEvent.setup();
+    const { calls } = newSource();
+
+    await user.click(await screen.findByRole("radio", { name: /LDAP/ }));
+    await user.type(screen.getByLabelText("Name"), "Corp LDAP");
+    await user.type(screen.getByLabelText("Address"), "https://ldap.corp.example");
+    await user.clear(screen.getByLabelText("Users' filter"));
+    await user.type(screen.getByLabelText("Users' filter"), "(uid=kim)");
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+
+    expect(screen.getByLabelText("Address")).toHaveAccessibleDescription(/ldap:\/\/ or ldaps:\/\//);
+    expect(screen.getByLabelText("Users' base DN")).toHaveAccessibleDescription(
+      /base DN is needed/,
+    );
+    expect(screen.getByLabelText("Users' filter")).toHaveAccessibleDescription(/must name/);
+    expect(of(calls, "POST")).toHaveLength(0);
+  });
+
+  test("opens with what it has, and keeps its bind password when saved", async () => {
+    const user = userEvent.setup();
+    const { calls } = oneSource(
+      {
+        "GET /auth-sources/directory": { json: DIRECTORY },
+        "PUT /auth-sources/directory": (call) => ({
+          json: { ...DIRECTORY, ...(call.body as object) },
+        }),
+      },
+      ADMIN,
+      "directory",
+    );
+
+    expect(await screen.findByLabelText("Address")).toHaveValue("ldap://ldap.corp.example");
+    expect(screen.getByRole("checkbox", { name: "StartTLS" })).toBeChecked();
+    expect(screen.getByLabelText("Groups' base DN")).toHaveValue("ou=groups,dc=corp,dc=example");
+    expect(screen.getByLabelText("Bind password")).toHaveAccessibleDescription(/Leave this empty/);
+    expect(screen.queryByText("Redirect address")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(notices()).toHaveTextContent("Saved Corp LDAP."));
+    const sent = of(calls, "PUT")[0]?.body as { settings: Record<string, unknown> };
+    expect(sent.settings).not.toHaveProperty("bind_password");
+    expect(sent.settings.groups).toBe("search");
   });
 });

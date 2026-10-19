@@ -696,12 +696,12 @@
     "save": "Save",
     "defaultRoleSet": "Every signed-in user has the role {role}.",
     "defaultRoleCleared": "There is no default role.",
-    "newOidc": "New OIDC source"
+    "newSource": "New source"
   },
   "source": {
-    "newTitle": "New OIDC source",
+    "newTitle": "New sign-in source",
     "oneTitle": "Sign-in source",
-    "newIntro": "People sign in at an identity provider (Keycloak, Entra ID, Okta, Google). The source is made off: test it on the list, then turn it on.",
+    "newIntro": "People sign in at an identity provider (OIDC), or with their directory's password (LDAP). The source is made off: test it on the list, then turn it on.",
     "intro": "Where people sign in, and what their groups give them.",
     "path": "Path",
     "authentication": "Authentication",
@@ -746,7 +746,47 @@
     "redirectUri": "Redirect address",
     "redirectUriHint": "Register this address at the provider, as the client's redirect address.",
     "noForm": "A source of the kind {kind} is set up through the API.",
-    "rowIncomplete": "Each row needs a group and a role."
+    "rowIncomplete": "Each row needs a group and a role.",
+    "kind": "Kind",
+    "kinds": {
+      "oidc": "OIDC",
+      "oidcHint": "Keycloak, Entra ID, Okta, Google: people sign in there, in the browser.",
+      "ldap": "LDAP",
+      "ldapHint": "OpenLDAP, Active Directory: people sign in here with their directory's password."
+    },
+    "ldap": {
+      "title": "Directory",
+      "url": "Address",
+      "starttls": "StartTLS",
+      "bindDn": "Bind DN",
+      "bindPassword": "Bind password",
+      "userBase": "Users' base DN",
+      "userFilter": "Users' filter",
+      "usernameAttribute": "User name attribute",
+      "nameAttribute": "Display name attribute",
+      "emailAttribute": "Email attribute",
+      "groups": "Groups",
+      "memberOf": "From an attribute of the user",
+      "search": "From a search",
+      "noGroups": "None",
+      "memberOfAttribute": "Groups attribute",
+      "groupBase": "Groups' base DN",
+      "groupFilter": "Groups' filter",
+      "groupNameAttribute": "Group name attribute",
+      "urlRule": "An ldap:// or ldaps:// address, with a host and a port only.",
+      "baseNeeded": "A base DN is needed, as ou=people,dc=corp,dc=example.",
+      "filterRule": "The filter must name '{username}', where the name goes.",
+      "hints": {
+        "url": "ldaps://ldap.corp.example, or ldap:// with StartTLS. Its certificate is checked against the trusted certificates.",
+        "starttls": "Start TLS on an ldap:// address before anything is sent: without it, passwords cross the network in the clear.",
+        "bindDn": "Who the server searches as. Empty: anonymously.",
+        "userFilter": "'{username}' is where the name goes, escaped: (uid='{username}'), or (sAMAccountName='{username}') for Active Directory.",
+        "memberOf": "memberOf, as Active Directory and OpenLDAP's memberof overlay give it.",
+        "search": "The groups whose filter names the user.",
+        "noGroups": "A user has the default role and what you give them.",
+        "groupFilter": "'{dn}' or '{username}': (member='{dn}'), or (memberUid='{username}')."
+      }
+    }
   },
   "certificates": {
     "title": "Certificates",

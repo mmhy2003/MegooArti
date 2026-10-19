@@ -6,12 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { GroupMapping, toGrants, toMapping, type Grant } from "@/components/group-mapping";
+import { isKindName, SOURCE_KINDS, type KindName, type Values } from "@/components/source-fields";
 import { Alert } from "@/components/ui/alert";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Fact, Facts } from "@/components/ui/details";
 import { TextField } from "@/components/ui/field";
-import { CheckboxField } from "@/components/ui/inputs";
+import { ChoiceGroup } from "@/components/ui/inputs";
 import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
 import { ErrorState, LoadingState } from "@/components/ui/states";
@@ -27,53 +28,20 @@ import { NothingHere } from "@/screens/not-found";
 const H2 = "mb-4 text-lg font-semibold text-fg uppercase";
 // The server's rule for a source's name, said before the request is made.
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
-const CLAIMS = ["username_claim", "name_claim", "email_claim", "groups_claim"] as const;
-const DEFAULT_CLAIMS: Record<(typeof CLAIMS)[number], string> = {
-  username_claim: "preferred_username",
-  name_claim: "name",
-  email_claim: "email",
-  groups_claim: "groups",
-};
-const FIELDS = [
-  "name",
-  "group_mapping",
-  "settings.issuer",
-  "settings.client_id",
-  "settings.client_secret",
-  "settings.scopes",
-  ...CLAIMS.map((claim) => `settings.${claim}`),
-];
-
-type OidcSettings = {
-  issuer: string;
-  client_id: string;
-  client_secret: string;
-  scopes: string;
-  require_verified_email: boolean;
-} & Record<(typeof CLAIMS)[number], string>;
-
-function fromSource(source: SourceOut | null): OidcSettings {
-  const kept = (source?.settings ?? {}) as Record<string, unknown>;
-  const text = (name: string, otherwise = "") =>
-    typeof kept[name] === "string" ? (kept[name] as string) : otherwise;
-  return {
-    issuer: text("issuer"),
-    client_id: text("client_id"),
-    client_secret: "",
-    scopes: Array.isArray(kept.scopes)
-      ? (kept.scopes as string[]).join(" ")
-      : "openid profile email",
-    require_verified_email: kept.require_verified_email === true,
-    ...Object.fromEntries(CLAIMS.map((claim) => [claim, text(claim, DEFAULT_CLAIMS[claim])])),
-  } as OidcSettings;
-}
 
 /**
- * An OIDC source's settings (spec 5): the provider, this server's client there, and the
- * claims that say who someone is. The secret is written, never read back: left empty, the
- * stored one is kept.
+ * A source's settings, by its kind (OIDC, spec 5; LDAP, spec 7), with its name and the
+ * roles its groups give. Made off: it is tested, then turned on, on the list.
  */
-function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: boolean }) {
+function SourceForm({
+  kind,
+  source,
+  mayWrite,
+}: {
+  kind: KindName;
+  source: SourceOut | null;
+  mayWrite: boolean;
+}) {
   const t = useTranslations("source");
   const notify = useNotify();
   const router = useRouter();
@@ -84,16 +52,19 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
   const roles = useEveryRole(
     session.data !== undefined && allows(session.data, "admin:roles:read"),
   );
+  const fields = SOURCE_KINDS[kind];
   const [name, setName] = useState(source?.name ?? "");
-  const [settings, setSettings] = useState<OidcSettings>(() => fromSource(source));
+  const [values, setValues] = useState<Values>(() => fields.initial(source));
   const [grants, setGrants] = useState<Grant[]>(() => toGrants(source?.group_mapping ?? []));
   const { form, tried, attempt } = useAttempts(saving.error);
-  const refused = refusalsOf(saving.error, FIELDS);
-  const hasSecret = source?.secrets.includes("client_secret") ?? false;
+  const refused = refusalsOf(saving.error, [
+    "name",
+    "group_mapping",
+    ...fields.fields.map((field) => `settings.${field}`),
+  ]);
   const own = {
+    ...fields.own(values, t),
     name: NAME.test(name) ? undefined : t("nameRule"),
-    issuer: /^https?:\/\/[^/]+/.test(settings.issuer.trim()) ? undefined : t("issuerRule"),
-    client_id: settings.client_id.trim() === "" ? t("clientIdNeeded") : undefined,
     // A row with a group and no role, or a role and no group, would be dropped unsaid.
     mapping: grants.some(({ group, role }) => (group.trim() === "") !== (role === ""))
       ? t("rowIncomplete")
@@ -101,7 +72,6 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
   };
   const at = (field: string, mine?: string) =>
     tried ? (mine ?? refused.at[field === "name" ? "name" : `settings.${field}`]) : undefined;
-  const change = (changed: Partial<OidcSettings>) => setSettings({ ...settings, ...changed });
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -111,20 +81,12 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
     const sent = {
       name,
       enabled: source?.enabled ?? false,
-      settings: {
-        issuer: settings.issuer.trim(),
-        client_id: settings.client_id.trim(),
-        scopes: settings.scopes.split(/\s+/).filter(Boolean),
-        require_verified_email: settings.require_verified_email,
-        ...Object.fromEntries(CLAIMS.map((claim) => [claim, settings[claim].trim()])),
-        // Left out, the stored secret is kept.
-        ...(settings.client_secret === "" ? {} : { client_secret: settings.client_secret }),
-      },
+      settings: fields.sent(values),
       group_mapping: toMapping(grants),
     };
     if (source === null) {
       create.mutate(
-        { ...sent, kind: "oidc" },
+        { ...sent, kind },
         {
           onSuccess: (made) => {
             notify(t("created", { name: made.name }));
@@ -138,7 +100,7 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
         {
           onSuccess: () => {
             notify(t("saved", { name }));
-            setSettings({ ...settings, client_secret: "" });
+            setValues({ ...values, [fields.secret]: "" });
           },
         },
       );
@@ -149,7 +111,7 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
     <form ref={form} onSubmit={submit} className="flex flex-col gap-6" noValidate>
       <fieldset disabled={!mayWrite} className="flex min-w-0 flex-col gap-6 border-0 p-0">
         <Panel className="flex flex-col gap-5 p-6">
-          <h2 className={H2}>{t("providerTitle")}</h2>
+          <h2 className={H2}>{kind === "ldap" ? t("ldap.title") : t("providerTitle")}</h2>
           <TextField
             label={t("fields.name")}
             hint={t("hints.name")}
@@ -159,68 +121,13 @@ function OidcForm({ source, mayWrite }: { source: SourceOut | null; mayWrite: bo
             error={at("name", own.name)}
             onChange={(event) => setName(event.target.value)}
           />
-          <TextField
-            label={t("fields.issuer")}
-            hint={t("hints.issuer")}
-            required
-            spellCheck={false}
-            autoComplete="off"
-            value={settings.issuer}
-            error={at("issuer", own.issuer)}
-            onChange={(event) => change({ issuer: event.target.value })}
+          <fields.Fields
+            values={values}
+            change={(changed) => setValues({ ...values, ...changed })}
+            at={at}
+            own={own}
+            hasSecret={source?.secrets.includes(fields.secret) ?? false}
           />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TextField
-              label={t("fields.clientId")}
-              required
-              spellCheck={false}
-              autoComplete="off"
-              value={settings.client_id}
-              error={at("client_id", own.client_id)}
-              onChange={(event) => change({ client_id: event.target.value })}
-            />
-            <TextField
-              label={t("fields.clientSecret")}
-              hint={hasSecret ? t("hints.secretKept") : t("hints.secret")}
-              type="password"
-              autoComplete="new-password"
-              value={settings.client_secret}
-              error={at("client_secret")}
-              onChange={(event) => change({ client_secret: event.target.value })}
-            />
-          </div>
-          <TextField
-            label={t("fields.scopes")}
-            hint={t("hints.scopes")}
-            spellCheck={false}
-            autoComplete="off"
-            value={settings.scopes}
-            error={at("scopes")}
-            onChange={(event) => change({ scopes: event.target.value })}
-          />
-          <CheckboxField
-            label={t("fields.verifiedEmail")}
-            hint={t("hints.verifiedEmail")}
-            checked={settings.require_verified_email}
-            onChange={(event) => change({ require_verified_email: event.target.checked })}
-          />
-        </Panel>
-        <Panel className="flex flex-col gap-5 p-6">
-          <h2 className={H2}>{t("claimsTitle")}</h2>
-          <p className="text-fg-muted">{t("claimsIntro")}</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {CLAIMS.map((claim) => (
-              <TextField
-                key={claim}
-                label={t(`fields.${claim}`)}
-                spellCheck={false}
-                autoComplete="off"
-                value={settings[claim]}
-                error={at(claim)}
-                onChange={(event) => change({ [claim]: event.target.value })}
-              />
-            ))}
-          </div>
         </Panel>
         <Panel className="p-6">
           <GroupMapping
@@ -256,10 +163,11 @@ function Path({ name, href }: { name: string; href: Route }) {
   );
 }
 
-/** A new OIDC source (spec 5), made off: it is tested, then turned on, on the list. */
+/** A new source: its kind chosen first, then its form. */
 export function NewSourceScreen() {
   const t = useTranslations("source");
   const session = useSession();
+  const [kind, setKind] = useState<KindName>("oidc");
   if (!session.data) return <LoadingState />;
   if (!allows(session.data, "admin:security:write")) return <NothingHere />;
   return (
@@ -268,12 +176,24 @@ export function NewSourceScreen() {
         <Path name={t("newTitle")} href={NEW_SOURCE} />
         <PageHeader title={t("newTitle")} intro={t("newIntro")} />
       </div>
-      <OidcForm source={null} mayWrite />
+      <Panel className="p-6">
+        <ChoiceGroup
+          legend={t("kind")}
+          value={kind}
+          onChange={(chosen) => setKind(chosen as KindName)}
+          options={[
+            { value: "oidc", label: t("kinds.oidc"), hint: t("kinds.oidcHint") },
+            { value: "ldap", label: t("kinds.ldap"), hint: t("kinds.ldapHint") },
+          ]}
+        />
+      </Panel>
+      {/* Another kind is another form, from the start. */}
+      <SourceForm key={kind} kind={kind} source={null} mayWrite />
     </div>
   );
 }
 
-/** One source: its settings, and the address to register at the provider. */
+/** One source: its settings, and for OIDC the address to register at the provider. */
 export function SourceScreen() {
   const t = useTranslations("source");
   const session = useSession();
@@ -303,8 +223,8 @@ export function SourceScreen() {
           <p className="mt-3 text-sm text-fg-subtle">{t("redirectUriHint")}</p>
         </Panel>
       ) : null}
-      {found.kind === "oidc" ? (
-        <OidcForm source={found} mayWrite={mayWrite} />
+      {isKindName(found.kind) ? (
+        <SourceForm kind={found.kind} source={found} mayWrite={mayWrite} />
       ) : (
         <Alert tone="info">{t("noForm", { kind: found.kind })}</Alert>
       )}

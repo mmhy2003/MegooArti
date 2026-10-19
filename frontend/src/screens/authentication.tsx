@@ -317,7 +317,7 @@ export function AuthenticationScreen() {
             <Button asChild size="sm">
               <AppLink href={NEW_SOURCE}>
                 <Plus aria-hidden="true" className="size-4" />
-                {t("newOidc")}
+                {t("newSource")}
               </AppLink>
             </Button>
           ) : null}

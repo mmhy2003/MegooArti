@@ -71,7 +71,8 @@ repositories, blob stores and the installation's own settings.
     built-in `admin` signs in here then. The default role, which every signed-in
     user has, is chosen from the roles. A source's name leads to its page, where its
     settings are changed and the redirect address to register at the provider is
-    shown, with a copy button; New OIDC source makes one, off until it is turned on.
+    shown, with a copy button; New source makes one, OIDC or LDAP, off until it is
+    turned on.
     A group's roles are rows: a group, and the role its members are given.
   - **Certificates** lists what the server trusts when it connects out over TLS,
     besides the usual public authorities, with each one's fingerprint and expiry.
