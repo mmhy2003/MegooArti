@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
+import httpx
 import structlog
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.config import Settings
 from megooarti.errors import ApiError
+from megooarti.repositories.remote import client_of
 from megooarti.secrets_box import seal, unseal
 from megooarti.security.models import AuthSource, Role, User, UserRole, UserSession
 from megooarti.security.sessions import delete_user_sessions
@@ -59,6 +61,18 @@ class Tested:
     identity: Identity | None = None
 
 
+@dataclass(frozen=True)
+class Outbound:
+    """How a source is reached: the server's one outbound HTTP client, which trusts what
+    the server trusts."""
+
+    http: httpx.AsyncClient
+
+
+def outbound(app: Any) -> Outbound:
+    return Outbound(http=client_of(app))
+
+
 class SourceUnavailable(Exception):
     """A source could not be asked: it did not answer, or answered nothing it should."""
 
@@ -83,17 +97,31 @@ class Kind:
         raise NotImplementedError
 
     async def password(
-        self, settings: dict[str, Any], name: str, password: str, known: str | None
+        self,
+        outbound: Outbound,
+        settings: dict[str, Any],
+        name: str,
+        password: str,
+        known: str | None,
     ) -> Identity | Unknown | Refused:
         """Who `name` is, if `password` is theirs. `known` is the identity a user of this
         source has already, when the name is theirs. Raises SourceUnavailable."""
         return UNKNOWN
 
     async def test(
-        self, settings: dict[str, Any], name: str | None, password: str | None
+        self,
+        outbound: Outbound,
+        settings: dict[str, Any],
+        name: str | None,
+        password: str | None,
     ) -> Tested:
         """Whether the source answers, and, given a name, who it says they are."""
         raise NotImplementedError
+
+    def callback_path(self, source_id: uuid.UUID) -> str | None:
+        """Where a provider sends people back to, for a kind signed in to in the browser:
+        the address to register there, under the server's base URL."""
+        return None
 
 
 KINDS: dict[str, Kind] = {}
@@ -347,8 +375,8 @@ async def provision(db: AsyncSession, source: AuthSource, identity: Identity) ->
 
 
 async def _ask(
-    db: AsyncSession,
     settings: Settings,
+    reach: Outbound,
     source: AuthSource,
     name: str,
     password: str,
@@ -359,7 +387,7 @@ async def _ask(
         return UNKNOWN
     try:
         return await kind.password(
-            opened_settings(settings, kind, source.settings), name, password, known
+            reach, opened_settings(settings, kind, source.settings), name, password, known
         )
     except SourceUnavailable as error:
         log.warning("source_unavailable", source=source.name, error=str(error))
@@ -367,7 +395,12 @@ async def _ask(
 
 
 async def password_sign_in(
-    db: AsyncSession, settings: Settings, name: str, password: str, user: User | None
+    db: AsyncSession,
+    settings: Settings,
+    reach: Outbound,
+    name: str,
+    password: str,
+    user: User | None,
 ) -> User | None:
     """The user a name and a password are, by the sources (E3): a user of a source is asked
     of their own source alone; a name nobody has, of each enabled source that takes
@@ -376,12 +409,12 @@ async def password_sign_in(
         source = None if user.source_id is None else await get_source(db, user.source_id)
         if source is None:
             return None
-        answer = await _ask(db, settings, source, name, password, user.external_id)
+        answer = await _ask(settings, reach, source, name, password, user.external_id)
         if not isinstance(answer, Identity) or answer.external_id != user.external_id:
             return None
         return await provision(db, source, answer)
     for source in await in_order(db):
-        answer = await _ask(db, settings, source, name, password, None)
+        answer = await _ask(settings, reach, source, name, password, None)
         if answer == REFUSED:
             return None
         if isinstance(answer, Identity):

@@ -2373,6 +2373,17 @@
             "title": "Position",
             "type": "integer"
           },
+          "redirect_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redirect Uri"
+          },
           "secrets": {
             "items": {
               "type": "string"
@@ -2405,6 +2416,7 @@
           "secrets",
           "group_mapping",
           "users",
+          "redirect_uri",
           "created_at",
           "updated_at"
         ],

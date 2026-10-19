@@ -3,9 +3,10 @@ from typing import Any
 
 import pytest
 
-from megooarti.security import sources
+from megooarti.security import oidc, sources
 from megooarti.security.models import AuthSource, User
 from tests.security.directory import SECRET, Directory, Portal
+from tests.security.provider import CLIENT_ID, CLIENT_SECRET, ISSUER, FakeProvider
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -74,3 +75,41 @@ def change_source(sessionmaker, settings, kinds):
             await db.commit()
 
     return change
+
+
+@pytest.fixture
+def provider(app):
+    """An OIDC provider of the test's own, in place of the outbound client's internet."""
+    oidc.forget()
+    fake = FakeProvider()
+    app.state.http = fake.client()
+    yield fake
+    oidc.forget()
+
+
+@pytest.fixture
+def add_oidc_source(sessionmaker, settings):
+    """Keep an OIDC source of the fake provider, enabled and asked after those before it."""
+
+    async def add(
+        name: str = "Corp SSO",
+        *,
+        enabled: bool = True,
+        mapping: list[dict[str, Any]] | None = None,
+        **more: Any,
+    ) -> AuthSource:
+        sent = {"issuer": ISSUER, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, **more}
+        async with sessionmaker() as db:
+            source = AuthSource(
+                kind="oidc",
+                name=name,
+                enabled=enabled,
+                position=await sources.next_position(db),
+                settings=sources.kept_settings(settings, sources.KINDS["oidc"], sent, None),
+                group_mapping=mapping or [],
+            )
+            db.add(source)
+            await db.commit()
+            return source
+
+    return add

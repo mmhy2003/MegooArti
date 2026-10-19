@@ -39,7 +39,7 @@ class Directory(sources.Kind):
             groups=frozenset(person.get("groups", [])),
         )
 
-    async def password(self, settings, name, password, known):
+    async def password(self, outbound, settings, name, password, known):
         if settings["down"] or settings.get("secret") != SECRET:
             raise sources.SourceUnavailable("the directory did not answer")
         for found, person in settings["people"].items():
@@ -50,7 +50,7 @@ class Directory(sources.Kind):
                 return identity if person["password"] == password else sources.REFUSED
         return sources.UNKNOWN
 
-    async def test(self, settings, name, password):
+    async def test(self, outbound, settings, name, password):
         if settings["down"] or settings.get("secret") != SECRET:
             raise sources.SourceUnavailable("the directory did not answer")
         if name is None:

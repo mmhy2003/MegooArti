@@ -180,7 +180,12 @@ async def authenticate_password(
         if user is None or users.is_external(user):
             # A name nobody has here, or a user of a source: the sources decide (E3).
             found = await sources.password_sign_in(
-                db, request.app.state.settings, username, password, user
+                db,
+                request.app.state.settings,
+                sources.outbound(request.app),
+                username,
+                password,
+                user,
             )
             if found is None and user is None:
                 # As long as a wrong password of somebody's takes.

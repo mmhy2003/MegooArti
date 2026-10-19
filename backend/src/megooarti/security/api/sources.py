@@ -17,6 +17,7 @@ from megooarti.pagination import Page, PageParams, page
 from megooarti.security import sources
 from megooarti.security.authentication import Principal, require
 from megooarti.security.models import AuthSource
+from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
 
@@ -55,6 +56,8 @@ class SourceOut(BaseModel):
     secrets: list[str]  # the names of the secrets that are set
     group_mapping: list[Mapping]
     users: int  # how many users sign in through it
+    # For a source signed in to in the browser: the address to register at the provider.
+    redirect_uri: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -85,7 +88,17 @@ class TestOut(BaseModel):
     user: TestedUser | None
 
 
-async def _out(db: AsyncSession, source: AuthSource) -> SourceOut:
+async def redirect_uri(db: AsyncSession, request: Request, source: AuthSource) -> str | None:
+    """Where a provider sends people back to: the kind's address, under the base URL."""
+    kind = sources.KINDS.get(source.kind)
+    path = None if kind is None else kind.callback_path(source.id)
+    if path is None:
+        return None
+    base = await get_setting(db, "base_url") or str(request.base_url)
+    return base.rstrip("/") + path
+
+
+async def _out(db: AsyncSession, request: Request, source: AuthSource) -> SourceOut:
     settings, secrets = sources.shown_settings(sources.KINDS.get(source.kind), source.settings)
     return SourceOut(
         id=source.id,
@@ -97,6 +110,7 @@ async def _out(db: AsyncSession, source: AuthSource) -> SourceOut:
         secrets=secrets,
         group_mapping=[Mapping(**entry) for entry in source.group_mapping],
         users=await sources.users_of(db, source),
+        redirect_uri=await redirect_uri(db, request, source),
         created_at=source.created_at,
         updated_at=source.updated_at,
     )
@@ -141,6 +155,7 @@ async def _apply(
 
 @router.get("", response_model=Page[SourceOut])
 async def list_sources(
+    request: Request,
     params: PageParams = Depends(),
     _: Principal = Depends(require("admin:security:read")),
     db: AsyncSession = Depends(get_session),
@@ -148,7 +163,7 @@ async def list_sources(
     """The sources, in the order they are asked, after MegooArti's own users."""
     every = await sources.in_order(db)
     shown = every[params.offset : params.offset + params.limit]
-    return page([await _out(db, source) for source in shown], len(every), params)
+    return page([await _out(db, request, source) for source in shown], len(every), params)
 
 
 @router.post("", response_model=SourceOut, status_code=201)
@@ -164,7 +179,7 @@ async def create_source(
     await _apply(db, request, source, body, kind)
     db.add(source)
     await db.flush()
-    result = await _out(db, source)
+    result = await _out(db, request, source)
     await db.commit()
     log.info("auth_source_created", source=source.name, by=principal.user.username)
     return result
@@ -173,13 +188,14 @@ async def create_source(
 @router.put("/order", response_model=Page[SourceOut])
 async def order_sources(
     body: Order,
+    request: Request,
     principal: Principal = Depends(require("admin:security:write")),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Put the sources in the order they are to be asked: every one of them, once."""
     await sources.reorder(db, body.ids)
     every = await sources.in_order(db)
-    items = [await _out(db, source) for source in every]
+    items = [await _out(db, request, source) for source in every]
     await db.commit()
     log.info("auth_sources_ordered", by=principal.user.username)
     return page(items, len(items), PageParams(limit=200, offset=0))
@@ -188,10 +204,11 @@ async def order_sources(
 @router.get("/{source_id}", response_model=SourceOut)
 async def get_source(
     source_id: uuid.UUID,
+    request: Request,
     _: Principal = Depends(require("admin:security:read")),
     db: AsyncSession = Depends(get_session),
 ) -> SourceOut:
-    return await _out(db, await _load(db, source_id))
+    return await _out(db, request, await _load(db, source_id))
 
 
 @router.put("/{source_id}", response_model=SourceOut)
@@ -209,7 +226,7 @@ async def update_source(
     if was_on and not source.enabled:
         await sources.sign_out_users(db, source)
     await db.flush()
-    result = await _out(db, source)
+    result = await _out(db, request, source)
     await db.commit()
     log.info("auth_source_updated", source=source.name, by=principal.user.username)
     return result
@@ -242,7 +259,9 @@ async def test_source(
     kind = _kind(source.kind)
     opened = sources.opened_settings(request.app.state.settings, kind, source.settings)
     try:
-        tested = await kind.test(opened, body.username, body.password)
+        tested = await kind.test(
+            sources.outbound(request.app), opened, body.username, body.password
+        )
     except sources.SourceUnavailable as error:
         return TestOut(ok=False, message=str(error), user=None)
     found = tested.identity
