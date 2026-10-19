@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
-from megooarti.security import sessions
+from megooarti.pagination import Page, PageParams, page
+from megooarti.security import sessions, sources
 from megooarti.security.authentication import (
     SESSION_COOKIE,
     Principal,
@@ -35,6 +36,14 @@ class UserSummary(BaseModel):
     username: str
     display_name: str
     email: str | None
+
+
+class SignInSource(BaseModel):
+    """A source the sign-in screen sends people to, to sign in there (spec 4.3)."""
+
+    id: uuid.UUID
+    name: str
+    kind: str
 
 
 class SessionInfo(BaseModel):
@@ -115,6 +124,20 @@ async def logout(
         await db.commit()
         log.info("logout", username=principal.user.username)
     response.delete_cookie(SESSION_COOKIE, path="/")
+
+
+@router.get("/sources", response_model=Page[SignInSource])
+async def sign_in_sources(
+    params: PageParams = Depends(), db: AsyncSession = Depends(get_session)
+) -> dict:
+    """The enabled sources people sign in to in the browser, for the sign-in screen. Asked
+    before anyone is signed in, so it says no more than their names."""
+    shown = [
+        SignInSource(id=source.id, name=source.name, kind=source.kind)
+        for source in await sources.in_order(db)
+        if source.enabled and (kind := sources.KINDS.get(source.kind)) and kind.in_browser
+    ]
+    return page(shown[params.offset : params.offset + params.limit], len(shown), params)
 
 
 @router.get("/session", response_model=SessionInfo)

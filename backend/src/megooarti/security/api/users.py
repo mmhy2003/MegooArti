@@ -40,6 +40,10 @@ class UserOut(BaseModel):
     roles: list[str]
     created_at: datetime
     last_login_at: datetime | None
+    # The sign-in source they belong to, by its name; null for MegooArti's own users, and
+    # for those of a source that was deleted, who keep the identity they had there.
+    source: str | None
+    external_id: str | None
 
 
 class UserCreate(BaseModel):

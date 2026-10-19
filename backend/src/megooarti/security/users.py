@@ -35,6 +35,10 @@ class UserView:
     roles: list[str]
     created_at: datetime
     last_login_at: datetime | None
+    # The source they sign in through, by its name: None for MegooArti's own users, and
+    # for the users of a source that was deleted, who keep their `external_id`.
+    source: str | None
+    external_id: str | None
 
 
 def normalise_username(username: str) -> str:
@@ -106,6 +110,7 @@ async def describe(db: AsyncSession, user: User) -> UserView:
         .where(UserRole.user_id == user.id)
         .order_by(Role.name)
     )
+    source = None if user.source_id is None else await db.get(AuthSource, user.source_id)
     return UserView(
         id=user.id,
         username=user.username,
@@ -117,6 +122,8 @@ async def describe(db: AsyncSession, user: User) -> UserView:
         roles=list(names),
         created_at=user.created_at,
         last_login_at=user.last_login_at,
+        source=None if source is None else source.name,
+        external_id=user.external_id,
     )
 
 

@@ -858,6 +858,31 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "Mapping": {
+        "description": "The roles a member of a group is given (E4).",
+        "properties": {
+          "group": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Group",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "group",
+          "roles"
+        ],
+        "title": "Mapping",
+        "type": "object"
+      },
       "NegativeCache": {
         "properties": {
           "enabled": {
@@ -873,6 +898,24 @@
           }
         },
         "title": "NegativeCache",
+        "type": "object"
+      },
+      "Order": {
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "Order",
         "type": "object"
       },
       "Page_BlobStoreOut_": {
@@ -1121,6 +1164,68 @@
           "offset"
         ],
         "title": "Page[RoleOut]",
+        "type": "object"
+      },
+      "Page_SignInSource_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SignInSource"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[SignInSource]",
+        "type": "object"
+      },
+      "Page_SourceOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[SourceOut]",
         "type": "object"
       },
       "Page_TokenInfo_": {
@@ -2059,6 +2164,31 @@
         "title": "SignInSettings",
         "type": "object"
       },
+      "SignInSource": {
+        "description": "A source the sign-in screen sends people to, to sign in there (spec 4.3).",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "SignInSource",
+        "type": "object"
+      },
       "SigningKeyGenerate": {
         "properties": {
           "algorithm": {
@@ -2132,6 +2262,264 @@
           "readable"
         ],
         "title": "SigningKeyOut",
+        "type": "object"
+      },
+      "SourceCreate": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "group_mapping": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "maxItems": 200,
+            "title": "Group Mapping",
+            "type": "array"
+          },
+          "kind": {
+            "maxLength": 16,
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "SourceCreate",
+        "type": "object"
+      },
+      "SourceIn": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "group_mapping": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "maxItems": 200,
+            "title": "Group Mapping",
+            "type": "array"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SourceIn",
+        "type": "object"
+      },
+      "SourceOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "group_mapping": {
+            "items": {
+              "$ref": "#/components/schemas/Mapping"
+            },
+            "title": "Group Mapping",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "secrets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Secrets",
+            "type": "array"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "title": "Settings",
+            "type": "object"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "enabled",
+          "position",
+          "settings",
+          "secrets",
+          "group_mapping",
+          "users",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SourceOut",
+        "type": "object"
+      },
+      "TestIn": {
+        "description": "A name and a password to try, or nothing: only whether the source answers.",
+        "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "TestIn",
+        "type": "object"
+      },
+      "TestOut": {
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TestedUser"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "message",
+          "user"
+        ],
+        "title": "TestOut",
+        "type": "object"
+      },
+      "TestedUser": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_id",
+          "username",
+          "display_name",
+          "email",
+          "groups",
+          "roles"
+        ],
+        "title": "TestedUser",
         "type": "object"
       },
       "TokenCreate": {
@@ -2448,6 +2836,17 @@
             ],
             "title": "Email"
           },
+          "external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2476,6 +2875,17 @@
             "title": "Roles",
             "type": "array"
           },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -2495,7 +2905,9 @@
           "builtin",
           "roles",
           "created_at",
-          "last_login_at"
+          "last_login_at",
+          "source",
+          "external_id"
         ],
         "title": "UserOut",
         "type": "object"
@@ -2605,6 +3017,329 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth-sources": {
+      "get": {
+        "description": "The sources, in the order they are asked, after MegooArti's own users.",
+        "operationId": "list_sources_api_v1_auth_sources_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SourceOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "List Sources",
+        "tags": [
+          "sign-in sources"
+        ]
+      },
+      "post": {
+        "description": "A new source, asked after every other. Test it before it is enabled.",
+        "operationId": "create_source_api_v1_auth_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Create Source",
+        "tags": [
+          "sign-in sources"
+        ]
+      }
+    },
+    "/api/v1/auth-sources/order": {
+      "put": {
+        "description": "Put the sources in the order they are to be asked: every one of them, once.",
+        "operationId": "order_sources_api_v1_auth_sources_order_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Order"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SourceOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Order Sources",
+        "tags": [
+          "sign-in sources"
+        ]
+      }
+    },
+    "/api/v1/auth-sources/{source_id}": {
+      "delete": {
+        "description": "Delete a source. Its users are disabled, and kept with what they own.",
+        "operationId": "delete_source_api_v1_auth_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Delete Source",
+        "tags": [
+          "sign-in sources"
+        ]
+      },
+      "get": {
+        "operationId": "get_source_api_v1_auth_sources__source_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Get Source",
+        "tags": [
+          "sign-in sources"
+        ]
+      },
+      "put": {
+        "description": "Change a source; its kind stays. Turned off, its users are refused until it is on.",
+        "operationId": "update_source_api_v1_auth_sources__source_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Update Source",
+        "tags": [
+          "sign-in sources"
+        ]
+      }
+    },
+    "/api/v1/auth-sources/{source_id}/test": {
+      "post": {
+        "description": "Whether the source answers, and, given a name and a password, who it says they are\nand the roles they would be given. Nobody is signed in, or made, by it.",
+        "operationId": "test_source_api_v1_auth_sources__source_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Test Source",
+        "tags": [
+          "sign-in sources"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login_api_v1_auth_login_post",
@@ -2697,6 +3432,63 @@
           }
         },
         "summary": "Session",
+        "tags": [
+          "authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/sources": {
+      "get": {
+        "description": "The enabled sources people sign in to in the browser, for the sign-in screen. Asked\nbefore anyone is signed in, so it says no more than their names.",
+        "operationId": "sign_in_sources_api_v1_auth_sources_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SignInSource_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Sign In Sources",
         "tags": [
           "authentication"
         ]

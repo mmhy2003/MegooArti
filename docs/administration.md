@@ -37,6 +37,42 @@ Users, roles, your own API tokens and anonymous access are managed in the web UI
   are: see [Installation](installation.md#behind-your-own-reverse-proxy).
 - Requests without credentials can only ever be allowed `repository:` permissions,
   whatever roles the `anonymous` user holds.
+- A **default role**, set at `PUT /api/v1/settings/default-role`, is held by every
+  signed-in user besides their own roles, and kept on none of them. It is not a
+  visitor's: anonymous access has the `anonymous` user's roles alone.
+
+### Sign-in sources
+
+People can sign in with the accounts their organisation already has: an LDAP
+directory, an OIDC provider, or a reverse proxy that says who they are. Each is a
+**sign-in source**, kept under `/api/v1/auth-sources` and on the Authentication screen.
+
+- **Who belongs where.** A user belongs to one source: MegooArti's own users, or one
+  of the sources, which knows them by an identity of its own (an LDAP DN, an OIDC
+  subject). A user of a source has no password here: theirs is the source's, and
+  setting one is refused with `409 external_user`.
+- **The first sign-in makes the user.** Their name, display name and email are the
+  source's. Where another user has the name already, they are called
+  `name@source`. At each sign-in after, the same are brought up to date.
+- **Groups give roles.** A source's group mapping gives the members of a group the
+  roles it names. At each sign-in, the roles the groups no longer give are taken
+  back; the roles an administrator gave by hand are kept.
+- **The order.** A user signs in where they belong. A name nobody has yet is asked of
+  each enabled source that takes a password, from the first, and the first that
+  knows the name decides: a wrong password there is not tried anywhere else. The
+  order is set at `PUT /api/v1/auth-sources/order`.
+- **On and off.** A new source is off: test it first, at
+  `POST /api/v1/auth-sources/{id}/test`. While a source is off, its users are refused
+  as disabled users are: their sessions and API tokens too. A source that does not
+  answer is said by name: `503 source_unavailable`.
+- **MegooArti's own users** can be turned off at `PUT /api/v1/settings/local-sign-in`.
+  The built-in `admin` still signs in with its password, whatever is on or off, so
+  nobody is ever locked out; it must hold full access for this to be allowed. Every
+  other user of ours is refused while it is off.
+- **Deleting a source** disables its users and keeps them, with their tokens and
+  what they own.
+- The sign-in screen asks `GET /api/v1/auth/sources`, open to anyone, for the sources
+  people sign in to in the browser.
 
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.

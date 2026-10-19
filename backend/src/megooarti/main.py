@@ -39,6 +39,7 @@ from megooarti.security.api import auth as auth_api
 from megooarti.security.api import me as me_api
 from megooarti.security.api import oauth as oauth_api
 from megooarti.security.api import roles as roles_api
+from megooarti.security.api import sources as sources_api
 from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
 from megooarti.storage import blobs
@@ -153,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me_api.router, prefix=API_PREFIX)
     app.include_router(users_api.router, prefix=API_PREFIX)
     app.include_router(roles_api.router, prefix=API_PREFIX)
+    app.include_router(sources_api.router, prefix=API_PREFIX)
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(information_router, prefix=API_PREFIX)
     app.include_router(blob_stores_router, prefix=API_PREFIX)
