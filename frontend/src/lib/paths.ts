@@ -23,6 +23,7 @@ export const ROLES = "/admin/roles" as Route;
 // Where no role's name can be: a role may be called "new", and has `~` in no name.
 export const NEW_ROLE = "/admin/roles/~new" as Route;
 export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
+export const AUTHENTICATION = "/admin/authentication" as Route;
 export const MANAGE_REPOSITORIES = "/admin/repositories" as Route;
 // As for a role: a repository may be called "new", and has `~` in no name.
 export const NEW_REPOSITORY = "/admin/repositories/~new" as Route;

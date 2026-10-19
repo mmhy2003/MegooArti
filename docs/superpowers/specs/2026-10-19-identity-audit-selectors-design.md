@@ -77,6 +77,26 @@ Settled here, by the designer:
 - REST: `GET/POST /api/v1/auth-sources`, `GET/PUT/DELETE /api/v1/auth-sources/{id}`, `PUT /api/v1/auth-sources/order`, `POST /api/v1/auth-sources/{id}/test`; `PUT /api/v1/settings/default-role`. Permissions: `admin:security:read`, `admin:security:write` (a new area).
 - `GET /api/v1/auth/sources` (no sign-in needed): the enabled OIDC sources' ids and names, for the sign-in screen.
 
+### Settled while building plan 15a
+
+| # | What | Why |
+| --- | --- | --- |
+| S1 | Whether MegooArti's own users sign in is a setting, `local_sign_in` (on unless set), beside `default_role`. Both are read at `GET /api/v1/settings/sign-in` and changed at `PUT /api/v1/settings/local-sign-in` and `PUT /api/v1/settings/default-role`, under `admin:security`; `GET /api/v1/settings` is unchanged. | 4.1 makes the local source no row. Whoever keeps sign-in may not be given the base URL with it, nor need it. |
+| S2 | While it is off, a user of ours other than the built-in `admin` is refused as a disabled user is: sign-in, session, Basic, API tokens, OAuth. It is turned off only while `admin` is active, has a password and holds full access (`409 last_administrator`); the check of who remains counts `admin` alone then. | E1, and 4.2's "refused as a disabled user is". Nobody can lock everyone out. |
+| S3 | A user's source is `users.source_id` (the spec's `source`), with `external_id`; one user per `(source_id, external_id)`. Deleting a source disables its users and ends their sessions before the key is set null; their `external_id` stays, so they are a deleted source's users, not ours, and have no password. | 4.1, 4.3. A user of a deleted source must not become one of ours by the key's going. |
+| S4 | A kind of source is a `sources.Kind` (`checked`, `password`, `test`, its `secrets`, `in_browser`, `takes_passwords`) registered in `sources.KINDS`. This plan registers none: a source can be made once 15b or 15d brings its kind, and until then `kind` is refused with what there is. The tests register kinds of their own. | Section 13: LDAP and OIDC are their own plans; what they share is here. |
+| S5 | A source answers a name and a password with who they are, `unknown` (the next source is asked) or `refused` (nobody else is). A user of a source is asked of their own source alone, with their identity there, and is refused if it says another. | E3: the first that knows the name decides; a wrong password is not tried against every directory. |
+| S6 | A user's name is what the source says, in lower case, a character a name may not hold made `-`. Where another user has it: `name@source` (the source's name made so too), then `-2`, `-3`. `__token__` and names shaped as a token are never given. The name is brought up to date at each sign-in, as the rest is. | 4.2, and names that the users' API and HTTP Basic take. |
+| S7 | Groups are matched whatever their case. A mapped role that does not exist gives nothing; the mapping's roles are checked when it is saved (`422`). | Directories differ in case; section 11. |
+| S8 | Each held role records who gave it (`granted_by`: `admin` or `source`). Roles an administrator sets on a user keep a source's role the source's, so the groups still decide it at the next sign-in. | E4. |
+| S9 | The default role is added to the permissions of every signed-in principal (session, password, token, OAuth), not to a visitor's. Deleting the role clears the setting. | 4.1. A setting that names nothing would say what no one has. |
+| S10 | A user of a source has no password here: setting one is refused, by an administrator or by them, with `409 external_user`. | E2. |
+| S11 | `POST /api/v1/auth-sources/{id}/test` takes a name and a password, or nothing, needs `admin:security:write` (it reaches out), and says whether the source answered, who it says they are and the roles the mapping would give. Nobody is made or signed in by it. | 4.3, 14: a source is tested before it is enabled. |
+| S12 | `GET /api/v1/auth/sources` lists the enabled sources of a kind signed in to in the browser, by id, name and kind only, paged. | 4.3. It is open: the sign-in screen asks it before anyone signs in. |
+| S13 | A source's name is 1 to 64 letters, digits, spaces, `.`, `_` and `-`, beginning with a letter or a digit; not `local`; unique whatever its case. A source is made off, and last. `PUT` replaces all but its kind; a secret left out keeps the stored one. | Shown on the sign-in screen and in `name@source`; 14's "tested before it is enabled"; E5. |
+| S14 | A source that cannot be asked answers `503 source_unavailable`, naming it, and is not counted as a failed sign-in. | Section 11. A directory that is down must not lock its users out for 15 minutes. |
+| S15 | The Authentication screen lists the sources, turns them on and off, moves, tests and deletes them; the form that makes or edits one comes with its kind, in 15b (OIDC) and 15d (LDAP), whose settings it shows. | A source's settings are its kind's; this plan has no kind to show. |
+
 ## 5. OIDC (plan 15b)
 
 - Settings: issuer, client id, client secret (sealed), scopes (`openid profile email` and any more), the claims of the user name (`preferred_username`), the display name (`name`), the email (`email`) and the groups (`groups`), and whether a user must have a verified email.

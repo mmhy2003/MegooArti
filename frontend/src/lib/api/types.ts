@@ -30,6 +30,13 @@ export type RoleOut = Schemas["RoleOut"];
 export type RoleCreate = Schemas["RoleCreate"];
 export type RoleContent = Schemas["RoleContent"];
 export type SettingsOut = Schemas["SettingsOut"];
+/** The default role, and whether MegooArti's own users sign in (spec 4.1). */
+export type SignInSettings = Schemas["SignInSettings"];
+/** A sign-in source as an administrator sees it: never its secrets. */
+export type SourceOut = Schemas["SourceOut"];
+export type SourceIn = Schemas["SourceIn"];
+/** What testing a source found. */
+export type SourceTested = Schemas["TestOut"];
 /** A repository as an administrator sees it: how it is set up, and a proxy's state. */
 export type RepositoryOut = Schemas["RepositoryOut"];
 export type RepositoryCreate = Schemas["RepositoryCreate"];

@@ -4,6 +4,96 @@
  */
 
 export interface paths {
+    "/api/v1/auth-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sources
+         * @description The sources, in the order they are asked, after MegooArti's own users.
+         */
+        get: operations["list_sources_api_v1_auth_sources_get"];
+        put?: never;
+        /**
+         * Create Source
+         * @description A new source, asked after every other. Test it before it is enabled.
+         */
+        post: operations["create_source_api_v1_auth_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth-sources/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Order Sources
+         * @description Put the sources in the order they are to be asked: every one of them, once.
+         */
+        put: operations["order_sources_api_v1_auth_sources_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth-sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Source */
+        get: operations["get_source_api_v1_auth_sources__source_id__get"];
+        /**
+         * Update Source
+         * @description Change a source; its kind stays. Turned off, its users are refused until it is on.
+         */
+        put: operations["update_source_api_v1_auth_sources__source_id__put"];
+        post?: never;
+        /**
+         * Delete Source
+         * @description Delete a source. Its users are disabled, and kept with what they own.
+         */
+        delete: operations["delete_source_api_v1_auth_sources__source_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth-sources/{source_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Source
+         * @description Whether the source answers, and, given a name and a password, who it says they are
+         *     and the roles they would be given. Nobody is signed in, or made, by it.
+         */
+        post: operations["test_source_api_v1_auth_sources__source_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -50,6 +140,27 @@ export interface paths {
          * @description Describe the caller. Answers 200 when nobody is signed in, so a UI can start here.
          */
         get: operations["session_api_v1_auth_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sign In Sources
+         * @description The enabled sources people sign in to in the browser, for the sign-in screen. Asked
+         *     before anyone is signed in, so it says no more than their names.
+         */
+        get: operations["sign_in_sources_api_v1_auth_sources_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -636,6 +747,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/default-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Default Role
+         * @description The role every signed-in user has, besides their own; null for none.
+         */
+        put: operations["set_default_role_api_v1_settings_default_role_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/local-sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Local Sign In
+         * @description Whether MegooArti's own users sign in. Off, the built-in `admin` still does (E1),
+         *     and must then hold full access: else nobody who signs in would.
+         */
+        put: operations["set_local_sign_in_api_v1_settings_local_sign_in_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Sign In Settings */
+        get: operations["read_sign_in_settings_api_v1_settings_sign_in_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/status/live": {
         parameters: {
             query?: never;
@@ -1021,6 +1190,11 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** DefaultRole */
+        DefaultRole: {
+            /** Default Role */
+            default_role: string | null;
+        };
         /** Entry */
         Entry: {
             component?: components["schemas"]["ComponentRef"] | null;
@@ -1123,12 +1297,27 @@ export interface components {
             /** Next */
             next: string | null;
         };
+        /** LocalSignIn */
+        LocalSignIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Password */
             password: string;
             /** Username */
             username: string;
+        };
+        /**
+         * Mapping
+         * @description The roles a member of a group is given (E4).
+         */
+        Mapping: {
+            /** Group */
+            group: string;
+            /** Roles */
+            roles: string[];
         };
         /** NegativeCache */
         NegativeCache: {
@@ -1142,6 +1331,11 @@ export interface components {
              * @default 1440
              */
             ttl_minutes: number;
+        };
+        /** Order */
+        Order: {
+            /** Ids */
+            ids: string[];
         };
         /** Page[BlobStoreOut] */
         Page_BlobStoreOut_: {
@@ -1224,6 +1418,28 @@ export interface components {
         Page_RoleOut_: {
             /** Items */
             items: components["schemas"]["RoleOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[SignInSource] */
+        Page_SignInSource_: {
+            /** Items */
+            items: components["schemas"]["SignInSource"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[SourceOut] */
+        Page_SourceOut_: {
+            /** Items */
+            items: components["schemas"]["SourceOut"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -1581,6 +1797,31 @@ export interface components {
             /** Base Url */
             base_url: string | null;
         };
+        /**
+         * SignInSettings
+         * @description How people sign in, besides the sources (spec 4.1): the role every signed-in user
+         *     has, and whether MegooArti's own users sign in.
+         */
+        SignInSettings: {
+            /** Default Role */
+            default_role: string | null;
+            local_sign_in: components["schemas"]["LocalSignIn"];
+        };
+        /**
+         * SignInSource
+         * @description A source the sign-in screen sends people to, to sign in there (spec 4.3).
+         */
+        SignInSource: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+        };
         /** SigningKeyGenerate */
         SigningKeyGenerate: {
             /** Algorithm */
@@ -1608,6 +1849,121 @@ export interface components {
             public_key: string;
             /** Readable */
             readable: boolean;
+        };
+        /** SourceCreate */
+        SourceCreate: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Group Mapping
+             * @default []
+             */
+            group_mapping: components["schemas"]["Mapping"][];
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /**
+             * Settings
+             * @default {}
+             */
+            settings: {
+                [key: string]: unknown;
+            };
+        };
+        /** SourceIn */
+        SourceIn: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Group Mapping
+             * @default []
+             */
+            group_mapping: components["schemas"]["Mapping"][];
+            /** Name */
+            name: string;
+            /**
+             * Settings
+             * @default {}
+             */
+            settings: {
+                [key: string]: unknown;
+            };
+        };
+        /** SourceOut */
+        SourceOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Group Mapping */
+            group_mapping: components["schemas"]["Mapping"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Position */
+            position: number;
+            /** Secrets */
+            secrets: string[];
+            /** Settings */
+            settings: {
+                [key: string]: unknown;
+            };
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Users */
+            users: number;
+        };
+        /**
+         * TestIn
+         * @description A name and a password to try, or nothing: only whether the source answers.
+         */
+        TestIn: {
+            /** Password */
+            password?: string | null;
+            /** Username */
+            username?: string | null;
+        };
+        /** TestOut */
+        TestOut: {
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
+            user: components["schemas"]["TestedUser"] | null;
+        };
+        /** TestedUser */
+        TestedUser: {
+            /** Display Name */
+            display_name: string;
+            /** Email */
+            email: string | null;
+            /** External Id */
+            external_id: string;
+            /** Groups */
+            groups: string[];
+            /** Roles */
+            roles: string[];
+            /** Username */
+            username: string;
         };
         /** TokenCreate */
         TokenCreate: {
@@ -1716,6 +2072,8 @@ export interface components {
             display_name: string;
             /** Email */
             email: string | null;
+            /** External Id */
+            external_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -1727,6 +2085,8 @@ export interface components {
             must_change_password: boolean;
             /** Roles */
             roles: string[];
+            /** Source */
+            source: string | null;
             /** Status */
             status: string;
             /** Username */
@@ -1766,6 +2126,234 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_sources_api_v1_auth_sources_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SourceOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_source_api_v1_auth_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    order_sources_api_v1_auth_sources_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Order"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SourceOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_source_api_v1_auth_sources__source_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_source_api_v1_auth_sources__source_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_source_api_v1_auth_sources__source_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    test_source_api_v1_auth_sources__source_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     login_api_v1_auth_login_post: {
         parameters: {
             query?: never;
@@ -1842,6 +2430,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionInfo"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sign_in_sources_api_v1_auth_sources_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SignInSource_"];
                 };
             };
             /** @description Any error. */
@@ -3243,6 +3863,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_default_role_api_v1_settings_default_role_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefaultRole"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInSettings"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_local_sign_in_api_v1_settings_local_sign_in_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalSignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInSettings"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    read_sign_in_settings_api_v1_settings_sign_in_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInSettings"];
                 };
             };
             /** @description Any error. */

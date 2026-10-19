@@ -348,6 +348,9 @@ function Details({
         <Fact name={t("facts.lastSignIn")}>
           <Time value={user.last_login_at} />
         </Fact>
+        <Fact name={t("facts.source")}>
+          {user.source ?? (user.external_id === null ? t("localUser") : t("deletedSource"))}
+        </Fact>
       </Facts>
       <form ref={form} onSubmit={submit} className="flex flex-col gap-5" noValidate>
         <fieldset disabled={!mayWrite} className="flex min-w-0 flex-col gap-5 border-0 p-0">
@@ -614,7 +617,15 @@ export function UserScreen() {
         {found.builtin ? <Alert tone="info">{t("builtinNote")}</Alert> : null}
       </div>
       <Details user={found} mayWrite={mayWrite} isSelf={isSelf} />
-      {!mayWrite || isAnonymous ? null : isSelf ? (
+      {!mayWrite || isAnonymous ? null : found.source !== null ? (
+        // Theirs is the source's, which no one sets here (E2).
+        <Panel className="p-6">
+          <h2 className={H2}>{t("externalPasswordTitle")}</h2>
+          <p className="text-fg-muted">
+            {t("externalPassword", { username: found.username, source: found.source })}
+          </p>
+        </Panel>
+      ) : isSelf ? (
         // Set here, with "must choose a new one", it would end this page and ask for the
         // password that was on it: an administrator could lock themselves out.
         <Panel className="p-6">

@@ -21,6 +21,7 @@
       "users": "Users",
       "roles": "Roles",
       "anonymousAccess": "Anonymous access",
+      "authentication": "Authentication",
       "manageRepositories": "Manage repositories",
       "blobStores": "Blob stores",
       "system": "System"
@@ -520,7 +521,8 @@
     },
     "facts": {
       "created": "Created",
-      "lastSignIn": "Last sign-in"
+      "lastSignIn": "Last sign-in",
+      "source": "Signs in"
     },
     "usernameRule": "A user name is 1 to 64 letters, digits or . _ @ -",
     "displayNameNeeded": "Give their name.",
@@ -563,7 +565,11 @@
     "appsTitle": "Connected apps",
     "appsOf": "Applications {username} connected",
     "noApps": "This user has connected no application.",
-    "appRevoked": "Revoked {name}, which {username} connected."
+    "appRevoked": "Revoked {name}, which {username} connected.",
+    "localUser": "Here, with a password of MegooArti's own",
+    "deletedSource": "Through a source that was deleted",
+    "externalPasswordTitle": "Password",
+    "externalPassword": "{username} signs in through {source}, with the password they have there."
   },
   "roles": {
     "title": "Roles",
@@ -631,6 +637,55 @@
     "grantsNothing": "Its roles grant nothing in any repository.",
     "onlyRepositories": "Whatever its roles say, a visitor is never allowed anything but what concerns repositories.",
     "userDisabled": "The anonymous user is disabled, so nothing is given without signing in, though the switch is on. Enable the user to let visitors in."
+  },
+  "authentication": {
+    "title": "Authentication",
+    "intro": "Where people sign in from, in the order they are asked, and what every signed-in user may do.",
+    "sourcesTitle": "Sign-in sources",
+    "columns": {
+      "name": "Name",
+      "kind": "Kind",
+      "users": "Users",
+      "state": "State",
+      "actions": "Actions"
+    },
+    "local": "MegooArti's own users",
+    "localKind": "local",
+    "on": "On",
+    "off": "Off",
+    "noSources": "There is no other source yet: everybody signs in as one of MegooArti's own users.",
+    "order": "A user signs in where they belong. A name nobody has yet is asked of each source that is on, from the top, and the first that knows it decides. The built-in admin always signs in here.",
+    "turnOn": "Turn on",
+    "turnOff": "Turn off",
+    "turnOnNamed": "Turn on {name}",
+    "turnOffNamed": "Turn off {name}",
+    "turnedOn": "{name} is on.",
+    "turnedOff": "{name} is off: its users are refused until it is on again.",
+    "turnOnLocal": "Turn on",
+    "turnOffLocal": "Turn off",
+    "localTurnedOn": "MegooArti's own users sign in again.",
+    "localTurnedOff": "Only the built-in admin signs in as one of MegooArti's own users now.",
+    "askLocal": "Turn off MegooArti's own users?",
+    "askLocalBody": "Only the built-in admin will sign in with a password of MegooArti's own. Every other user of ours, you too unless you are admin, is signed out, and their API tokens are refused until this is on again.",
+    "moveUp": "Move {name} up",
+    "moveDown": "Move {name} down",
+    "moved": "Moved {name}.",
+    "test": "Test",
+    "testNamed": "Test {name}",
+    "tested": "Test",
+    "delete": "Delete",
+    "deleteNamed": "Delete {name}",
+    "deleteSource": "Delete source",
+    "deleteAsk": "Delete the sign-in source {name}?",
+    "deleteBody": "Nobody signs in through it any more. Its {users, plural, =0 {users, of whom there are none,} one {one user is} other {# users are}} disabled, and kept with what they own.",
+    "deleted": "Deleted the sign-in source {name}.",
+    "defaultRoleTitle": "Default role",
+    "defaultRoleIntro": "Every signed-in user has it, besides their own roles. It is given to nobody who is not signed in, and kept on no user.",
+    "defaultRole": "Default role",
+    "noDefaultRole": "None",
+    "save": "Save",
+    "defaultRoleSet": "Every signed-in user has the role {role}.",
+    "defaultRoleCleared": "There is no default role."
   },
   "members": {
     "none": "It has no member yet, and so answers nothing.",

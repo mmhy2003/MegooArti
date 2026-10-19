@@ -5,6 +5,7 @@
 import {
   Boxes,
   HardDrive,
+  KeyRound,
   Search,
   Server,
   ShieldCheck,
@@ -19,6 +20,7 @@ import type { Route } from "next";
 import type { SessionInfo } from "@/lib/api/types";
 import {
   ANONYMOUS_ACCESS,
+  AUTHENTICATION,
   BLOB_STORES,
   MANAGE_REPOSITORIES,
   ROLES,
@@ -35,6 +37,7 @@ export type ItemKey =
   | "users"
   | "roles"
   | "anonymousAccess"
+  | "authentication"
   | "manageRepositories"
   | "blobStores"
   | "system";
@@ -87,6 +90,12 @@ export const NAVIGATION: readonly NavArea[] = [
         href: ANONYMOUS_ACCESS,
         icon: Unlock,
         permission: "admin:settings:read",
+      },
+      {
+        key: "authentication",
+        href: AUTHENTICATION,
+        icon: KeyRound,
+        permission: "admin:security:read",
       },
       {
         key: "manageRepositories",

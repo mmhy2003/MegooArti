@@ -27,6 +27,8 @@ const person = (username: string, more: Record<string, unknown> = {}) => ({
   roles: [],
   created_at: "2026-10-01T08:00:00Z",
   last_login_at: null,
+  source: null,
+  external_id: null,
   ...more,
 });
 const ALICE = person("alice", { roles: ["deployers"], email: "alice@example.com" });
@@ -397,6 +399,27 @@ describe("one user", () => {
       within(screen.getByRole("navigation", { name: "Path" })).getAllByRole("link")[0],
     ).toHaveAttribute("href", "/admin/users");
     await expectAccessible();
+  });
+
+  test("says where they sign in: here, through a source, or through one that was deleted", async () => {
+    const { unmount } = one();
+    expect(await screen.findByText("Here, with a password of MegooArti's own")).toBeVisible();
+    unmount();
+
+    const gone = person("bea", { external_id: "uid=bea,ou=people", status: "disabled" });
+    one(gone);
+    expect(await screen.findByText("Through a source that was deleted")).toBeVisible();
+  });
+
+  test("of a source signs in with the source's password, which nobody sets here (E2)", async () => {
+    const carol = person("carol", { source: "Corp LDAP", external_id: "uid=carol,ou=people" });
+    one(carol);
+
+    expect(await screen.findByText("Corp LDAP")).toBeVisible();
+    expect(
+      screen.getByText("carol signs in through Corp LDAP, with the password they have there."),
+    ).toBeVisible();
+    expect(screen.queryByLabelText("New password")).toBeNull();
   });
 
   test("is saved with what was changed, and the session is asked again (A10)", async () => {

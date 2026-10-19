@@ -53,7 +53,8 @@ repositories, blob stores and the installation's own settings.
     sets a new password, lists and revokes their API tokens, and deletes them after
     you type their name. Your own account cannot be disabled or deleted there, and
     your own password is changed under your account, where you are asked for the one
-    you have. A built-in user cannot be deleted.
+    you have. A built-in user cannot be deleted. A user's page says where they sign
+    in: here, or through a sign-in source, whose users have no password here.
   - **Roles.** A role's permissions are rows: choose what a row is about (a
     repository, or an area of administration), then the format, repository and
     action from lists. The pattern the row makes is shown with what it grants in
@@ -63,6 +64,12 @@ repositories, blob stores and the installation's own settings.
   - **Anonymous access** is one switch, which asks before it is turned on, and shows
     what someone who is not signed in may then do. If the `anonymous` user is
     disabled, nothing is given though the switch is on, and the page says so.
+  - **Authentication** lists where people sign in from, in the order they are
+    asked: MegooArti's own users first, then each sign-in source, with how many
+    users it has. A source is turned on or off, moved up or down, tested, and deleted
+    after you type its name. Turning MegooArti's own users off asks first: only the
+    built-in `admin` signs in here then. The default role, which every signed-in
+    user has, is chosen from the roles.
   - **Manage repositories** lists every repository as it is set up. A new one is made
     on one page: choose the format and the type, and the page shows what that
     combination has. A hosted repository has a deployment policy; a proxy has its

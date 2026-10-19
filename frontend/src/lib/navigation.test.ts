@@ -82,9 +82,14 @@ describe("the navigation as it is", () => {
       ["users", "/admin/users"],
       ["roles", "/admin/roles"],
       ["anonymousAccess", "/admin/anonymous-access"],
+      ["authentication", "/admin/authentication"],
       ["manageRepositories", "/admin/repositories"],
       ["blobStores", "/admin/blob-stores"],
       ["system", "/admin/system"],
+    ]);
+    // How people sign in is security's, not a setting's (spec 4.3).
+    expect(administration({ ...ADMIN, permissions: ["admin:security:read"] })).toEqual([
+      ["authentication", "/admin/authentication"],
     ]);
     expect(administration({ ...ADMIN, permissions: ["admin:roles:read"] })).toEqual([
       ["roles", "/admin/roles"],

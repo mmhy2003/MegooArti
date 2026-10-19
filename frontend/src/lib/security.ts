@@ -19,6 +19,10 @@ import type {
   RoleCreate,
   RoleOut,
   SettingsOut,
+  SignInSettings,
+  SourceIn,
+  SourceOut,
+  SourceTested,
   TokenCreate,
   TokenCreated,
   TokenInfo,
@@ -38,6 +42,8 @@ const APPS = "connected-apps";
 const USERS = "users";
 const ROLES = "roles";
 const SETTINGS = "settings";
+const SIGN_IN = "sign-in";
+const SOURCES = "auth-sources";
 /** Where the settings are kept among what was fetched: whoever changes one puts the answer there. */
 export const SETTINGS_KEY = [SETTINGS] as const;
 
@@ -297,5 +303,90 @@ export function useSetAnonymousAccess() {
     mutationFn: (enabled: boolean) =>
       api.put<SettingsOut>("/settings/anonymous-access", { enabled }),
     onSuccess: (settings) => client.setQueryData([SETTINGS], settings),
+  });
+}
+
+// --- How people sign in (spec 4) ------------------------------------------------------------
+
+const source = (id: string) => `/auth-sources/${encodeURIComponent(id)}`;
+
+export function useSignInSettings() {
+  return useQuery({
+    queryKey: [SIGN_IN],
+    queryFn: () => api.get<SignInSettings>("/settings/sign-in"),
+  });
+}
+
+/** What every signed-in user may do can change with it: the session is asked again. */
+export function useSetDefaultRole() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (role: string | null) =>
+      api.put<SignInSettings>("/settings/default-role", { default_role: role }),
+    onSuccess: (settings) => {
+      client.setQueryData([SIGN_IN], settings);
+      return client.invalidateQueries({ queryKey: SESSION_KEY });
+    },
+  });
+}
+
+/** Turned off, whoever is signed in as one of MegooArti's own users but `admin` is no longer. */
+export function useSetLocalSignIn() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.put<SignInSettings>("/settings/local-sign-in", { enabled }),
+    onSuccess: (settings) => {
+      client.setQueryData([SIGN_IN], settings);
+      return client.invalidateQueries({ queryKey: SESSION_KEY });
+    },
+  });
+}
+
+/** Every source, in the order they are asked: there are few, and their order is the point. */
+export function useSources() {
+  return useQuery({
+    queryKey: [SOURCES],
+    queryFn: () => api.get<Page<SourceOut>>("/auth-sources", { query: { limit: EVERY } }),
+  });
+}
+
+export function useUpdateSource() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, wanted }: { id: string; wanted: SourceIn }) =>
+      api.put<SourceOut>(source(id), wanted),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: [USERS] });
+      return client.invalidateQueries({ queryKey: [SOURCES] });
+    },
+  });
+}
+
+export function useOrderSources() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.put<Page<SourceOut>>("/auth-sources/order", { ids }),
+    onSuccess: (ordered) => client.setQueryData([SOURCES], ordered),
+  });
+}
+
+/** Its users are disabled, and kept: the users are asked for again. */
+export function useDeleteSource() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(source(id)),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: [USERS] });
+      return client.invalidateQueries({ queryKey: [SOURCES] });
+    },
+  });
+}
+
+/** Whether a source answers. What it found is given to whoever asked, and kept nowhere. */
+export function useTestSource() {
+  return useMutation({
+    mutationFn: (id: string) => api.post<SourceTested>(`${source(id)}/test`, {}),
+    gcTime: 0,
   });
 }
