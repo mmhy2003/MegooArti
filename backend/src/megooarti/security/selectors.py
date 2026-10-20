@@ -17,9 +17,13 @@ listing only what may match before each is checked.
 import enum
 import functools
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, and_, false, not_, or_, true
+from sqlalchemy import ColumnElement, and_, false, not_, or_, select, true
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from megooarti.security.models import ContentSelector
 
 MAX_LENGTH = 4000
 MAX_PATTERN = 1000
@@ -299,3 +303,24 @@ def parse(text: str) -> Expression:
     if rest.kind != "end":
         raise SelectorError(f"Unexpected {rest.text!r}", rest.at)
     return found
+
+
+async def held(db: AsyncSession, patterns: Iterable[str]) -> dict[str, str]:
+    """The selectors these patterns can name, each by its name with its expression: none
+    for whoever holds no selector permission, which is most callers, at no cost."""
+    named: set[str] = set()
+    every = False
+    for pattern in patterns:
+        parts = pattern.split(":")
+        if parts[0] not in ("selector", "*") or len(parts) == 1:
+            continue  # not a selector's, or `*`, which reaches every repository whole
+        if parts[1] == "*":
+            every = True
+        else:
+            named.add(parts[1])
+    if not every and not named:
+        return {}
+    query = select(ContentSelector.name, ContentSelector.expression)
+    if not every:
+        query = query.where(ContentSelector.name.in_(named))
+    return dict((await db.execute(query)).all())

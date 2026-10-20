@@ -5,7 +5,7 @@ import base64
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -20,6 +20,7 @@ from megooarti.security import (
     header,
     oauth,
     registry_tokens,
+    selectors,
     sessions,
     sources,
     throttle,
@@ -63,6 +64,9 @@ class Principal:
     token_id: uuid.UUID | None = None
     # The OAuth approval the caller's access token stands for, if it held one (MCP 7).
     grant_id: uuid.UUID | None = None
+    # The content selectors its patterns (and the public's) can name, each by its name
+    # with its expression (spec 10): none for whoever holds no selector permission.
+    selectors: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_anonymous(self) -> bool:
@@ -77,13 +81,28 @@ class Principal:
     def allows(self, permission: str) -> bool:
         if not is_valid_permission(permission):
             return False  # fail closed on anything that could shift segments
-        if permission.startswith("repository:") and any_grants(self.public, permission):
+        content = permission.startswith(("repository:", "selector:"))
+        if content and any_grants(self.public, permission):
             return True  # public content is public to everyone, whatever a token's scopes
         if self.is_anonymous:
             return False  # whatever roles anonymous holds, nobody administers anonymously
         if not any_grants(self.patterns, permission):
             return False
-        return self.scopes is None or any_grants(self.scopes, permission)
+        return (
+            self.scopes is None
+            or any_grants(self.scopes, permission)
+            or any_grants(self.scopes, _scoped_as(permission))
+        )
+
+
+def _scoped_as(permission: str) -> str:
+    """What else a token's scopes may grant for a permission. A selector permission is
+    scoped as the repository permission it narrows, too: a token that may only read reads
+    through a selector (`selector:s:maven:releases:read` as `repository:maven:releases:read`)."""
+    parts = permission.split(":")
+    if parts[0] == "selector" and len(parts) == 5:
+        return ":".join(["repository", *parts[2:]])
+    return permission
 
 
 def unauthorized(
@@ -119,14 +138,16 @@ async def build_principal(
     anonymous = await _anonymous_access(db)
     public = frozenset() if anonymous is None else anonymous[1]
     scopes = None if token is None or token.scopes is None else frozenset(token.scopes)
+    patterns = await users.signed_in_patterns(db, user)
     return Principal(
         user,
         method,
-        await users.signed_in_patterns(db, user),
+        patterns,
         scopes,
         session,
         public,
         None if token is None else token.id,
+        selectors=await selectors.held(db, patterns | public),
     )
 
 
@@ -324,7 +345,13 @@ async def _from_registry_token(db: AsyncSession, request: Request, value: str) -
         if anonymous is None:
             raise refused
         user, patterns = anonymous
-        return Principal(user, "anonymous", patterns, public=patterns)
+        return Principal(
+            user,
+            "anonymous",
+            patterns,
+            public=patterns,
+            selectors=await selectors.held(db, patterns),
+        )
     user = await users.get_user(db, claims.user_id)
     if user is None or not await users.can_act(db, user) or claims.method == "anonymous":
         raise refused
@@ -434,7 +461,13 @@ async def resolve_principal(
     anonymous = await _anonymous_access(db)
     if anonymous is not None:
         user, patterns = anonymous
-        return Principal(user, "anonymous", patterns, public=patterns)
+        return Principal(
+            user,
+            "anonymous",
+            patterns,
+            public=patterns,
+            selectors=await selectors.held(db, patterns),
+        )
     return None
 
 
@@ -650,7 +683,7 @@ AUTHENTICATION_DEPENDENCIES = frozenset(
 )
 
 
-def _refuse_pending_password_change(principal: Principal) -> None:
+def refuse_pending_password_change(principal: Principal) -> None:
     if principal.is_interactive and principal.user.must_change_password:
         raise ApiError(
             403, "password_change_required", "Change your password before doing anything else."
@@ -663,7 +696,7 @@ def authorize(
     """The one place that decides whether a caller may do something."""
     if principal is None:
         raise unauthorized(scheme=scheme)
-    _refuse_pending_password_change(principal)
+    refuse_pending_password_change(principal)
     if not principal.allows(permission):
         if principal.is_anonymous:
             raise unauthorized(scheme=scheme)
@@ -692,7 +725,7 @@ async def require_caller(
     """
     if principal is None:
         raise unauthorized()
-    _refuse_pending_password_change(principal)
+    refuse_pending_password_change(principal)
     return principal
 
 
@@ -713,7 +746,7 @@ def require_interactive(
                 "Sign in with your password to do this; an API token is not enough.",
             )
         if not allow_pending_password_change:
-            _refuse_pending_password_change(principal)
+            refuse_pending_password_change(principal)
         return principal
 
     return dependency
