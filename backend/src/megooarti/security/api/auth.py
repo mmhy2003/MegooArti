@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.pagination import Page, PageParams, page
-from megooarti.security import sessions, sources
+from megooarti.security import sessions, sources, users
 from megooarti.security.authentication import (
     SESSION_COOKIE,
     Principal,
@@ -21,6 +21,7 @@ from megooarti.security.authentication import (
     refuse_cross_site,
 )
 from megooarti.security.models import User
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -98,6 +99,11 @@ async def start_session(
         lifetime_seconds=settings.session_absolute_seconds,
     )
     principal = await build_principal(db, user, "session", session=record)
+    audit.identified(principal)
+    source = logged.get("source") or (await users.describe(db, user)).source
+    audit.record(
+        db, "sign_in.succeeded", ("user", user.username), audit.diff(None, {"source": source})
+    )
     await db.commit()
     response.set_cookie(
         SESSION_COOKIE,
@@ -130,6 +136,7 @@ async def logout(
 ) -> None:
     if principal is not None and principal.session is not None:
         await sessions.delete_session(db, principal.session)
+        audit.record(db, "session.signed_out", ("user", principal.user.username))
         await db.commit()
         log.info("logout", username=principal.user.username)
     response.delete_cookie(SESSION_COOKIE, path="/")

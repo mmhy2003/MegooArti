@@ -148,6 +148,8 @@ async def _checked[T](
         window_seconds=settings.login_failure_window_seconds,
     )
     if standing.blocked_for:
+        audit.record(db, "sign_in.throttled", None if username is None else ("user", username))
+        await db.commit()  # the record must outlive this refused request
         log.warning("login_throttled", username=username, ip=client_ip(request))
         raise ApiError(
             429,
@@ -161,7 +163,8 @@ async def _checked[T](
         await throttle.record_failure(
             db, subjects, now=now, window_seconds=settings.login_failure_window_seconds
         )
-        await db.commit()  # the count must outlive this failed request
+        audit.record(db, "sign_in.failed", None if username is None else ("user", username))
+        await db.commit()  # the count, and the record, must outlive this failed request
         log.info("login_failed", username=username, ip=client_ip(request))
         raise unauthorized(INVALID_CREDENTIALS)
     if standing.has_failures:
@@ -360,6 +363,13 @@ async def _from_trusted_header(request: Request, db: AsyncSession) -> Principal 
         if source.settings["user_header"] not in request.headers:
             continue
         if not getattr(request.state, "proxied", False):
+            audit.record(
+                db,
+                "sign_in.refused",
+                ("source", source.name),
+                audit.diff(None, {"why": "not through a trusted proxy"}),
+            )
+            await db.commit()  # the record must outlive this refused request
             log.warning("trusted_header_refused", source=source.name, ip=client_ip(request))
             raise unauthorized(
                 f"{source.settings['user_header']} is taken from a trusted proxy only."

@@ -24,6 +24,7 @@ from megooarti.security import oidc, sources, users
 from megooarti.security.api.auth import start_session
 from megooarti.security.api.sources import redirect_uri
 from megooarti.security.models import AuthSource
+from megooarti.system import audit
 from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
@@ -149,6 +150,14 @@ async def callback(
     async def failed(why: str, said: str) -> RedirectResponse:
         log.warning("oidc_sign_in_failed", source_id=str(source_id), why=why, said=said[:300])
         await db.rollback()  # nothing is made of a sign-in that did not happen
+        named = await _source(db, source_id)
+        audit.record(
+            db,
+            "sign_in.failed",
+            ("source", str(source_id) if named is None else named.name),
+            audit.diff(None, {"why": why, "said": said[:300]}),
+        )
+        await db.commit()
         response = await _sign_in_screen(db, error=why, next=next)
         response.delete_cookie(COOKIE, path=COOKIE_PATH)
         return response
