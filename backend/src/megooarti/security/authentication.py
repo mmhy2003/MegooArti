@@ -30,6 +30,7 @@ from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
 from megooarti.security.permissions import any_grants, is_valid_permission
+from megooarti.system import audit
 from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
@@ -501,6 +502,7 @@ async def _identify(
             raise
         raise unauthorized(error.message, scheme=scheme) from None
     await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
+    audit.identified(principal)
     if principal is not None and principal.method == "header" and request.method in _UNSAFE_METHODS:
         # No CSRF token without a session: a change must come from this server's own pages.
         await _require_same_origin(request, db)
@@ -617,6 +619,7 @@ async def agent_principal(request: Request, db: AsyncSession = Depends(get_sessi
             }
         raise
     await db.commit()  # when the token, or the approval, was last used
+    audit.identified(principal)
     return principal
 
 

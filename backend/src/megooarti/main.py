@@ -49,7 +49,8 @@ from megooarti.security.api import users as users_api
 from megooarti.security.bootstrap import ensure_initial_admin_password
 from megooarti.storage import blobs
 from megooarti.storage.api import router as blob_stores_router
-from megooarti.system import certificates
+from megooarti.system import audit, certificates
+from megooarti.system.audit_api import router as audit_router
 from megooarti.system.certificates_api import router as certificates_router
 from megooarti.system.information_api import router as information_router
 from megooarti.system.settings_api import router as settings_router
@@ -129,6 +130,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         )
     )
+    # The audit log's records older than the days kept are removed (spec 9, D3).
+    background.append(
+        asyncio.create_task(
+            run_periodically(
+                "audit_prune",
+                audit.PRUNE_SECONDS,
+                lambda: run_exclusively(
+                    app.state.engine, audit.LOCK_KEY, lambda: audit.prune_now(app)
+                ),
+            )
+        )
+    )
     if settings.compaction_interval_seconds > 0:
         background.append(
             asyncio.create_task(
@@ -191,6 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(information_router, prefix=API_PREFIX)
     app.include_router(certificates_router, prefix=API_PREFIX)
+    app.include_router(audit_router, prefix=API_PREFIX)
     app.include_router(blob_stores_router, prefix=API_PREFIX)
     app.include_router(repositories_router, prefix=API_PREFIX)
     app.include_router(content_api_router, prefix=API_PREFIX)
@@ -208,6 +222,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # first, so its 500 response passes through every other middleware, and keep
     # RequestIdMiddleware last, so everything else runs with a request ID.
     app.add_middleware(UnhandledErrorMiddleware)
+    # Each request's context for the audit log's records: its ID and its client's address,
+    # so it runs inside the two below.
+    app.add_middleware(audit.ContextMiddleware)
     # Who a request comes from, before anything reads it.
     app.add_middleware(
         ProxiesMiddleware,

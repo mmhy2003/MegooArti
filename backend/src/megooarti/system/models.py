@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,3 +37,25 @@ class TrustedCertificate(Base):
     pem: Mapped[str] = mapped_column(Text)
     added_by: Mapped[str] = mapped_column(String(64))  # the name, which outlives the user
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuditRecord(Base):
+    """A change of configuration or security, or a sign-in, as it happened (spec 9). Never
+    changed; removed when older than the days kept."""
+
+    __tablename__ = "audit_records"
+    __table_args__ = (Index("ix_audit_records_target", "target_kind", "target_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Who, by their name, which outlives the user; none when nobody was signed in.
+    actor: Mapped[str | None] = mapped_column(String(128), index=True)
+    # How they signed in: session, password, token, oauth, header, anonymous, or system.
+    method: Mapped[str | None] = mapped_column(String(16))
+    address: Mapped[str | None] = mapped_column(String(45))
+    event: Mapped[str] = mapped_column(String(64), index=True)
+    target_kind: Mapped[str | None] = mapped_column(String(32))
+    target_name: Mapped[str | None] = mapped_column(String(255))
+    # Each changed field's before and after; a secret's are "[redacted]".
+    changes: Mapped[Any] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64))

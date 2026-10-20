@@ -16,6 +16,8 @@ DEFAULTS: dict[str, Any] = {
     # The proxies in front of the gateway whose X-Forwarded-For is believed, and whose
     # trusted header signs people in (spec 8): addresses and networks (CIDR).
     "trusted_proxies": [],
+    # How many days the audit log keeps a record (D3): at least one.
+    "audit_retention_days": 365,
 }
 
 
