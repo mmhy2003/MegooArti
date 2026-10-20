@@ -299,4 +299,3 @@ def parse(text: str) -> Expression:
     if rest.kind != "end":
         raise SelectorError(f"Unexpected {rest.text!r}", rest.at)
     return found
-
