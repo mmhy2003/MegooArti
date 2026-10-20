@@ -16,6 +16,7 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.security import oauth
 from megooarti.security.authentication import Principal, client_ip, require_interactive
+from megooarti.system import audit
 from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
@@ -116,6 +117,12 @@ async def register(request: Request, db: AsyncSession = Depends(get_session)) ->
     except oauth.OAuthError as error:
         return _answer(error)
     described = oauth.describe(client)
+    audit.record(
+        db,
+        "oauth_client.registered",
+        ("oauth_client", client.name),
+        audit.diff(None, {"redirect_uris": said.redirect_uris}),
+    )
     await db.commit()
     log.info("oauth_client_registered", client=described["client_id"], name=client.name)
     return JSONResponse(described, status_code=201, headers=_NO_STORE)
@@ -268,6 +275,13 @@ async def approve(
     """The person approves: a code for the client, back at its redirect address."""
     found = await _asked(request, db, body.request)
     address = await oauth.approve(db, principal.user, found, body.access, body.lasts, utcnow())
+    client = await oauth.get_client(db, found.client_id)
+    audit.record(
+        db,
+        "connected_app.approved",
+        ("connected_app", f"{principal.user.username}/{'' if client is None else client.name}"),
+        audit.diff(None, {"access": body.access, "lasts": body.lasts}),
+    )
     await db.commit()
     log.info("oauth_approved", client=found.client_id, by=principal.user.username)
     return Redirect(redirect=address)

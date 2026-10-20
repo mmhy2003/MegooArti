@@ -15,6 +15,7 @@ from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.security import tokens
 from megooarti.security.authentication import Principal, authenticate_secret
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -38,6 +39,8 @@ async def issue_token(
         )
     name = f"{label} {utcnow():%Y-%m-%d %H:%M:%S} {secrets.token_hex(3)}"
     _, value = await tokens.create_token(db, user.id, name=name, expires_at=None, scopes=None)
+    audit.acting(user.username, "password")
+    audit.record(db, "token.created", ("token", f"{user.username}/{name}"))
     log.info("client_signed_in", username=user.username, token_name=name)
     return value
 
@@ -49,4 +52,5 @@ async def revoke_own_token(db: AsyncSession, principal: Principal, value: str) -
         raise ApiError(404, "not_found", "No such token.")
     await db.delete(token)
     await db.flush()
+    audit.record(db, "token.revoked", ("token", f"{principal.user.username}/{token.name}"))
     log.info("client_signed_out", username=principal.user.username, token_name=token.name)

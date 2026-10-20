@@ -12,6 +12,7 @@ from sqlalchemy import select
 from megooarti.security import ldap, sources
 from megooarti.security.models import User
 from megooarti.security.sessions import delete_user_sessions
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -79,6 +80,12 @@ async def _check(app: Any, reach: sources.Outbound, source_id: Any) -> int:
         for user in found:
             user.status = "disabled"
             await delete_user_sessions(db, user.id)
+            audit.record(
+                db,
+                "user.updated",
+                ("user", user.username),
+                audit.diff({"status": "active"}, {"status": "disabled", "source": name}),
+            )
             log.info("directory_user_gone", username=user.username, source=name)
         await db.commit()
     return len(found)

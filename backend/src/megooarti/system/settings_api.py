@@ -14,7 +14,8 @@ from megooarti.security import users
 from megooarti.security.authentication import Principal, require
 from megooarti.security.guards import ensure_administrator_remains
 from megooarti.security.roles import get_role
-from megooarti.system.settings_store import get_setting, set_setting
+from megooarti.system import audit
+from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
 
@@ -101,7 +102,7 @@ async def set_base_url(
     principal: Principal = Depends(require("admin:settings:write")),
     db: AsyncSession = Depends(get_session),
 ) -> SettingsOut:
-    await set_setting(db, "base_url", body.base_url)
+    await audit.set_setting(db, "base_url", body.base_url)
     result = await _current(db)
     await db.commit()
     log.info("setting_changed", setting="base_url", by=principal.user.username)
@@ -114,7 +115,7 @@ async def set_anonymous_access(
     principal: Principal = Depends(require("admin:settings:write")),
     db: AsyncSession = Depends(get_session),
 ) -> SettingsOut:
-    await set_setting(db, "anonymous_access", {"enabled": body.enabled})
+    await audit.set_setting(db, "anonymous_access", {"enabled": body.enabled})
     result = await _current(db)
     await db.commit()
     log.info(
@@ -144,7 +145,7 @@ async def set_default_role(
     if body.default_role is not None and await get_role(db, body.default_role) is None:
         details = [{"field": "default_role", "message": f"Unknown role: {body.default_role}"}]
         raise ApiError(422, "validation_error", "The request is not valid.", details)
-    await set_setting(db, "default_role", body.default_role)
+    await audit.set_setting(db, "default_role", body.default_role)
     result = await _sign_in(db)
     await db.commit()
     log.info(
@@ -164,7 +165,7 @@ async def set_local_sign_in(
 ) -> SignInSettings:
     """Whether MegooArti's own users sign in. Off, the built-in `admin` still does (E1),
     and must then hold full access: else nobody who signs in would."""
-    await set_setting(db, "local_sign_in", {"enabled": body.enabled})
+    await audit.set_setting(db, "local_sign_in", {"enabled": body.enabled})
     await ensure_administrator_remains(db)
     if not body.enabled:
         await users.sign_out_our_own(db)  # signed out for good, as a disabled user is
@@ -199,7 +200,7 @@ async def set_trusted_proxies(
             raise ApiError(422, "validation_error", "The request is not valid.", details) from None
         if network not in kept:
             kept.append(network)
-    await set_setting(db, "trusted_proxies", kept or None)
+    await audit.set_setting(db, "trusted_proxies", kept or None)
     result = await _sign_in(db)
     await db.commit()
     request.app.state.trusted_proxies = networks(kept)  # at once, for the next request

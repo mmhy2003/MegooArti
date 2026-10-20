@@ -81,7 +81,8 @@ async def list_tokens(
     return list(rows), total or 0
 
 
-async def revoke_token(db: AsyncSession, user_id: uuid.UUID, token_id: uuid.UUID) -> None:
+async def revoke_token(db: AsyncSession, user_id: uuid.UUID, token_id: uuid.UUID) -> str:
+    """Revoke one of a user's tokens; its name. Raises 404."""
     token = await db.scalar(
         select(ApiToken).where(ApiToken.id == token_id, ApiToken.user_id == user_id)
     )
@@ -89,3 +90,4 @@ async def revoke_token(db: AsyncSession, user_id: uuid.UUID, token_id: uuid.UUID
         raise ApiError(404, "not_found", "No such token.")
     await db.delete(token)
     await db.flush()
+    return token.name

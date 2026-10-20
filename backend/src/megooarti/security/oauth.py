@@ -377,15 +377,18 @@ async def approvals(db: AsyncSession, user_id: uuid.UUID, now: datetime) -> list
     ]
 
 
-async def revoke(db: AsyncSession, user_id: uuid.UUID, grant_id: uuid.UUID) -> None:
-    """Revoke one of a user's approvals, and its tokens with it. Raises 404."""
+async def revoke(db: AsyncSession, user_id: uuid.UUID, grant_id: uuid.UUID) -> str:
+    """Revoke one of a user's approvals, and its tokens with it; the client's name. Raises
+    404."""
     grant = await db.scalar(
         select(OAuthGrant).where(OAuthGrant.id == grant_id, OAuthGrant.user_id == user_id)
     )
     if grant is None:
         raise ApiError(404, "not_found", "No such connected app.")
+    client = await db.get(OAuthClient, grant.client_id)
     await db.delete(grant)
     await db.flush()
+    return "" if client is None else client.name
 
 
 async def forget(db: AsyncSession, now: datetime) -> None:

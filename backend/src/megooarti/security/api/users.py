@@ -20,6 +20,7 @@ from megooarti.security.bootstrap import discard_initial_password
 from megooarti.security.guards import ensure_administrator_remains
 from megooarti.security.models import User
 from megooarti.security.users import UserView
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -100,6 +101,7 @@ async def create_user(
         must_change_password=body.must_change_password,
     )
     view = await users.describe(db, user)
+    audit.record(db, "user.created", ("user", user.username), audit.diff(None, view))
     await db.commit()
     log.info("user_created", username=user.username, by=principal.user.username)
     return view
@@ -130,9 +132,11 @@ async def update_user(
     }
     if user.id == principal.user.id and changes.get("status") == "disabled":
         raise ApiError(409, "self_protected", "You cannot disable your own account.")
+    before = await users.describe(db, user)
     await users.update_user(db, user, changes)
     await ensure_administrator_remains(db)
     view = await users.describe(db, user)
+    audit.record(db, "user.updated", ("user", user.username), audit.diff(before, view))
     await db.commit()
     log.info("user_updated", username=user.username, by=principal.user.username)
     return view
@@ -147,8 +151,10 @@ async def delete_user(
     user = await _load(db, user_id)
     if user.id == principal.user.id:
         raise ApiError(409, "self_protected", "You cannot delete your own account.")
+    before = await users.describe(db, user)
     await users.delete_user(db, user)
     await ensure_administrator_remains(db)
+    audit.record(db, "user.deleted", ("user", before.username), audit.diff(before, None))
     await db.commit()
     log.info("user_deleted", username=user.username, by=principal.user.username)
 
@@ -175,6 +181,12 @@ async def reset_password(
         )
     await users.set_password(
         db, user, body.password, must_change_password=body.must_change_password
+    )
+    audit.record(
+        db,
+        "user.password_changed",
+        ("user", user.username),
+        audit.diff(None, None, secrets=["password"]),
     )
     await db.commit()
     discard_initial_password(request.app.state.settings, user)
@@ -214,7 +226,8 @@ async def revoke_user_connected_app(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     user = await _load(db, user_id)
-    await oauth.revoke(db, user.id, app_id)
+    client = await oauth.revoke(db, user.id, app_id)
+    audit.record(db, "connected_app.revoked", ("connected_app", f"{user.username}/{client}"))
     await db.commit()
     log.info("connected_app_revoked", username=user.username, by=principal.user.username)
 
@@ -227,6 +240,7 @@ async def revoke_user_token(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     user = await _load(db, user_id)
-    await tokens.revoke_token(db, user.id, token_id)
+    name = await tokens.revoke_token(db, user.id, token_id)
+    audit.record(db, "token.revoked", ("token", f"{user.username}/{name}"))
     await db.commit()
     log.info("token_revoked", username=user.username, by=principal.user.username)

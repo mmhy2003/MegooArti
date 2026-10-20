@@ -14,7 +14,7 @@ from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import remote
 from megooarti.security.authentication import Principal, require
-from megooarti.system import certificates
+from megooarti.system import audit, certificates
 from megooarti.system.models import TrustedCertificate
 
 log = structlog.get_logger(__name__)
@@ -56,6 +56,22 @@ class Fetched(BaseModel):
     chain: list[CertificateView]
 
 
+def _told(added: TrustedCertificate | None, removed: TrustedCertificate | None) -> dict:
+    """A certificate as its records tell it: by its fingerprint, not its PEM."""
+
+    def told(held: TrustedCertificate | None) -> dict | None:
+        if held is None:
+            return None
+        return {
+            "subject": held.subject,
+            "issuer": held.issuer,
+            "fingerprint": held.fingerprint,
+            "not_after": held.not_after,
+        }
+
+    return audit.diff(told(removed), told(added))
+
+
 async def _kept_and_trusted(request: Request, db: AsyncSession) -> None:
     """Keep the change, and have the outbound connections trust the certificates as they
     are kept with it (spec 6). Called holding the trust lock: two changes at once would
@@ -86,6 +102,7 @@ async def add_certificate(
     described = certificates.read_one(body.pem)
     async with request.app.state.trust_lock:
         added = await certificates.add(db, described, principal.user.username)
+        audit.record(db, "certificate.trusted", ("certificate", added.subject), _told(added, None))
         await _kept_and_trusted(request, db)
     log.info(
         "certificate_trusted",
@@ -124,5 +141,6 @@ async def delete_certificate(
             raise ApiError(404, "not_found", "No such certificate.")
         await db.delete(held)
         await db.flush()
+        audit.record(db, "certificate.removed", ("certificate", held.subject), _told(None, held))
         await _kept_and_trusted(request, db)
     log.info("certificate_removed", subject=held.subject, by=principal.user.username)

@@ -19,6 +19,7 @@ from megooarti.security.authentication import (
     require_interactive,
 )
 from megooarti.security.bootstrap import discard_initial_password
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -61,6 +62,12 @@ async def change_password(
     await users.set_password(
         db, user, body.new_password, must_change_password=False, keep_session_id=keep
     )
+    audit.record(
+        db,
+        "user.password_changed",
+        ("user", user.username),
+        audit.diff(None, None, secrets=["password"]),
+    )
     await db.commit()
     discard_initial_password(request.app.state.settings, user)
     log.info("password_changed", username=user.username, by=user.username)
@@ -97,6 +104,12 @@ async def create_token(
         last_used_at=token.last_used_at,
         token=value,
     )
+    audit.record(
+        db,
+        "token.created",
+        ("token", f"{principal.user.username}/{token.name}"),
+        audit.diff(None, {"scopes": token.scopes, "expires_at": token.expires_at}),
+    )
     await db.commit()
     log.info("token_created", username=principal.user.username, token=token.name)
     return created
@@ -108,7 +121,8 @@ async def revoke_token(
     principal: Principal = Depends(require_interactive()),
     db: AsyncSession = Depends(get_session),
 ) -> None:
-    await tokens.revoke_token(db, principal.user.id, token_id)
+    name = await tokens.revoke_token(db, principal.user.id, token_id)
+    audit.record(db, "token.revoked", ("token", f"{principal.user.username}/{name}"))
     await db.commit()
     log.info("token_revoked", username=principal.user.username, by=principal.user.username)
 
@@ -131,6 +145,9 @@ async def revoke_connected_app(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     """Revoke an approval: the application's tokens stop working at once."""
-    await oauth.revoke(db, principal.user.id, app_id)
+    client = await oauth.revoke(db, principal.user.id, app_id)
+    audit.record(
+        db, "connected_app.revoked", ("connected_app", f"{principal.user.username}/{client}")
+    )
     await db.commit()
     log.info("connected_app_revoked", username=principal.user.username)

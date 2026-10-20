@@ -15,6 +15,7 @@ from megooarti.security.authentication import Principal, require
 from megooarti.security.guards import ensure_administrator_remains
 from megooarti.security.models import Role
 from megooarti.security.roles import RoleView
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -64,6 +65,7 @@ async def create_role(
 ) -> RoleView:
     role = await roles.create_role(db, body.name, body.description, body.permissions, body.roles)
     view = await roles.describe(db, role)
+    audit.record(db, "role.created", ("role", role.name), audit.diff(None, view))
     await db.commit()
     log.info("role_created", role=role.name, by=principal.user.username)
     return view
@@ -86,9 +88,11 @@ async def update_role(
     db: AsyncSession = Depends(get_session),
 ) -> RoleView:
     role = await _load(db, name)
+    before = await roles.describe(db, role)
     await roles.update_role(db, role, body.description, body.permissions, body.roles)
     await ensure_administrator_remains(db)
     view = await roles.describe(db, role)
+    audit.record(db, "role.updated", ("role", role.name), audit.diff(before, view))
     await db.commit()
     log.info("role_updated", role=role.name, by=principal.user.username)
     return view
@@ -101,7 +105,9 @@ async def delete_role(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     role = await _load(db, name)
+    before = await roles.describe(db, role)
     await roles.delete_role(db, role)
     await ensure_administrator_remains(db)
+    audit.record(db, "role.deleted", ("role", name), audit.diff(before, None))
     await db.commit()
     log.info("role_deleted", role=name, by=principal.user.username)

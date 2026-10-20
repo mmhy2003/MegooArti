@@ -26,6 +26,7 @@ from megooarti.secrets_box import seal, unseal
 from megooarti.security.models import AuthSource, Role, User, UserRole, UserSession
 from megooarti.security.sessions import delete_user_sessions
 from megooarti.security.users import TOKEN_USERNAME, looks_like_token, normalise_username
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -321,6 +322,20 @@ async def _map_roles(
     wanted = set(await db.scalars(select(Role.id).where(Role.name.in_(names)))) if names else set()
     held = await _held_roles(db, user)
     gone = [role_id for role_id, by in held.items() if by == "source" and role_id not in wanted]
+    if gone or wanted - held.keys():
+        given = {role_id for role_id, by in held.items() if by == "source"}
+        named = dict(
+            (await db.execute(select(Role.id, Role.name).where(Role.id.in_(given | wanted)))).all()
+        )
+        audit.record(
+            db,
+            "user.updated",
+            ("user", user.username),
+            audit.diff(
+                {"roles_from_groups": sorted(named[role_id] for role_id in given)},
+                {"roles_from_groups": sorted(named[role_id] for role_id in wanted)},
+            ),
+        )
     if gone:
         await db.execute(
             delete(UserRole).where(UserRole.user_id == user.id, UserRole.role_id.in_(gone))
@@ -361,6 +376,9 @@ async def _first(db: AsyncSession, source: AuthSource, identity: Identity) -> Us
         if found is None:
             raise  # not theirs: another name taken at the same moment
         return found
+    audit.record(
+        db, "user.created", ("user", made.username), audit.diff(None, {"source": source.name})
+    )
     log.info("user_provisioned", username=made.username, source=source.name)
     return made
 

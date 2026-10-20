@@ -17,6 +17,7 @@ from megooarti.pagination import Page, PageParams, page
 from megooarti.security import sources
 from megooarti.security.authentication import Principal, require
 from megooarti.security.models import AuthSource
+from megooarti.system import audit
 from megooarti.system.settings_store import get_setting
 
 log = structlog.get_logger(__name__)
@@ -141,6 +142,16 @@ async def _check_name(db: AsyncSession, name: str, own: uuid.UUID | None) -> Non
         raise ApiError(409, "conflict", f"A sign-in source named {name} already exists.")
 
 
+def _told(out: SourceOut) -> dict[str, Any]:
+    """A source as its records tell it: not how many users it has, nor its address."""
+    return out.model_dump(exclude={"users", "redirect_uri"})
+
+
+def _given(body: SourceIn, kind: sources.Kind) -> list[str]:
+    """The secrets given anew, by their names: their values are not recorded."""
+    return [name for name in kind.secrets if body.settings.get(name)]
+
+
 async def _apply(
     db: AsyncSession, request: Request, source: AuthSource, body: SourceIn, kind: sources.Kind
 ) -> None:
@@ -180,6 +191,12 @@ async def create_source(
     db.add(source)
     await db.flush()
     result = await _out(db, request, source)
+    audit.record(
+        db,
+        "source.created",
+        ("source", source.name),
+        audit.diff(None, _told(result), secrets=_given(body, kind)),
+    )
     await db.commit()
     log.info("auth_source_created", source=source.name, by=principal.user.username)
     return result
@@ -193,9 +210,18 @@ async def order_sources(
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Put the sources in the order they are to be asked: every one of them, once."""
+    before = [source.name for source in await sources.in_order(db)]
     await sources.reorder(db, body.ids)
     every = await sources.in_order(db)
     items = [await _out(db, request, source) for source in every]
+    after = [source.name for source in every]
+    if after != before:
+        audit.record(
+            db,
+            "setting.changed",
+            ("setting", "source_order"),
+            audit.diff({"source_order": before}, {"source_order": after}),
+        )
     await db.commit()
     log.info("auth_sources_ordered", by=principal.user.username)
     return page(items, len(items), PageParams(limit=200, offset=0))
@@ -222,11 +248,19 @@ async def update_source(
     """Change a source; its kind stays. Turned off, its users are refused until it is on."""
     source = await _load(db, source_id)
     was_on = source.enabled
-    await _apply(db, request, source, body, _kind(source.kind))
+    before = _told(await _out(db, request, source))
+    kind = _kind(source.kind)
+    await _apply(db, request, source, body, kind)
     if was_on and not source.enabled:
         await sources.sign_out_users(db, source)
     await db.flush()
     result = await _out(db, request, source)
+    audit.record(
+        db,
+        "source.updated",
+        ("source", source.name),
+        audit.diff(before, _told(result), secrets=_given(body, kind)),
+    )
     await db.commit()
     log.info("auth_source_updated", source=source.name, by=principal.user.username)
     return result
@@ -235,12 +269,15 @@ async def update_source(
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(
     source_id: uuid.UUID,
+    request: Request,
     principal: Principal = Depends(require("admin:security:write")),
     db: AsyncSession = Depends(get_session),
 ) -> None:
     """Delete a source. Its users are disabled, and kept with what they own."""
     source = await _load(db, source_id)
+    before = _told(await _out(db, request, source))
     await sources.delete_source(db, source)
+    audit.record(db, "source.deleted", ("source", source.name), audit.diff(before, None))
     await db.commit()
     log.info("auth_source_deleted", source=source.name, by=principal.user.username)
 

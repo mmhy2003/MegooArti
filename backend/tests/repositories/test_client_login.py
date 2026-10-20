@@ -10,6 +10,7 @@ from megooarti.repositories import formats
 from megooarti.repositories.formats import Format
 from megooarti.security.models import ApiToken
 from tests.accounts import PASSWORD, basic, bearer, error_code
+from tests.audit import last
 
 LOGIN = "/repository/files/-/login"
 FILE = "/repository/files/a.txt"
@@ -200,3 +201,18 @@ async def test_a_stale_header_credential_is_not_counted_as_a_failed_attempt(clie
     # Two failures, not four: only the body is a sign-in attempt.
     assert mistyped == [401, 401]
     assert then_right.status_code == 200, then_right.text
+
+
+async def test_a_client_signing_in_and_out_is_recorded_as_its_token(client, dana, sessionmaker):
+    token = (await sign_in(client)).json()["token"]
+    await client.put("/repository/files/-/logout", headers={**bearer(token), "X-Token": token})
+
+    made = await last(sessionmaker, "token.created")
+    revoked = await last(sessionmaker, "token.revoked")
+    assert (made.actor, made.method) == ("dana", "password")
+    assert made.target_name.startswith("dana/test login ")
+    assert (revoked.actor, revoked.method, revoked.target_name) == (
+        "dana",
+        "token",
+        made.target_name,
+    )
