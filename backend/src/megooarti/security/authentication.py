@@ -16,7 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
-from megooarti.security import oauth, registry_tokens, sessions, sources, throttle, tokens, users
+from megooarti.security import (
+    header,
+    oauth,
+    registry_tokens,
+    sessions,
+    sources,
+    throttle,
+    tokens,
+    users,
+)
 from megooarti.security.keys import TOKEN_PREFIX
 from megooarti.security.models import ApiToken, User, UserSession
 from megooarti.security.passwords import hash_password, needs_rehash, verify_password
@@ -32,7 +41,8 @@ API_KEY_HEADER = "X-NuGet-ApiKey"
 INVALID_CREDENTIALS = "Invalid credentials."
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-Method = Literal["session", "password", "token", "anonymous"]
+# "header": a trusted proxy said who it is (spec 8), as a session does for a browser.
+Method = Literal["session", "password", "token", "anonymous", "header"]
 Scheme = Literal["Bearer", "Basic"]
 
 
@@ -59,8 +69,9 @@ class Principal:
 
     @property
     def is_interactive(self) -> bool:
-        """Signed in as a person (cookie or password), not with an API token."""
-        return self.method in ("session", "password")
+        """Signed in as a person (cookie, password, or a trusted proxy's header), not
+        with an API token."""
+        return self.method in ("session", "password", "header")
 
     def allows(self, permission: str) -> bool:
         if not is_valid_permission(permission):
@@ -338,6 +349,30 @@ async def issue_registry_token(
     return registry_tokens.issue(request.app.state.settings, claims, utcnow())
 
 
+async def _from_trusted_header(request: Request, db: AsyncSession) -> Principal | None:
+    """The user a trusted proxy's header names (spec 8), or None without one. The header of
+    an enabled header source is refused (401) unless a trusted proxy passed the request on:
+    anyone else could write it."""
+    for source in await sources.in_order(db):
+        if not source.enabled or source.kind != header.KIND:
+            continue
+        if source.settings["user_header"] not in request.headers:
+            continue
+        if not getattr(request.state, "proxied", False):
+            log.warning("trusted_header_refused", source=source.name, ip=client_ip(request))
+            raise unauthorized(
+                f"{source.settings['user_header']} is taken from a trusted proxy only."
+            )
+        said = header.identity(source.settings, request.headers)
+        if said is None:
+            raise unauthorized(f"{source.settings['user_header']} names nobody.")
+        user = await sources.provision(db, source, said)
+        if not await users.can_act(db, user):
+            raise unauthorized()
+        return await build_principal(db, user, "header")
+    return None
+
+
 async def resolve_principal(
     request: Request, db: AsyncSession, *, registry: bool = False, api_key: bool = False
 ) -> Principal | None:
@@ -349,9 +384,12 @@ async def resolve_principal(
     that an API token in `X-NuGet-ApiKey` is one, where there is no Authorization
     header: a NuGet client sends it so, and nothing else with it.
     """
-    header = request.headers.get("Authorization")
-    if header:
-        return await _from_header(db, request, header, registry=registry)
+    proxied = await _from_trusted_header(request, db)
+    if proxied is not None:
+        return proxied
+    authorization = request.headers.get("Authorization")
+    if authorization:
+        return await _from_header(db, request, authorization, registry=registry)
     key = request.headers.get(API_KEY_HEADER, "").strip() if api_key else ""
     if key:
         user, token = await _authenticate_token(db, request, key)
@@ -410,6 +448,32 @@ async def _refuse_cross_site(request: Request, db: AsyncSession) -> None:
         raise refusal
 
 
+async def _require_same_origin(request: Request, db: AsyncSession) -> None:
+    """Refuse a change that does not say it comes from this server's own pages: with
+    `Sec-Fetch-Site: same-origin` (or `none`, typed by the person), or an `Origin` of
+    ours. Stricter than `_refuse_cross_site`, which lets a request that says nothing
+    through: a trusted header's request has no token to show instead."""
+    refusal = ApiError(
+        403,
+        "cross_site_request",
+        "Requests that change something are accepted from this server's own pages only.",
+    )
+    site = request.headers.get("Sec-Fetch-Site")
+    if site is not None:
+        if site not in ("same-origin", "none"):
+            raise refusal
+        return
+    origin = request.headers.get("Origin")
+    if origin is None:
+        raise refusal
+    ours = {request.headers.get("Host", "").lower()}
+    base_url = await get_setting(db, "base_url")
+    if base_url:
+        ours.add(urlsplit(base_url).netloc.lower())
+    if urlsplit(origin).netloc.lower() not in ours:
+        raise refusal
+
+
 async def refuse_cross_site(request: Request, db: AsyncSession = Depends(get_session)) -> None:
     """For a route that identifies nobody and still changes something: signing in.
 
@@ -435,6 +499,9 @@ async def _identify(
             raise
         raise unauthorized(error.message, scheme=scheme) from None
     await db.commit()  # last-seen times, cleared failure counts, upgraded password hashes
+    if principal is not None and principal.method == "header" and request.method in _UNSAFE_METHODS:
+        # No CSRF token without a session: a change must come from this server's own pages.
+        await _require_same_origin(request, db)
     if (
         principal is not None
         and principal.session is not None
