@@ -262,3 +262,17 @@ async def test_a_first_sign_in_and_the_roles_groups_give_are_recorded(
         {"roles_from_groups": {"before": [], "after": ["developers"]}},
         {"roles_from_groups": {"before": ["developers"], "after": []}},
     ]
+
+
+async def test_the_default_role_cleared_with_its_role_is_recorded_as_a_setting(
+    admin_client, sessionmaker
+):
+    await admin_client.post(
+        ROLES, json={"name": "everyone", "description": "", "permissions": [], "roles": []}
+    )
+    await admin_client.put(f"{SETTINGS}/default-role", json={"default_role": "everyone"})
+
+    await admin_client.delete(f"{ROLES}/everyone")
+
+    cleared = await last(sessionmaker, "setting.changed")
+    assert cleared.changes == {"default_role": {"before": "everyone", "after": None}}

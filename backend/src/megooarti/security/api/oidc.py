@@ -151,7 +151,8 @@ async def callback(
         log.warning("oidc_sign_in_failed", source_id=str(source_id), why=why, said=said[:300])
         await db.rollback()  # nothing is made of a sign-in that did not happen
         named = await _source(db, source_id)
-        audit.record(
+        # Anyone may come back here: one record a minute from an address, not one a request.
+        await audit.record_once(
             db,
             "sign_in.failed",
             ("source", str(source_id) if named is None else named.name),

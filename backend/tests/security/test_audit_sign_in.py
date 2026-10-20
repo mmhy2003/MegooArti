@@ -106,3 +106,34 @@ async def test_a_trusted_header_from_elsewhere_is_recorded_as_refused(
     assert refused.status_code == 401
     assert (said.target_kind, said.target_name) == ("source", "Corp SSO proxy")
     assert said.changes == {"why": {"before": None, "after": "not through a trusted proxy"}}
+
+
+async def test_a_blocked_address_is_recorded_once_not_at_every_attempt(
+    client, make_user, sessionmaker
+):
+    await make_user("kim")
+    for _ in range(5):
+        await client.post(LOGIN, json={"username": "kim", "password": "wrong"})
+
+    for _ in range(4):
+        await client.post(LOGIN, json={"username": "kim", "password": PASSWORD})
+
+    assert len(await records(sessionmaker, "sign_in.failed")) == 5
+    assert len(await records(sessionmaker, "sign_in.throttled")) == 1
+
+
+async def test_refusals_nobody_signed_in_for_are_recorded_once_a_minute_from_an_address(
+    admin_client, other_client, sessionmaker
+):
+    await admin_client.post(
+        "/api/v1/auth-sources",
+        json={"kind": "header", "name": "Corp SSO proxy", "enabled": True, "settings": {}},
+    )
+    nowhere = "/api/v1/auth/oidc/00000000-0000-0000-0000-000000000000/callback"
+
+    for _ in range(3):
+        await other_client.get(SESSION, headers={"X-Forwarded-User": "admin"})
+        await other_client.get(nowhere, params={"code": "x", "state": "y"})
+
+    assert len(await records(sessionmaker, "sign_in.refused")) == 1
+    assert len(await records(sessionmaker, "sign_in.failed")) == 1

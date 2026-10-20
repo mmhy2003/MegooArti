@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete
+from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -173,6 +173,34 @@ def record(
     )
     db.add(entry)
     return entry
+
+
+async def record_once(
+    db: AsyncSession,
+    event: str,
+    target: tuple[str, str] | None = None,
+    changes: Mapping[str, Any] | None = None,
+    *,
+    within_seconds: int = 60,
+) -> bool:
+    """Write a record unless one of this event came from the same address lately: for
+    what anyone may send without signing in, which would otherwise be a row a request.
+    Whether it was written."""
+    said = _context.get()
+    if said is not None and said.address is not None:
+        lately = await db.scalar(
+            select(
+                exists().where(
+                    AuditRecord.event == event,
+                    AuditRecord.address == said.address,
+                    AuditRecord.at > utcnow() - timedelta(seconds=within_seconds),
+                )
+            )
+        )
+        if lately:
+            return False
+    record(db, event, target, changes)
+    return True
 
 
 async def set_setting(db: AsyncSession, key: str, value: Any) -> None:

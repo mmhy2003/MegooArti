@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
 from megooarti.security.models import Role, RoleMember, RolePermission
-from megooarti.system.settings_store import get_setting, set_setting
+from megooarti.system import audit
+from megooarti.system.settings_store import get_setting
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ async def delete_role(db: AsyncSession, role: Role) -> None:
     if role.builtin:
         raise ApiError(409, "builtin_protected", "Built-in roles cannot be deleted.")
     if await get_setting(db, "default_role") == role.name:
-        await set_setting(db, "default_role", None)  # it gives nobody anything any more
+        # It gives nobody anything any more; recorded as the setting it is.
+        await audit.set_setting(db, "default_role", None)
     await db.delete(role)
     await db.flush()

@@ -247,9 +247,12 @@ Administration, Audit log, or at `GET /api/v1/audit`, with `admin:audit:read`.
   sources among them); trusted certificates; repositories, their caches, indexes and
   signing keys; blob stores. And sign-in: `sign_in.succeeded` (the web UI, a provider,
   a directory), `sign_in.failed` (whatever was presented: a password, a token, a
-  provider's answer), `sign_in.throttled`, `sign_in.refused` (a trusted header from
-  elsewhere), and `session.signed_out`. A package client's password at each request is
-  not a sign-in: only its failures are recorded.
+  provider's answer), `sign_in.throttled` (once, when the failure that blocks a name
+  or an address is), `sign_in.refused` (a trusted header from elsewhere), and
+  `session.signed_out`. A package client's password at each request is not a sign-in:
+  only its failures are recorded. What anyone may send without signing in (a trusted
+  header from elsewhere, a provider's sign-in coming back wrong) is recorded once a
+  minute from an address, not once a request.
 - **What a record says.** When; who (their user name, or nobody); how they signed in
   (`session`, `password`, `token`, `oauth` for an application a person approved,
   `header`, `anonymous`, or `system` for what the server does itself, as the hourly

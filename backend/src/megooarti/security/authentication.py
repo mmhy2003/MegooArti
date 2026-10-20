@@ -148,8 +148,7 @@ async def _checked[T](
         window_seconds=settings.login_failure_window_seconds,
     )
     if standing.blocked_for:
-        audit.record(db, "sign_in.throttled", None if username is None else ("user", username))
-        await db.commit()  # the record must outlive this refused request
+        # Recorded once, when the failure that blocks it was: not at every attempt after.
         log.warning("login_throttled", username=username, ip=client_ip(request))
         raise ApiError(
             429,
@@ -163,8 +162,18 @@ async def _checked[T](
         await throttle.record_failure(
             db, subjects, now=now, window_seconds=settings.login_failure_window_seconds
         )
-        audit.record(db, "sign_in.failed", None if username is None else ("user", username))
-        await db.commit()  # the count, and the record, must outlive this failed request
+        named = None if username is None else ("user", username)
+        audit.record(db, "sign_in.failed", named)
+        after = await throttle.standing(
+            db,
+            subjects,
+            now=now,
+            max_failures=settings.login_max_failures,
+            window_seconds=settings.login_failure_window_seconds,
+        )
+        if after.blocked_for:
+            audit.record(db, "sign_in.throttled", named)
+        await db.commit()  # the count, and the records, must outlive this failed request
         log.info("login_failed", username=username, ip=client_ip(request))
         raise unauthorized(INVALID_CREDENTIALS)
     if standing.has_failures:
@@ -363,7 +372,8 @@ async def _from_trusted_header(request: Request, db: AsyncSession) -> Principal 
         if source.settings["user_header"] not in request.headers:
             continue
         if not getattr(request.state, "proxied", False):
-            audit.record(
+            # Anyone may send it: one record a minute from an address, not one a request.
+            await audit.record_once(
                 db,
                 "sign_in.refused",
                 ("source", source.name),
