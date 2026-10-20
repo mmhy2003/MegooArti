@@ -20,8 +20,9 @@ def main() -> None:
         factory=True,
         host=settings.host,
         port=settings.port,
-        proxy_headers=True,
-        forwarded_allow_ips=settings.forwarded_allow_ips,
+        # Who a request comes from is the application's to say (megooarti.proxies): it
+        # believes proxies an administrator trusts, past the gateway, as uvicorn cannot.
+        proxy_headers=False,
         timeout_graceful_shutdown=settings.shutdown_grace_seconds,
         log_config=None,  # keep the JSON logging configured above
     )

@@ -13,7 +13,7 @@ All configuration of a deployment is by environment variable.
 | `MEGOOARTI_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
 | `MEGOOARTI_HOST` | `0.0.0.0` | Address the HTTP server binds to |
 | `MEGOOARTI_PORT` | `8000` | Port the HTTP server listens on |
-| `MEGOOARTI_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma-separated reverse-proxy addresses whose `X-Forwarded-*` headers are trusted |
+| `MEGOOARTI_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma-separated addresses (or networks, or `*` for any) that reach the backend directly and whose `X-Forwarded-*` headers are believed: the gateway's. Proxies further out are trusted at runtime, under Administration, Authentication |
 | `MEGOOARTI_SHUTDOWN_GRACE_SECONDS` | `30` | How long in-flight requests may finish after a shutdown signal |
 | `MEGOOARTI_DATA_DIR` | `/var/lib/megooarti` | Directory for files MegooArti writes. Mount a volume here |
 | `MEGOOARTI_SESSION_IDLE_SECONDS` | `3600` | A UI session ends after this long without a request |
@@ -34,8 +34,9 @@ reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
 published on `127.0.0.1` only. `MEGOOARTI_HTTP_PORT` is the gateway's: the backend and
 the frontend are not published. Compose passes `MEGOOARTI_SESSION_COOKIE_SECURE` on to
 the backend, and sets `MEGOOARTI_FORWARDED_ALLOW_IPS` to `*` there: requests from
-outside reach it only through the gateway, which writes the client's address itself
-and overwrites whatever a client says of its own.
+outside reach it only through the gateway, which adds the address it sees to
+`X-Forwarded-For`. The backend reads that header from the right, past the gateway and
+the trusted proxies only, so whatever a client says of its own is never believed.
 
 The frontend container has no configuration. It reads `PORT` (default `3000`) and
 `HOSTNAME` (default `0.0.0.0`), and nothing else: it holds no secret and never calls

@@ -2309,7 +2309,7 @@
         "type": "object"
       },
       "SignInSettings": {
-        "description": "How people sign in, besides the sources (spec 4.1): the role every signed-in user\nhas, and whether MegooArti's own users sign in.",
+        "description": "How people sign in, besides the sources (spec 4.1): the role every signed-in user\nhas, whether MegooArti's own users sign in, and the proxies trusted to say who a\nrequest comes from (spec 8).",
         "properties": {
           "default_role": {
             "anyOf": [
@@ -2324,11 +2324,19 @@
           },
           "local_sign_in": {
             "$ref": "#/components/schemas/LocalSignIn"
+          },
+          "trusted_proxies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Trusted Proxies",
+            "type": "array"
           }
         },
         "required": [
           "default_role",
-          "local_sign_in"
+          "local_sign_in",
+          "trusted_proxies"
         ],
         "title": "SignInSettings",
         "type": "object"
@@ -2889,6 +2897,23 @@
           "last_used_at"
         ],
         "title": "TokenInfo",
+        "type": "object"
+      },
+      "TrustedProxies": {
+        "properties": {
+          "trusted_proxies": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Trusted Proxies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "trusted_proxies"
+        ],
+        "title": "TrustedProxies",
         "type": "object"
       },
       "Uploaded": {
@@ -6242,6 +6267,48 @@
           }
         },
         "summary": "Read Sign In Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/trusted-proxies": {
+      "put": {
+        "description": "The proxies in front of the gateway, by address or network (CIDR): their\nX-Forwarded-For is believed, and a header source's header is taken from them only.",
+        "operationId": "set_trusted_proxies_api_v1_settings_trusted_proxies_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrustedProxies"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Set Trusted Proxies",
         "tags": [
           "settings"
         ]

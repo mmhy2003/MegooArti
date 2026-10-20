@@ -18,6 +18,7 @@ from megooarti.errors import ERROR_RESPONSES, UnhandledErrorMiddleware, register
 from megooarti.maintenance import run_exclusively, run_periodically
 from megooarti.mcp.endpoint import router as mcp_router
 from megooarti.mcp.server import Server as McpServer
+from megooarti.proxies import ProxiesMiddleware, networks
 from megooarti.repositories import raw as _raw_format  # noqa: F401  (registers the format)
 from megooarti.repositories import remote, upkeep
 from megooarti.repositories.api import router as repositories_router
@@ -51,6 +52,7 @@ from megooarti.system import certificates
 from megooarti.system.certificates_api import router as certificates_router
 from megooarti.system.information_api import router as information_router
 from megooarti.system.settings_api import router as settings_router
+from megooarti.system.settings_store import get_setting
 from megooarti.system.status import router as status_router
 
 log = structlog.get_logger(__name__)
@@ -68,6 +70,7 @@ async def _first_start(app: FastAPI) -> None:
     )
     async with app.state.sessionmaker() as db:
         remote.trust(app, await certificates.trusted_pems(db))  # before anything goes out
+        app.state.trusted_proxies = networks(await get_setting(db, "trusted_proxies"))
 
 
 async def _first_start_when_possible(app: FastAPI, last_error: str) -> None:
@@ -172,6 +175,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.retired = []  # clients replaced, closed at shutdown: their requests may be long
     # One change of what is trusted at a time: its list is read and given as it was kept.
     app.state.trust_lock = asyncio.Lock()
+    # The proxies an administrator trusts in front of the gateway (spec 8): read at start,
+    # and changed with the setting.
+    app.state.trusted_proxies = []
     register_error_handlers(app)
     app.include_router(docs_router(f"{API_PREFIX}/openapi.json", "MegooArti API"))
     app.include_router(status_router, prefix=API_PREFIX)
@@ -201,5 +207,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # first, so its 500 response passes through every other middleware, and keep
     # RequestIdMiddleware last, so everything else runs with a request ID.
     app.add_middleware(UnhandledErrorMiddleware)
+    # Who a request comes from, before anything reads it.
+    app.add_middleware(
+        ProxiesMiddleware,
+        deployment=settings.forwarded_allow_ips,
+        proxies=lambda: app.state.trusted_proxies,
+    )
     app.add_middleware(RequestIdMiddleware)
     return app

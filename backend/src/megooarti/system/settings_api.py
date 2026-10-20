@@ -3,12 +3,13 @@
 from urllib.parse import urlsplit
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
+from megooarti.proxies import networks
 from megooarti.security import users
 from megooarti.security.authentication import Principal, require
 from megooarti.security.guards import ensure_administrator_remains
@@ -37,12 +38,18 @@ class DefaultRole(BaseModel):
     default_role: str | None = Field(max_length=64)
 
 
+class TrustedProxies(BaseModel):
+    trusted_proxies: list[str] = Field(max_length=100)
+
+
 class SignInSettings(BaseModel):
     """How people sign in, besides the sources (spec 4.1): the role every signed-in user
-    has, and whether MegooArti's own users sign in."""
+    has, whether MegooArti's own users sign in, and the proxies trusted to say who a
+    request comes from (spec 8)."""
 
     default_role: str | None
     local_sign_in: LocalSignIn
+    trusted_proxies: list[str]
 
 
 class BaseUrl(BaseModel):
@@ -76,6 +83,7 @@ async def _sign_in(db: AsyncSession) -> SignInSettings:
     return SignInSettings(
         default_role=await get_setting(db, "default_role"),
         local_sign_in=LocalSignIn(**await get_setting(db, "local_sign_in")),
+        trusted_proxies=await get_setting(db, "trusted_proxies"),
     )
 
 
@@ -165,4 +173,35 @@ async def set_local_sign_in(
     log.info(
         "setting_changed", setting="local_sign_in", enabled=body.enabled, by=principal.user.username
     )
+    return result
+
+
+@router.put("/trusted-proxies", response_model=SignInSettings)
+async def set_trusted_proxies(
+    body: TrustedProxies,
+    request: Request,
+    principal: Principal = Depends(require("admin:security:write")),
+    db: AsyncSession = Depends(get_session),
+) -> SignInSettings:
+    """The proxies in front of the gateway, by address or network (CIDR): their
+    X-Forwarded-For is believed, and a header source's header is taken from them only."""
+    kept: list[str] = []
+    for index, entry in enumerate(body.trusted_proxies):
+        try:
+            network = str(networks([entry])[0])
+        except ValueError:
+            details = [
+                {
+                    "field": f"trusted_proxies.{index}",
+                    "message": "An address, or a network as 10.0.0.0/8.",
+                }
+            ]
+            raise ApiError(422, "validation_error", "The request is not valid.", details) from None
+        if network not in kept:
+            kept.append(network)
+    await set_setting(db, "trusted_proxies", kept or None)
+    result = await _sign_in(db)
+    await db.commit()
+    request.app.state.trusted_proxies = networks(kept)  # at once, for the next request
+    log.info("setting_changed", setting="trusted_proxies", proxies=kept, by=principal.user.username)
     return result

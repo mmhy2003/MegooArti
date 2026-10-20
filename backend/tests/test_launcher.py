@@ -7,7 +7,6 @@ def test_launcher_serves_the_app_factory_with_values_from_settings(monkeypatch, 
     monkeypatch.setenv("MEGOOARTI_DATABASE_URL", "postgresql://u:p@db:5432/m")
     monkeypatch.setenv("MEGOOARTI_PORT", "9001")
     monkeypatch.setenv("MEGOOARTI_SHUTDOWN_GRACE_SECONDS", "7")
-    monkeypatch.setenv("MEGOOARTI_FORWARDED_ALLOW_IPS", "10.0.0.1")
     monkeypatch.setenv("MEGOOARTI_LOG_LEVEL", "warning")
     monkeypatch.chdir(tmp_path)
     calls, levels = [], []
@@ -25,8 +24,8 @@ def test_launcher_serves_the_app_factory_with_values_from_settings(monkeypatch, 
         "factory": True,
         "host": "0.0.0.0",
         "port": 9001,
-        "proxy_headers": True,
-        "forwarded_allow_ips": "10.0.0.1",
+        # Who a request comes from is the application's to say (megooarti.proxies).
+        "proxy_headers": False,
         "timeout_graceful_shutdown": 7,
         "log_config": None,
     }

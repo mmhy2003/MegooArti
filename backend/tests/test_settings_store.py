@@ -8,7 +8,14 @@ async def test_defaults_apply_when_nothing_is_stored(db):
     assert await get_setting(db, "anonymous_access") == {"enabled": False}
     assert await get_setting(db, "default_role") is None
     assert await get_setting(db, "local_sign_in") == {"enabled": True}
-    assert set(DEFAULTS) == {"base_url", "anonymous_access", "default_role", "local_sign_in"}
+    assert await get_setting(db, "trusted_proxies") == []
+    assert set(DEFAULTS) == {
+        "base_url",
+        "anonymous_access",
+        "default_role",
+        "local_sign_in",
+        "trusted_proxies",
+    }
 
 
 async def test_a_stored_value_replaces_the_default(db):

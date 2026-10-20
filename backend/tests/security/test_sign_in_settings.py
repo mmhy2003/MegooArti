@@ -45,7 +45,11 @@ async def test_reading_and_changing_need_the_security_permissions(client, make_u
 async def test_by_default_there_is_no_default_role_and_our_own_users_sign_in(admin_client):
     said = await admin_client.get(SIGN_IN)
 
-    assert said.json() == {"default_role": None, "local_sign_in": {"enabled": True}}
+    assert said.json() == {
+        "default_role": None,
+        "local_sign_in": {"enabled": True},
+        "trusted_proxies": [],
+    }
 
 
 async def test_the_default_role_is_every_signed_in_users_and_kept_on_none(

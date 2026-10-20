@@ -143,18 +143,22 @@ in it changes. Your proxy sends every request to the gateway's port, and:
 1. The gateway is published where only your proxy reaches it. For a proxy on the
    same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8000` in `.env` publishes it on that
    machine alone.
-2. The gateway passes on what your proxy says of the client, in place of what it
-   sees itself, which is now your proxy. In `gateway/nginx.conf`:
+2. Your proxy is trusted: add its address (or its network) under Administration,
+   Authentication, Trusted proxies, or at `PUT /api/v1/settings/trusted-proxies`. The
+   gateway adds the address it sees to `X-Forwarded-For`, and the backend reads it from
+   the right, past the gateway and the proxies you trust: the client is the first
+   address that is not one. Until your proxy is trusted, every client has its address:
+   all of them share one limit of failed sign-ins, and the log names the proxy for
+   each. What a client writes in `X-Forwarded-For` itself is never believed.
+3. For the backend to know that clients came by HTTPS, the gateway passes on what your
+   proxy says, in `gateway/nginx.conf`:
 
    ```nginx
-   proxy_set_header X-Forwarded-For $http_x_forwarded_for;
    proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
    ```
 
-   and then `docker compose up --detach --force-recreate gateway`. Left as it was,
-   the gateway gives every client your proxy's address: all of them share one limit
-   of failed sign-ins, the log names the proxy for each, and the backend takes every
-   request for plain HTTP, so that the [base URL](#the-base-url) has to be set.
+   and then `docker compose up --detach --force-recreate gateway`. Or set the
+   [base URL](#the-base-url), from which the backend writes its addresses.
 
 **In the gateway's place.** Your proxy does what the gateway does, by the table
 above. The Compose file has to be changed for that: it publishes neither the backend
@@ -180,11 +184,11 @@ Either way, your proxy must do what the gateway does towards the backend:
   the addresses it gives to clients (tarball links, the registry's token address)
   from them, unless the base URL is set in the system settings. It believes them
   only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
-- **Write `X-Forwarded-For` yourself, from the address you see.** Do not pass on the
-  one a client sent: the backend counts failed sign-ins by that address and writes it
-  to its log, and a client that could choose it could evade the limit or lock out
-  somebody else's address. (`gateway/nginx.conf` sets it to `$remote_addr`. If your
-  proxy is itself behind another one that you trust, pass on what that one says.)
+- **Add the address you see to `X-Forwarded-For`** (`$proxy_add_x_forwarded_for` in
+  nginx), as the gateway does. The backend reads it from the right, past the trusted
+  proxies only: the address before the first one it does not trust is the client's, by
+  which it counts failed sign-ins and which it logs. Trust the proxies in front of
+  yours under Administration, Authentication, Trusted proxies.
 - **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
   leaves compression to you as well.
 

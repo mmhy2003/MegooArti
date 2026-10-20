@@ -13,6 +13,9 @@ DEFAULTS: dict[str, Any] = {
     "default_role": None,
     # Whether MegooArti's own users sign in: off, only the built-in `admin` does (E1).
     "local_sign_in": {"enabled": True},
+    # The proxies in front of the gateway whose X-Forwarded-For is believed, and whose
+    # trusted header signs people in (spec 8): addresses and networks (CIDR).
+    "trusted_proxies": [],
 }
 
 
