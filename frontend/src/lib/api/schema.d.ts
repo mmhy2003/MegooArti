@@ -390,6 +390,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/content-selectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Selectors */
+        get: operations["list_selectors_api_v1_content_selectors_get"];
+        put?: never;
+        /** Create Selector */
+        post: operations["create_selector_api_v1_content_selectors_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/content-selectors/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview
+         * @description Which of these paths an expression matches, in a repository of this format. A path
+         *     is taken as starting with `/`.
+         */
+        post: operations["preview_api_v1_content_selectors_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/content-selectors/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Selector */
+        get: operations["get_selector_api_v1_content_selectors__name__get"];
+        /**
+         * Update Selector
+         * @description Change what a selector matches: at once, for every permission that names it.
+         */
+        put: operations["update_selector_api_v1_content_selectors__name__put"];
+        post?: never;
+        /**
+         * Delete Selector
+         * @description Delete a selector no role names.
+         */
+        delete: operations["delete_selector_api_v1_content_selectors__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/content/{repository}": {
         parameters: {
             query?: never;
@@ -1734,6 +1798,17 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** Page[SelectorOut] */
+        Page_SelectorOut_: {
+            /** Items */
+            items: components["schemas"]["SelectorOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** Page[SignInSource] */
         Page_SignInSource_: {
             /** Items */
@@ -1794,6 +1869,33 @@ export interface components {
             must_change_password: boolean;
             /** Password */
             password: string;
+        };
+        /** Preview */
+        Preview: {
+            /** Expression */
+            expression: string;
+            /**
+             * Format
+             * @default
+             */
+            format: string;
+            /**
+             * Paths
+             * @default []
+             */
+            paths: string[];
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Paths */
+            paths: components["schemas"]["Previewed"][];
+        };
+        /** Previewed */
+        Previewed: {
+            /** Matches */
+            matches: boolean;
+            /** Path */
+            path: string;
         };
         /** ProxyIn */
         ProxyIn: {
@@ -2090,6 +2192,52 @@ export interface components {
             expected: string;
             /** Revision */
             revision: string | null;
+        };
+        /** SelectorContent */
+        SelectorContent: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Expression */
+            expression: string;
+        };
+        /** SelectorCreate */
+        SelectorCreate: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Expression */
+            expression: string;
+            /** Name */
+            name: string;
+        };
+        /** SelectorOut */
+        SelectorOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string;
+            /** Expression */
+            expression: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** SessionInfo */
         SessionInfo: {
@@ -3273,6 +3421,199 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Page_RepositoryView_"];
                 };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_selectors_api_v1_content_selectors_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SelectorOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_selector_api_v1_content_selectors_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectorCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelectorOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_api_v1_content_selectors_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preview"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_selector_api_v1_content_selectors__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelectorOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_selector_api_v1_content_selectors__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectorContent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelectorOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_selector_api_v1_content_selectors__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Any error. */
             default: {

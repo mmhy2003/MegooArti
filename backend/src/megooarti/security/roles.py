@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.errors import ApiError
-from megooarti.security.models import Role, RoleMember, RolePermission
+from megooarti.security.models import ContentSelector, Role, RoleMember, RolePermission
 from megooarti.system import audit
 from megooarti.system.settings_store import get_setting
 
@@ -83,9 +83,32 @@ async def list_roles(db: AsyncSession, limit: int, offset: int) -> tuple[list[Ro
     return [await describe(db, role) for role in page], total or 0
 
 
+async def _selectors_named(db: AsyncSession, patterns: Iterable[str]) -> None:
+    """A selector permission names a content selector there is, or every one (`*`)."""
+    named = {
+        parts[1]
+        for pattern in patterns
+        if (parts := pattern.split(":"))[0] == "selector" and len(parts) > 1 and parts[1] != "*"
+    }
+    if not named:
+        return
+    found = set(
+        await db.scalars(select(ContentSelector.name).where(ContentSelector.name.in_(named)))
+    )
+    missing = sorted(named - found)
+    if missing:
+        details = [
+            {"field": "permissions", "message": f"Unknown content selector: {name}"}
+            for name in missing
+        ]
+        raise ApiError(422, "validation_error", "The request is not valid.", details)
+
+
 async def _replace_content(
     db: AsyncSession, role: Role, permissions: Iterable[str], member_names: Iterable[str]
 ) -> None:
+    permissions = list(permissions)
+    await _selectors_named(db, permissions)
     members = await roles_named(db, member_names)
     member_ids = {member.id for member in members}
     if role.id in await reachable_role_ids(db, member_ids):

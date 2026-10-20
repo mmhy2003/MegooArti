@@ -292,6 +292,7 @@ area's name alone gives both.
 | `admin:security` | How people sign in: the sign-in sources and their order, the default role, and whether MegooArti's own users sign in |
 | `admin:certificates` | The certificates outbound TLS trusts besides the usual authorities; to write, also fetching what a host presents |
 | `admin:audit` | The audit log: to read, its records and their export; to write, how many days they are kept |
+| `admin:selectors` | The content selectors: the expressions that selector permissions name |
 
 What a repository holds is not given by these, but by `repository:` permissions:
 see [Repositories](repositories.md). Whoever may change roles, or the roles a user

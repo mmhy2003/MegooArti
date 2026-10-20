@@ -1476,6 +1476,37 @@
         "title": "Page[RoleOut]",
         "type": "object"
       },
+      "Page_SelectorOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SelectorOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[SelectorOut]",
+        "type": "object"
+      },
       "Page_SignInSource_": {
         "properties": {
           "items": {
@@ -1637,6 +1668,70 @@
           "password"
         ],
         "title": "PasswordReset",
+        "type": "object"
+      },
+      "Preview": {
+        "properties": {
+          "expression": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "format": {
+            "default": "",
+            "maxLength": 32,
+            "title": "Format",
+            "type": "string"
+          },
+          "paths": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "title": "Preview",
+        "type": "object"
+      },
+      "PreviewOut": {
+        "properties": {
+          "paths": {
+            "items": {
+              "$ref": "#/components/schemas/Previewed"
+            },
+            "title": "Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "title": "PreviewOut",
+        "type": "object"
+      },
+      "Previewed": {
+        "properties": {
+          "matches": {
+            "title": "Matches",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "matches"
+        ],
+        "title": "Previewed",
         "type": "object"
       },
       "ProxyIn": {
@@ -2377,6 +2472,95 @@
           "current"
         ],
         "title": "SchemaState",
+        "type": "object"
+      },
+      "SelectorContent": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "expression": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ],
+        "title": "SelectorContent",
+        "type": "object"
+      },
+      "SelectorCreate": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "expression": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Expression",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression",
+          "name"
+        ],
+        "title": "SelectorCreate",
+        "type": "object"
+      },
+      "SelectorOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "expression": {
+            "title": "Expression",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "expression",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SelectorOut",
         "type": "object"
       },
       "SessionInfo": {
@@ -4757,6 +4941,270 @@
         "summary": "List Repositories",
         "tags": [
           "content"
+        ]
+      }
+    },
+    "/api/v1/content-selectors": {
+      "get": {
+        "operationId": "list_selectors_api_v1_content_selectors_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SelectorOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "List Selectors",
+        "tags": [
+          "content selectors"
+        ]
+      },
+      "post": {
+        "operationId": "create_selector_api_v1_content_selectors_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectorCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Create Selector",
+        "tags": [
+          "content selectors"
+        ]
+      }
+    },
+    "/api/v1/content-selectors/preview": {
+      "post": {
+        "description": "Which of these paths an expression matches, in a repository of this format. A path\nis taken as starting with `/`.",
+        "operationId": "preview_api_v1_content_selectors_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Preview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "content selectors"
+        ]
+      }
+    },
+    "/api/v1/content-selectors/{name}": {
+      "delete": {
+        "description": "Delete a selector no role names.",
+        "operationId": "delete_selector_api_v1_content_selectors__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Delete Selector",
+        "tags": [
+          "content selectors"
+        ]
+      },
+      "get": {
+        "operationId": "get_selector_api_v1_content_selectors__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Get Selector",
+        "tags": [
+          "content selectors"
+        ]
+      },
+      "put": {
+        "description": "Change what a selector matches: at once, for every permission that names it.",
+        "operationId": "update_selector_api_v1_content_selectors__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectorContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Update Selector",
+        "tags": [
+          "content selectors"
         ]
       }
     },
