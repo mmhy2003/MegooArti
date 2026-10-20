@@ -149,6 +149,59 @@ under Authentication, New source, LDAP, or at `POST /api/v1/auth-sources` with
 - A directory that does not answer within ten seconds is said by name:
   `503 source_unavailable`.
 
+#### Trusted header
+
+A proxy in front of MegooArti that signs people in itself (an SSO gateway: oauth2-proxy,
+Authelia, a load balancer's own sign-in) says who each request is from in a header.
+Make the source under Authentication, New source, Trusted header, or at
+`POST /api/v1/auth-sources` with `"kind": "header"`, and trust the proxy under
+Trusted proxies (below): the header is taken from a trusted proxy only.
+
+| Setting | What it is |
+| --- | --- |
+| `user_header` | The header that names who is signed in: `X-Forwarded-User` unless you say otherwise. A header HTTP gives a meaning of its own (`Authorization`, `Cookie`, `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`) is refused |
+| `groups_header` | The header that says their groups, separated by commas, or none: then nobody is given roles by a group |
+
+- **Each request is signed in by itself.** No session is kept: the header names who
+  it is from, the first request with a name nobody has makes the user, and every
+  request brings their groups' roles up to date.
+- **From anywhere else, it is refused.** A request with the header that does not come
+  through a trusted proxy is refused with `401`, and `trusted_header_refused` is
+  logged with the address it came from. So is a header that names nobody (empty,
+  longer than 256 characters, or with control characters).
+- **The proxy must set the header itself**, and drop whatever a client sent in it:
+  otherwise anyone it lets through names whoever they want.
+- **Changes come from the server's own pages only.** A browser sends a proxy's
+  sign-in with every request, wherever the page that makes it is. So a change
+  (`POST`, `PUT`, `PATCH`, `DELETE`) signed in by the header is taken only
+  with `Sec-Fetch-Site: same-origin`, or an `Origin` of the server's own address;
+  anything else is refused with `403 cross_site_request`.
+- **A user of a header source** has no password here, and gives package clients an API
+  token, which they make under Account.
+- **Test** says which headers the source reads.
+
+### Trusted proxies
+
+The gateway adds the address it sees to `X-Forwarded-For`. A proxy in front of the
+gateway (a load balancer, an SSO gateway) is listed under Authentication, Trusted
+proxies, or at `PUT /api/v1/settings/trusted-proxies` with
+`{"trusted_proxies": ["10.0.0.5", "10.1.0.0/16"]}`: addresses, or networks.
+
+- **What it changes.** For a request through a trusted proxy, the client is the
+  address the proxy says, `X-Forwarded-For` read from the right past every trusted
+  proxy; `X-Forwarded-Proto` says whether it came over HTTPS. That is the address
+  sessions and the log show, and the scheme of addresses the server writes (an OIDC
+  source's redirect address, without a base URL). A trusted header source's header
+  is taken through a trusted proxy only.
+- **Changed at once**, for every request, without a restart.
+- **What a client writes in `X-Forwarded-For` is not believed**: the addresses read are
+  those past the gateway and the proxies you trust, from the right; the first that is
+  not trusted is the client.
+- **Trust only your own proxies.** Whoever can reach the gateway from a trusted
+  address can say any client address, and send a trusted header source's header.
+- The gateway itself is trusted by the backend through `MEGOOARTI_FORWARDED_ALLOW_IPS`
+  (see [Configuration](configuration.md)), and never from this list.
+
 ### Trusted certificates
 
 MegooArti trusts the usual public authorities when it connects out over TLS: to a
