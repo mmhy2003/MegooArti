@@ -365,7 +365,9 @@ async def _from_trusted_header(request: Request, db: AsyncSession) -> Principal 
             )
         said = header.identity(source.settings, request.headers)
         if said is None:
-            raise unauthorized(f"{source.settings['user_header']} names nobody.")
+            raise unauthorized(
+                f"{source.settings['user_header']} must name one person, and be sent once."
+            )
         user = await sources.provision(db, source, said)
         if not await users.can_act(db, user):
             raise unauthorized()

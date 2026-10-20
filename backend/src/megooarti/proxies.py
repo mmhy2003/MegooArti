@@ -22,10 +22,11 @@ _SCHEMES = {"http", "https"}
 UNKNOWN = "unknown"
 
 
-def networks(entries: Sequence[str]) -> list[Network]:
+def networks(entries: Sequence[str], *, strict: bool = False) -> list[Network]:
     """Addresses and networks (CIDR), as they are written: a bare address is a network
-    of one. Raises ValueError for one that is neither."""
-    return [ipaddress.ip_network(entry.strip(), strict=False) for entry in entries]
+    of one. Raises ValueError for one that is neither, and, if strict, for a network
+    with bits set past its prefix (`10.0.0.5/3`: a mistyped `/32`, not `0.0.0.0/3`)."""
+    return [ipaddress.ip_network(entry.strip(), strict=strict) for entry in entries]
 
 
 def address(hop: str) -> str | None:
@@ -77,7 +78,9 @@ def resolve(
         by_administrator = _within(hop, proxies)
         if not (by_deployment or by_administrator):
             return hop, proxied
-        proxied = proxied or by_administrator
+        # The deployment's own peer (the gateway) passes on what it saw, even when the
+        # administrator's list covers it too: only a proxy past it says who signed in.
+        proxied = proxied or (by_administrator and not by_deployment)
         client = hop
     return client or UNKNOWN, proxied  # all of them trusted: the furthest is the client
 

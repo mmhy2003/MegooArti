@@ -46,6 +46,9 @@ PROXIES = "/api/v1/settings/trusted-proxies"
         # What is not an address, where an address must be.
         (GATEWAY, ["not an address"], "*", [], UNKNOWN, False),
         (GATEWAY, ["198.51.100.9", "garbage"], "*", [], UNKNOWN, False),
+        # The gateway in the administrator's list too is still only the gateway: what it
+        # saw did not come through a proxy the administrator trusts.
+        (GATEWAY, ["203.0.113.7"], "*", ["172.18.0.0/16"], "203.0.113.7", False),
         # Every one trusted: the furthest is the client.
         (GATEWAY, ["10.0.0.6", "10.0.0.5"], "*", ["10.0.0.0/8"], "10.0.0.6", True),
         (None, [], "*", [], UNKNOWN, False),
@@ -113,7 +116,9 @@ async def test_trusted_proxies_are_kept_checked_and_believed_at_once(
     assert shown["trusted_proxies"] == ["10.0.0.5/32", "10.0.0.0/8"]
 
 
-@pytest.mark.parametrize("entry", ["10.0.0.0/33", "proxy.corp.example", "", "10.0.0.5/8/1"])
+@pytest.mark.parametrize(
+    "entry", ["10.0.0.0/33", "proxy.corp.example", "", "10.0.0.5/8/1", "10.0.0.5/3"]
+)
 async def test_what_is_no_address_or_network_is_refused_where_it_is(admin_client, entry):
     refused = await admin_client.put(PROXIES, json={"trusted_proxies": ["10.0.0.5", entry]})
 

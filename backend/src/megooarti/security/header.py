@@ -8,6 +8,7 @@ from typing import Any
 
 from megooarti.security import sources
 from megooarti.security.sources import Identity, Tested, invalid
+from megooarti.security.users import normalise_username
 
 KIND = "header"
 DEFAULTS = {"user_header": "X-Forwarded-User", "groups_header": None}
@@ -55,15 +56,27 @@ class HeaderKind(sources.Kind):
 
 
 def identity(settings: dict[str, Any], headers: Any) -> Identity | None:
-    """Who the headers say someone is, or None when they name nobody."""
-    name = (headers.get(settings["user_header"]) or "").strip()
+    """Who the headers say someone is, or None when they name nobody, or are sent more
+    than once: a proxy that adds its header to a client's, rather than setting it, sends
+    the client's too, and neither can be told from the other."""
+    names = headers.getlist(settings["user_header"])
+    name = names[0].strip() if len(names) == 1 else ""
     if not name or len(name) > 256 or any(ord(character) < 32 for character in name):
         return None
     groups: list[str] = []
     if settings.get("groups_header"):
-        said = headers.get(settings["groups_header"]) or ""
-        groups = [group.strip() for group in said.split(",") if group.strip()][:_GROUP_LIMIT]
-    return Identity(external_id=name, username=name, display_name=name, groups=frozenset(groups))
+        said = headers.getlist(settings["groups_header"])
+        if len(said) > 1:
+            return None
+        listed = said[0] if said else ""
+        groups = [group.strip() for group in listed.split(",") if group.strip()][:_GROUP_LIMIT]
+    # Known by the name as the user is: a proxy may send it in any case.
+    return Identity(
+        external_id=normalise_username(name),
+        username=name,
+        display_name=name,
+        groups=frozenset(groups),
+    )
 
 
 sources.register(HeaderKind())

@@ -188,12 +188,12 @@ async def set_trusted_proxies(
     kept: list[str] = []
     for index, entry in enumerate(body.trusted_proxies):
         try:
-            network = str(networks([entry])[0])
+            network = str(networks([entry], strict=True)[0])
         except ValueError:
             details = [
                 {
                     "field": f"trusted_proxies.{index}",
-                    "message": "An address, or a network as 10.0.0.0/8.",
+                    "message": "An address, or a network as 10.0.0.0/8 (no bits past its prefix).",
                 }
             ]
             raise ApiError(422, "validation_error", "The request is not valid.", details) from None

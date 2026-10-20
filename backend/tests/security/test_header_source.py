@@ -93,7 +93,7 @@ async def test_the_header_from_a_trusted_proxy_signs_the_person_in_with_their_gr
     assert "repository:*:*:read" in said.json()["permissions"]
     assert (str(kim.source_id), kim.external_id, kim.password_hash) == (
         header_source["id"],
-        "Kim.Lee",
+        "kim.lee",
         None,
     )
 
@@ -119,6 +119,28 @@ async def test_the_header_from_anywhere_else_is_refused(other_client, header_sou
     refused = await other_client.get(SESSION, headers={**chain, "X-Forwarded-User": "admin"})
 
     assert (refused.status_code, error_code(refused)) == (401, "unauthorized")
+
+
+@pytest.mark.parametrize("twice", ["X-Forwarded-User", "X-Forwarded-Groups"])
+async def test_a_header_sent_twice_is_refused(other_client, header_source, twice):
+    # A proxy that adds its header to the client's, rather than setting it, sends both.
+    said = [*as_("kim", "developers").items(), (twice, "admin")]
+
+    refused = await other_client.get(SESSION, headers=said)
+
+    assert refused.status_code == 401
+
+
+async def test_the_same_name_in_another_case_is_the_same_user(
+    other_client, header_source, sessionmaker
+):
+    first = await other_client.get(SESSION, headers=as_("Kim.Lee"))
+    again = await other_client.get(SESSION, headers=as_("kim.lee"))
+    async with sessionmaker() as db:
+        made = (await db.scalars(select(User).where(User.source_id == header_source["id"]))).all()
+
+    assert first.json()["user"]["id"] == again.json()["user"]["id"]
+    assert [user.username for user in made] == ["kim.lee"]
 
 
 async def test_without_a_header_source_on_the_header_is_nobodys(admin_client, other_client):

@@ -168,9 +168,13 @@ Trusted proxies (below): the header is taken from a trusted proxy only.
 - **From anywhere else, it is refused.** A request with the header that does not come
   through a trusted proxy is refused with `401`, and `trusted_header_refused` is
   logged with the address it came from. So is a header that names nobody (empty,
-  longer than 256 characters, or with control characters).
-- **The proxy must set the header itself**, and drop whatever a client sent in it:
-  otherwise anyone it lets through names whoever they want.
+  longer than 256 characters, or with control characters), and either header sent
+  twice.
+- **The proxy must set both headers itself**, the user's and the groups', and drop
+  whatever a client sent in them: otherwise anyone it lets through names whoever they
+  want, or the groups that give them roles. A proxy that adds its header to the
+  client's, rather than replacing it, sends both, and is refused.
+- **The name is known in any case:** `Kim.Lee` and `kim.lee` are the same user.
 - **Changes come from the server's own pages only.** A browser sends a proxy's
   sign-in with every request, wherever the page that makes it is. So a change
   (`POST`, `PUT`, `PATCH`, `DELETE`) signed in by the header is taken only
