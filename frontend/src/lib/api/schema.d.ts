@@ -908,6 +908,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/trusted-proxies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Trusted Proxies
+         * @description The proxies in front of the gateway, by address or network (CIDR): their
+         *     X-Forwarded-For is believed, and a header source's header is taken from them only.
+         */
+        put: operations["set_trusted_proxies_api_v1_settings_trusted_proxies_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/status/live": {
         parameters: {
             query?: never;
@@ -1984,12 +2005,15 @@ export interface components {
         /**
          * SignInSettings
          * @description How people sign in, besides the sources (spec 4.1): the role every signed-in user
-         *     has, and whether MegooArti's own users sign in.
+         *     has, whether MegooArti's own users sign in, and the proxies trusted to say who a
+         *     request comes from (spec 8).
          */
         SignInSettings: {
             /** Default Role */
             default_role: string | null;
             local_sign_in: components["schemas"]["LocalSignIn"];
+            /** Trusted Proxies */
+            trusted_proxies: string[];
         };
         /**
          * SignInSource
@@ -2207,6 +2231,11 @@ export interface components {
             name: string;
             /** Scopes */
             scopes: string[] | null;
+        };
+        /** TrustedProxies */
+        TrustedProxies: {
+            /** Trusted Proxies */
+            trusted_proxies: string[];
         };
         /** Uploaded */
         Uploaded: {
@@ -4328,6 +4357,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInSettings"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_trusted_proxies_api_v1_settings_trusted_proxies_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrustedProxies"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

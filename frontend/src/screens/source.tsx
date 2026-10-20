@@ -100,7 +100,7 @@ function SourceForm({
         {
           onSuccess: () => {
             notify(t("saved", { name }));
-            setValues({ ...values, [fields.secret]: "" });
+            if (fields.secret !== "") setValues({ ...values, [fields.secret]: "" });
           },
         },
       );
@@ -111,7 +111,7 @@ function SourceForm({
     <form ref={form} onSubmit={submit} className="flex flex-col gap-6" noValidate>
       <fieldset disabled={!mayWrite} className="flex min-w-0 flex-col gap-6 border-0 p-0">
         <Panel className="flex flex-col gap-5 p-6">
-          <h2 className={H2}>{kind === "ldap" ? t("ldap.title") : t("providerTitle")}</h2>
+          <h2 className={H2}>{t(`titles.${kind}`)}</h2>
           <TextField
             label={t("fields.name")}
             hint={t("hints.name")}
@@ -126,7 +126,7 @@ function SourceForm({
             change={(changed) => setValues({ ...values, ...changed })}
             at={at}
             own={own}
-            hasSecret={source?.secrets.includes(fields.secret) ?? false}
+            hasSecret={fields.secret !== "" && (source?.secrets.includes(fields.secret) ?? false)}
           />
         </Panel>
         <Panel className="p-6">
@@ -184,6 +184,7 @@ export function NewSourceScreen() {
           options={[
             { value: "oidc", label: t("kinds.oidc"), hint: t("kinds.oidcHint") },
             { value: "ldap", label: t("kinds.ldap"), hint: t("kinds.ldapHint") },
+            { value: "header", label: t("kinds.header"), hint: t("kinds.headerHint") },
           ]}
         />
       </Panel>

@@ -344,6 +344,16 @@ export function useSetLocalSignIn() {
   });
 }
 
+/** The proxies in front of the gateway that are believed (spec 8): at once, for every request. */
+export function useSetTrustedProxies() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (proxies: string[]) =>
+      api.put<SignInSettings>("/settings/trusted-proxies", { trusted_proxies: proxies }),
+    onSuccess: (settings) => client.setQueryData([SIGN_IN], settings),
+  });
+}
+
 /** Every source, in the order they are asked: there are few, and their order is the point. */
 export function useSources() {
   return useQuery({

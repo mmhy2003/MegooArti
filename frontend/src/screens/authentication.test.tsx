@@ -31,7 +31,7 @@ const source = (name: string, position: number, more: Record<string, unknown> = 
 });
 const CORP = source("Corp LDAP", 0);
 const LAB = source("Lab LDAP", 1, { enabled: false, users: 0 });
-const SIGN_IN = { default_role: null, local_sign_in: { enabled: true } };
+const SIGN_IN = { default_role: null, local_sign_in: { enabled: true }, trusted_proxies: [] };
 const ROLES = page(
   ["admin", "anonymous", "deployers"].map((name) => ({
     name,
@@ -279,5 +279,53 @@ describe("the default role (SEC-16)", () => {
 
     await waitFor(() => expect(notices()).toHaveTextContent("There is no default role."));
     expect(of(calls, "PUT")[0]?.body).toEqual({ default_role: null });
+  });
+});
+
+describe("the trusted proxies (spec 8)", () => {
+  test("are shown a line each, and saved as typed, without blank lines", async () => {
+    const user = userEvent.setup();
+    const { calls } = authentication({
+      "GET /settings/sign-in": { json: { ...SIGN_IN, trusted_proxies: ["10.0.0.5/32"] } },
+      "PUT /settings/trusted-proxies": (call) => ({
+        json: { ...SIGN_IN, ...(call.body as object) },
+      }),
+    });
+
+    const field = await screen.findByLabelText("Addresses and networks");
+    expect(field).toHaveValue("10.0.0.5/32");
+    await user.clear(field);
+    await user.type(field, " 10.0.0.5 {Enter}{Enter}10.1.0.0/16");
+    await user.click(screen.getByRole("button", { name: "Save trusted proxies" }));
+
+    await waitFor(() => expect(notices()).toHaveTextContent("2 proxies are trusted."));
+    expect(of(calls, "PUT")[0]?.body).toEqual({ trusted_proxies: ["10.0.0.5", "10.1.0.0/16"] });
+  });
+
+  test("say which line the server refuses", async () => {
+    const user = userEvent.setup();
+    authentication({
+      "PUT /settings/trusted-proxies": failure(
+        422,
+        "validation_error",
+        "The request is not valid.",
+        [{ field: "trusted_proxies.1", message: "An address, or a network as 10.0.0.0/8." }],
+      ),
+    });
+
+    const field = await screen.findByLabelText("Addresses and networks");
+    await user.type(field, "10.0.0.5{Enter}proxy.corp.example");
+    await user.click(screen.getByRole("button", { name: "Save trusted proxies" }));
+
+    await waitFor(() =>
+      expect(field).toHaveAccessibleDescription(/proxy.corp.example is not an address/),
+    );
+  });
+
+  test("are shown, and not changed, to whoever may only read them", async () => {
+    authentication({}, holding("admin:security:read"));
+
+    expect(await screen.findByLabelText("Addresses and networks")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save trusted proxies" })).toBeNull();
   });
 });

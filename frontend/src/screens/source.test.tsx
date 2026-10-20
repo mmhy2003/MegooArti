@@ -202,11 +202,11 @@ describe("an OIDC source", () => {
 
   test("of another kind is said to be set up through the API", async () => {
     oneSource({
-      "GET /auth-sources/corp": { json: { ...CORP, kind: "header", redirect_uri: null } },
+      "GET /auth-sources/corp": { json: { ...CORP, kind: "saml", redirect_uri: null } },
     });
 
     expect(
-      await screen.findByText("A source of the kind header is set up through the API."),
+      await screen.findByText("A source of the kind saml is set up through the API."),
     ).toBeVisible();
     expect(within(document.body).queryByLabelText("Issuer")).toBeNull();
   });
@@ -328,5 +328,73 @@ describe("an LDAP source (spec 7)", () => {
     const sent = of(calls, "PUT")[0]?.body as { settings: Record<string, unknown> };
     expect(sent.settings).not.toHaveProperty("bind_password");
     expect(sent.settings.groups).toBe("search");
+  });
+});
+
+describe("a trusted header source (spec 8)", () => {
+  test("is made with the headers that name a person and their groups", async () => {
+    const user = userEvent.setup();
+    const { calls } = newSource({
+      "POST /auth-sources": (call) => ({
+        status: 201,
+        json: {
+          ...CORP,
+          id: "proxy",
+          kind: "header",
+          ...(call.body as object),
+          redirect_uri: null,
+        },
+      }),
+    });
+
+    await user.click(await screen.findByRole("radio", { name: /Trusted header/ }));
+    await user.type(screen.getByLabelText("Name"), "Corp SSO proxy");
+    expect(screen.getByLabelText("User name header")).toHaveValue("X-Forwarded-User");
+    await user.type(screen.getByLabelText("Groups header"), "X-Forwarded-Groups");
+    await expectAccessible();
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+
+    await waitFor(() =>
+      expect(notices()).toHaveTextContent("Created the sign-in source Corp SSO proxy."),
+    );
+    expect(of(calls, "POST")[0]?.body).toEqual({
+      kind: "header",
+      name: "Corp SSO proxy",
+      enabled: false,
+      settings: { user_header: "X-Forwarded-User", groups_header: "X-Forwarded-Groups" },
+      group_mapping: [],
+    });
+  });
+
+  test("needs the header that names a person, and sends no groups header left empty", async () => {
+    const user = userEvent.setup();
+    const { calls } = newSource({
+      "POST /auth-sources": (call) => ({
+        status: 201,
+        json: {
+          ...CORP,
+          id: "proxy",
+          kind: "header",
+          ...(call.body as object),
+          redirect_uri: null,
+        },
+      }),
+    });
+
+    await user.click(await screen.findByRole("radio", { name: /Trusted header/ }));
+    await user.type(screen.getByLabelText("Name"), "Proxy");
+    await user.clear(screen.getByLabelText("User name header"));
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+    expect(screen.getByLabelText("User name header")).toHaveAccessibleDescription(/is needed/);
+    expect(of(calls, "POST")).toHaveLength(0);
+
+    await user.type(screen.getByLabelText("User name header"), "X-Remote-User");
+    await user.click(screen.getByRole("button", { name: "Create source" }));
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect((of(calls, "POST")[0]?.body as { settings: object }).settings).toEqual({
+      user_header: "X-Remote-User",
+      groups_header: null,
+    });
   });
 });

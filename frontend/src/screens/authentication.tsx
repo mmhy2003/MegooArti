@@ -8,20 +8,24 @@ import { Alert, StatusTag } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Fact, Facts } from "@/components/ui/details";
+import { TextAreaField } from "@/components/ui/field";
 import { SelectField } from "@/components/ui/inputs";
 import { AppLink } from "@/components/ui/link";
 import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
 import { ErrorState, LoadingState } from "@/components/ui/states";
 import { Table, Td, Th } from "@/components/ui/table";
+import { isApiError } from "@/lib/api/client";
 import type { SourceOut } from "@/lib/api/types";
 import { NEW_SOURCE, sourceHref } from "@/lib/paths";
+import { refusalsOf } from "@/lib/refusals";
 import {
   useDeleteSource,
   useEveryRole,
   useOrderSources,
   useSetDefaultRole,
   useSetLocalSignIn,
+  useSetTrustedProxies,
   useSignInSettings,
   useSources,
   useTestSource,
@@ -302,6 +306,69 @@ function DefaultRole({ mayWrite }: { mayWrite: boolean }) {
   );
 }
 
+/**
+ * The proxies in front of the gateway (spec 8): one an address or a network a line. Their
+ * X-Forwarded-For is believed, and a header source's header is taken from them only.
+ */
+function TrustedProxies({ mayWrite }: { mayWrite: boolean }) {
+  const t = useTranslations("authentication");
+  const notify = useNotify();
+  const settings = useSignInSettings();
+  const change = useSetTrustedProxies();
+  const [typed, setTyped] = useState<string | null>(null);
+
+  if (settings.isError) {
+    return <ErrorState error={settings.error} onRetry={() => void settings.refetch()} />;
+  }
+  if (!settings.data) return <LoadingState className="p-4" />;
+  const kept = settings.data.trusted_proxies;
+  const text = typed ?? kept.join("\n");
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  // The server says which line is wrong by its place among those sent.
+  const wrong = refusalsOf(change.error, ["trusted_proxies"]);
+  const at = /^trusted_proxies\.(\d+)$/.exec(
+    isApiError(change.error) ? (change.error.details[0]?.field ?? "") : "",
+  );
+  const refusal = at ? t("proxyRefused", { line: lines[Number(at[1])] ?? "" }) : undefined;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    change.mutate(lines, {
+      onSuccess: (saved) => {
+        notify(t("proxiesSaved", { count: saved.trusted_proxies.length }));
+        setTyped(null);
+      },
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+      <TextAreaField
+        label={t("trustedProxies")}
+        hint={t("trustedProxiesHint")}
+        rows={4}
+        spellCheck={false}
+        className="font-mono text-sm"
+        disabled={!mayWrite}
+        value={text}
+        error={refusal}
+        onChange={(event) => setTyped(event.target.value)}
+      />
+      {change.isError && !refusal && wrong.elsewhere ? <ErrorState error={change.error} /> : null}
+      {mayWrite ? (
+        <div>
+          <Button type="submit" variant="primary" busy={change.isPending}>
+            {t("saveProxies")}
+          </Button>
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
 /** Where people sign in from, in order, and the role every signed-in user has (SEC-15, SEC-16). */
 export function AuthenticationScreen() {
   const t = useTranslations("authentication");
@@ -328,6 +395,11 @@ export function AuthenticationScreen() {
         <h2 className={H2}>{t("defaultRoleTitle")}</h2>
         <p className="mb-4 text-fg-muted">{t("defaultRoleIntro")}</p>
         <DefaultRole mayWrite={mayWrite} />
+      </Panel>
+      <Panel className="p-6">
+        <h2 className={H2}>{t("trustedProxiesTitle")}</h2>
+        <p className="mb-4 text-fg-muted">{t("trustedProxiesIntro")}</p>
+        <TrustedProxies mayWrite={mayWrite} />
       </Panel>
     </div>
   );

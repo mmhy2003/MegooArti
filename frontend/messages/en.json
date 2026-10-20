@@ -696,7 +696,14 @@
     "save": "Save",
     "defaultRoleSet": "Every signed-in user has the role {role}.",
     "defaultRoleCleared": "There is no default role.",
-    "newSource": "New source"
+    "newSource": "New source",
+    "trustedProxiesTitle": "Trusted proxies",
+    "trustedProxiesIntro": "The proxies in front of the gateway: their X-Forwarded-For is believed, past them the client's own address is found, and a trusted header is taken from them only. Without one, every request's address is the one the gateway saw.",
+    "trustedProxies": "Addresses and networks",
+    "trustedProxiesHint": "One a line: 10.0.0.5, or 10.0.0.0/8.",
+    "proxyRefused": "{line} is not an address, nor a network as 10.0.0.0/8.",
+    "proxiesSaved": "{count, plural, =0 {No proxy is trusted.} one {One proxy is trusted.} other {# proxies are trusted.}}",
+    "saveProxies": "Save trusted proxies"
   },
   "source": {
     "newTitle": "New sign-in source",
@@ -705,7 +712,6 @@
     "intro": "Where people sign in, and what their groups give them.",
     "path": "Path",
     "authentication": "Authentication",
-    "providerTitle": "Provider",
     "claimsTitle": "Claims",
     "claimsIntro": "The claims of the ID token that say who someone is. The provider's own names are given unless you change them.",
     "fields": {
@@ -752,10 +758,11 @@
       "oidc": "OIDC",
       "oidcHint": "Keycloak, Entra ID, Okta, Google: people sign in there, in the browser.",
       "ldap": "LDAP",
-      "ldapHint": "OpenLDAP, Active Directory: people sign in here with their directory's password."
+      "ldapHint": "OpenLDAP, Active Directory: people sign in here with their directory's password.",
+      "header": "Trusted header",
+      "headerHint": "A proxy in front signs people in itself, and says who they are in a header: taken from a trusted proxy only."
     },
     "ldap": {
-      "title": "Directory",
       "url": "Address",
       "starttls": "StartTLS",
       "bindDn": "Bind DN",
@@ -785,6 +792,20 @@
         "search": "The groups whose filter names the user.",
         "noGroups": "A user has the default role and what you give them.",
         "groupFilter": "'{dn}' or '{username}': (member='{dn}'), or (memberUid='{username}')."
+      }
+    },
+    "titles": {
+      "oidc": "Provider",
+      "ldap": "Directory",
+      "header": "Trusted header"
+    },
+    "header": {
+      "userHeader": "User name header",
+      "groupsHeader": "Groups header",
+      "userHeaderNeeded": "The header that names the user is needed.",
+      "hints": {
+        "userHeader": "X-Forwarded-User unless you say otherwise.",
+        "groupsHeader": "Optional: the groups, separated by commas."
       }
     }
   },

@@ -12,7 +12,7 @@ import { TextField } from "@/components/ui/field";
 import { CheckboxField, ChoiceGroup } from "@/components/ui/inputs";
 import type { SourceOut } from "@/lib/api/types";
 
-export type KindName = "oidc" | "ldap";
+export type KindName = "oidc" | "ldap" | "header";
 export type Values = Record<string, string | boolean>;
 type Translate = ReturnType<typeof useTranslations<"source">>;
 
@@ -369,7 +369,56 @@ const LDAP: KindForm = {
   Fields: LdapFields,
 };
 
-export const SOURCE_KINDS: Record<KindName, KindForm> = { oidc: OIDC, ldap: LDAP };
+// --- A trusted header (spec 8) -----------------------------------------------------------
+
+function HeaderFields({ values, change, at, own }: FieldsProps) {
+  const t = useTranslations("source");
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <TextField
+        label={t("header.userHeader")}
+        hint={t("header.hints.userHeader")}
+        required
+        spellCheck={false}
+        autoComplete="off"
+        value={values.user_header as string}
+        error={at("user_header", own.user_header)}
+        onChange={(event) => change({ user_header: event.target.value })}
+      />
+      <TextField
+        label={t("header.groupsHeader")}
+        hint={t("header.hints.groupsHeader")}
+        spellCheck={false}
+        autoComplete="off"
+        value={values.groups_header as string}
+        error={at("groups_header")}
+        onChange={(event) => change({ groups_header: event.target.value })}
+      />
+    </div>
+  );
+}
+
+const HEADER: KindForm = {
+  secret: "",
+  fields: ["user_header", "groups_header"],
+  initial: (source) => {
+    const settings = kept(source);
+    return {
+      user_header: stored(settings, "user_header", "X-Forwarded-User"),
+      groups_header: stored(settings, "groups_header"),
+    };
+  },
+  own: (values, t) => ({
+    user_header: text(values.user_header) === "" ? t("header.userHeaderNeeded") : undefined,
+  }),
+  sent: (values) => ({
+    user_header: text(values.user_header),
+    groups_header: text(values.groups_header) || null,
+  }),
+  Fields: HeaderFields,
+};
+
+export const SOURCE_KINDS: Record<KindName, KindForm> = { oidc: OIDC, ldap: LDAP, header: HEADER };
 
 export function isKindName(kind: string): kind is KindName {
   return kind in SOURCE_KINDS;
