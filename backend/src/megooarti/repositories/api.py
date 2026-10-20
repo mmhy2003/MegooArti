@@ -1,5 +1,6 @@
 """Administration of repositories."""
 
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Literal
 
@@ -20,6 +21,7 @@ from megooarti.repositories.models import Repository, SigningKey
 from megooarti.repositories.service import RepositoryView
 from megooarti.secrets_box import seal
 from megooarti.security.authentication import Principal, require
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -132,6 +134,16 @@ def _plain(model: BaseModel | None) -> dict[str, Any] | None:
     return None if model is None else model.model_dump()
 
 
+def _told(view: RepositoryView) -> dict[str, Any]:
+    """A repository as its records tell it: its settings, not how its remote is doing."""
+    return {name: value for name, value in asdict(view).items() if name != "status"}
+
+
+def _given(proxy: ProxyIn | None) -> list[str]:
+    """The remote's secret, by its name, when one is given anew: its value is not recorded."""
+    return ["proxy.remote_auth.secret"] if proxy and proxy.remote_auth.secret else []
+
+
 def _proxy(settings: Settings, proxy: ProxyIn | None) -> dict[str, Any] | None:
     """The proxy settings as the service takes them, with the secret sealed."""
     if proxy is None:
@@ -191,6 +203,12 @@ async def create_repository(
         format_config=body.format_config,
     )
     view = await service.describe(db, repository)
+    audit.record(
+        db,
+        "repository.created",
+        ("repository", repository.name),
+        audit.diff(None, _told(view), secrets=_given(body.proxy)),
+    )
     await db.commit()
     log.info("repository_created", repository=repository.name, by=principal.user.username)
     return view
@@ -230,6 +248,12 @@ async def update_repository(
         format_config=body.format_config,
     )
     view = await service.describe(db, repository)
+    audit.record(
+        db,
+        "repository.updated",
+        ("repository", repository.name),
+        audit.diff(_told(current), _told(view), secrets=_given(body.proxy)),
+    )
     await db.commit()
     log.info("repository_updated", repository=repository.name, by=principal.user.username)
     return view
@@ -242,7 +266,9 @@ async def delete_repository(
     db: AsyncSession = Depends(get_session),
 ) -> None:
     repository = await _load(db, name)
+    before = await service.describe(db, repository)
     await service.delete_repository(db, repository, utcnow())
+    audit.record(db, "repository.deleted", ("repository", name), audit.diff(_told(before), None))
     await db.commit()
     log.info("repository_deleted", repository=name, by=principal.user.username)
 
@@ -255,6 +281,7 @@ async def invalidate_cache(
 ) -> None:
     repository = await _load(db, name)
     await service.invalidate_cache(db, repository)
+    audit.record(db, "repository.cache_invalidated", ("repository", name))
     await db.commit()
     log.info("repository_cache_invalidated", repository=name, by=principal.user.username)
 
@@ -294,6 +321,8 @@ async def rebuild_index(
             await db.commit()
             done.components, done.removed = done.components + seen, done.removed + removed
             first = False
+    audit.record(db, "repository.index_rebuilt", ("repository", name), audit.diff(None, done))
+    await db.commit()
     log.info(
         "repository_index_rebuilt",
         repository=name,
@@ -365,6 +394,12 @@ async def import_signing_key(
         details = [{"field": "body.private_key", "message": str(error)}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
     shown = _shown(request.app.state.settings, key)
+    audit.record(
+        db,
+        "signing_key.imported",
+        ("repository", name),
+        audit.diff(None, {"fingerprint": shown.fingerprint}, secrets=["private_key"]),
+    )
     await db.commit()
     log.info(
         "signing_key_imported",
@@ -391,6 +426,12 @@ async def generate_signing_key(
         details = [{"field": "body.algorithm", "message": str(error)}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
     shown = _shown(request.app.state.settings, key)
+    audit.record(
+        db,
+        "signing_key.generated",
+        ("repository", name),
+        audit.diff(None, {"algorithm": shown.algorithm, "fingerprint": shown.fingerprint}),
+    )
     await db.commit()
     log.info(
         "signing_key_generated",

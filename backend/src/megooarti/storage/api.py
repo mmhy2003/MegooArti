@@ -13,6 +13,7 @@ from megooarti.security.authentication import Principal, require
 from megooarti.storage import blob_stores
 from megooarti.storage.blob_stores import BlobStoreView
 from megooarti.storage.models import BlobStore
+from megooarti.system import audit
 
 log = structlog.get_logger(__name__)
 
@@ -65,6 +66,12 @@ async def create_blob_store(
         db, settings, name=body.name, type=body.type, path=body.path
     )
     view = await blob_stores.describe(db, settings, store)
+    audit.record(
+        db,
+        "blob_store.created",
+        ("blob_store", store.name),
+        audit.diff(None, {"type": store.type, "path": view.path}),
+    )
     await db.commit()
     log.info("blob_store_created", blob_store=store.name, by=principal.user.username)
     return view
@@ -88,5 +95,6 @@ async def delete_blob_store(
 ) -> None:
     store = await _load(db, name)
     await blob_stores.delete_blob_store(db, store)
+    audit.record(db, "blob_store.deleted", ("blob_store", name))
     await db.commit()
     log.info("blob_store_deleted", blob_store=name, by=principal.user.username)
