@@ -87,10 +87,15 @@ describe("the navigation as it is", () => {
       ["manageRepositories", "/admin/repositories"],
       ["blobStores", "/admin/blob-stores"],
       ["system", "/admin/system"],
+      ["audit", "/admin/audit"],
     ]);
     // How people sign in is security's, not a setting's (spec 4.3).
     expect(administration({ ...ADMIN, permissions: ["admin:security:read"] })).toEqual([
       ["authentication", "/admin/authentication"],
+    ]);
+    // The audit log is an area of its own (spec 9).
+    expect(administration({ ...ADMIN, permissions: ["admin:audit:read"] })).toEqual([
+      ["audit", "/admin/audit"],
     ]);
     // What outbound TLS trusts is an area of its own (spec 6).
     expect(administration({ ...ADMIN, permissions: ["admin:certificates:read"] })).toEqual([

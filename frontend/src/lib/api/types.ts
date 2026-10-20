@@ -61,6 +61,10 @@ export type Redirect = Schemas["Redirect"];
 /** A format the server has: its types, and the public repository a new proxy is given. */
 export type FormatOut = Schemas["FormatOut"];
 export type BlobStoreCreate = Schemas["BlobStoreCreate"];
+/** A change of configuration or security, or a sign-in, as the audit log keeps it (spec 9). */
+export type AuditRecordOut = Schemas["AuditRecordOut"];
+/** How many days the audit log keeps a record. */
+export type Retention = Schemas["Retention"];
 /** A certificate outbound TLS trusts besides the usual authorities (spec 6). */
 export type CertificateOut = Schemas["CertificateOut"];
 /** A certificate as a person checks it: what a host presented, before it is trusted. */

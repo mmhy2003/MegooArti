@@ -129,12 +129,12 @@ describe("permissions as rows (A2)", () => {
 
   test("what the lists cannot say is typed, and stays as it was typed (A3)", async () => {
     const user = userEvent.setup();
-    renderUi(<Rows initial={["repository:maven", "admin:audit:read"]} />);
+    renderUi(<Rows initial={["repository:maven", "admin:jobs:read"]} />);
 
     expect(within(row(1)).getByLabelText("About")).toHaveValue("typed");
     expect(within(row(1)).getByLabelText("Pattern")).toHaveValue("repository:maven");
     expect(row(1)).toHaveTextContent("Whatever this pattern matches.");
-    expect(patterns()).toEqual(["repository:maven", "admin:audit:read"]);
+    expect(patterns()).toEqual(["repository:maven", "admin:jobs:read"]);
 
     // Typing a pattern that a row could say does not turn the field into lists under
     // the hands that are typing it.

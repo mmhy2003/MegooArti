@@ -6,8 +6,9 @@
  */
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { api } from "@/lib/api/client";
+import { API_PREFIX, api } from "@/lib/api/client";
 import type {
+  AuditRecordOut,
   BlobStoreCreate,
   BlobStoreOut,
   CertificateOut,
@@ -19,6 +20,7 @@ import type {
   RepositoryCreate,
   RepositoryOut,
   RepositoryUpdate,
+  Retention,
   SettingsOut,
   SigningKeyGenerate,
   SigningKeyImport,
@@ -242,6 +244,68 @@ export function useDeleteCertificate() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/certificates/${encodeURIComponent(id)}`),
     onSuccess: () => client.invalidateQueries({ queryKey: [CERTIFICATES] }),
+  });
+}
+
+// --- The audit log (spec 9) -------------------------------------------------------------------
+
+const AUDIT = "audit";
+const DAY = 24 * 60 * 60 * 1000;
+
+/** What a person filters the records by, as the screen's address holds it: days, not times. */
+export type AuditFilters = Partial<
+  Record<"event" | "actor" | "target" | "since" | "until", string>
+>;
+
+/** The filters as the API takes them: a day from its start, until the end of the last one, in UTC. */
+function auditQuery(filters: AuditFilters): Record<string, string | undefined> {
+  const day = (text: string | undefined, after: number) => {
+    const start = text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? Date.parse(`${text}T00:00:00Z`) : NaN;
+    return Number.isNaN(start) ? undefined : new Date(start + after).toISOString();
+  };
+  return {
+    event: filters.event || undefined,
+    actor: filters.actor || undefined,
+    target: filters.target || undefined,
+    since: day(filters.since, 0),
+    until: day(filters.until, DAY),
+  };
+}
+
+export function useAuditRecords(page: number, filters: AuditFilters) {
+  const query = auditQuery(filters);
+  return useQuery({
+    queryKey: [AUDIT, "records", page, query],
+    queryFn: () => api.get<Page<AuditRecordOut>>("/audit", { query: { ...paged(page), ...query } }),
+  });
+}
+
+/** Where the records the filters give are downloaded, every one of them. */
+export function auditExportHref(format: "jsonl" | "csv", filters: AuditFilters): string {
+  const search = new URLSearchParams({ format });
+  for (const [name, value] of Object.entries(auditQuery(filters))) {
+    if (value) search.set(name, value);
+  }
+  return `${API_PREFIX}/audit/export?${search.toString()}`;
+}
+
+export function useAuditRetention() {
+  return useQuery({
+    queryKey: [AUDIT, "retention"],
+    queryFn: () => api.get<Retention>("/audit/retention"),
+  });
+}
+
+export function useSetAuditRetention() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) =>
+      api.put<Retention>("/audit/retention", { audit_retention_days: days }),
+    onSuccess: (kept) => {
+      client.setQueryData([AUDIT, "retention"], kept);
+      // The change is a record of its own.
+      return client.invalidateQueries({ queryKey: [AUDIT, "records"] });
+    },
   });
 }
 

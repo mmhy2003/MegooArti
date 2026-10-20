@@ -25,7 +25,8 @@
       "certificates": "Certificates",
       "manageRepositories": "Manage repositories",
       "blobStores": "Blob stores",
-      "system": "System"
+      "system": "System",
+      "audit": "Audit log"
     }
   },
   "theme": {
@@ -392,7 +393,10 @@
       "tokens": "API tokens",
       "settings": "Settings",
       "blobstores": "Blob stores",
-      "repositories": "Repositories"
+      "repositories": "Repositories",
+      "security": "Sign-in",
+      "certificates": "Certificates",
+      "audit": "Audit log"
     },
     "add": "Add a permission",
     "remove": "Remove permission {number}",
@@ -425,7 +429,10 @@
         "tokens": "everybody's API tokens",
         "settings": "the settings",
         "blobstores": "the blob stores",
-        "repositories": "the repositories"
+        "repositories": "the repositories",
+        "security": "how people sign in",
+        "certificates": "the trusted certificates",
+        "audit": "the audit log"
       },
       "other": "Whatever this pattern matches."
     }
@@ -1190,5 +1197,62 @@
     },
     "allow": "Allow",
     "refuse": "Refuse"
+  },
+  "audit": {
+    "title": "Audit log",
+    "intro": "Who changed what, and when: users, roles, tokens, sign-in sources, settings, certificates, repositories and blob stores; and every sign-in. Nothing here can be changed or deleted.",
+    "filters": "Filter the records",
+    "fields": {
+      "event": "Event",
+      "actor": "Who",
+      "target": "About",
+      "since": "From (UTC)",
+      "until": "Until (UTC, that day too)",
+      "days": "Days kept"
+    },
+    "hints": {
+      "days": "Older records are removed every hour. At least 1."
+    },
+    "everyEvent": "Every event",
+    "kinds": {
+      "sign_in": "Sign-in",
+      "session": "Sign-out",
+      "user": "Users",
+      "role": "Roles",
+      "token": "API tokens",
+      "connected_app": "Connected apps",
+      "oauth_client": "OAuth clients",
+      "source": "Sign-in sources",
+      "setting": "Settings",
+      "certificate": "Certificates",
+      "repository": "Repositories",
+      "signing_key": "Signing keys",
+      "blob_store": "Blob stores"
+    },
+    "apply": "Filter",
+    "export": {
+      "jsonl": "Export as JSON Lines",
+      "csv": "Export as CSV"
+    },
+    "none": "No records.",
+    "columns": {
+      "at": "When",
+      "actor": "Who",
+      "event": "Event",
+      "target": "About",
+      "address": "From",
+      "changes": "What changed"
+    },
+    "nothing": "—",
+    "field": "{field}: ",
+    "fromTo": "{before} → {after}",
+    "nobody": "Nobody signed in",
+    "method": "by {method}",
+    "changed": "{count, plural, one {# field} other {# fields}}",
+    "retentionTitle": "How long records are kept",
+    "retentionIntro": "A record older than this is removed. Exports keep them as long as you do.",
+    "daysRule": "A number of days from 1 to 36500.",
+    "saveRetention": "Save",
+    "retentionSaved": "{count, plural, one {Records are kept # day.} other {Records are kept # days.}}"
   }
 }

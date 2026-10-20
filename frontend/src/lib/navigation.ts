@@ -7,6 +7,7 @@ import {
   Boxes,
   HardDrive,
   KeyRound,
+  ScrollText,
   Search,
   Server,
   ShieldCheck,
@@ -21,6 +22,7 @@ import type { Route } from "next";
 import type { SessionInfo } from "@/lib/api/types";
 import {
   ANONYMOUS_ACCESS,
+  AUDIT,
   AUTHENTICATION,
   BLOB_STORES,
   CERTIFICATES,
@@ -43,7 +45,8 @@ export type ItemKey =
   | "certificates"
   | "manageRepositories"
   | "blobStores"
-  | "system";
+  | "system"
+  | "audit";
 
 export type NavItem = {
   /** Its name is the message `nav.items.<key>`. */
@@ -119,6 +122,7 @@ export const NAVIGATION: readonly NavArea[] = [
         permission: "admin:blobstores:read",
       },
       { key: "system", href: SYSTEM, icon: Server, permission: "admin:settings:read" },
+      { key: "audit", href: AUDIT, icon: ScrollText, permission: "admin:audit:read" },
     ],
   },
 ];

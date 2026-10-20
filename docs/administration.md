@@ -235,6 +235,43 @@ Certificates, or at `/api/v1/certificates`, and is trusted by all of them at onc
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.
 
+### Audit log
+
+Every change of configuration or security, and every sign-in, is recorded: under
+Administration, Audit log, or at `GET /api/v1/audit`, with `admin:audit:read`.
+
+- **What is recorded.** Users made, changed, deleted, and their passwords set
+  (`user.created`, `user.updated`, `user.deleted`, `user.password_changed`); roles;
+  API tokens made and revoked; applications approved and revoked, and OAuth clients
+  registered; sign-in sources; every setting (`setting.changed`, the order of the
+  sources among them); trusted certificates; repositories, their caches, indexes and
+  signing keys; blob stores. And sign-in: `sign_in.succeeded` (the web UI, a provider,
+  a directory), `sign_in.failed` (whatever was presented: a password, a token, a
+  provider's answer), `sign_in.throttled`, `sign_in.refused` (a trusted header from
+  elsewhere), and `session.signed_out`. A package client's password at each request is
+  not a sign-in: only its failures are recorded.
+- **What a record says.** When; who (their user name, or nobody); how they signed in
+  (`session`, `password`, `token`, `oauth` for an application a person approved,
+  `header`, `anonymous`, or `system` for what the server does itself, as the hourly
+  check of a directory); their address; the event; what it was about, by its kind and
+  its name; what changed, each field before and after; and the request's ID, which the
+  logs carry too. A secret (a password, a client secret, a remote's secret, a private
+  key) is said by its name, as `[redacted]`: its value is never recorded.
+- **With the change, or not at all.** A record is kept in the change's own transaction:
+  a change that is refused or fails leaves none.
+- **Nothing edits or deletes a record.** No route changes one; the hourly job removes
+  those older than the days kept: 365, unless set at `PUT /api/v1/audit/retention`
+  (`{"audit_retention_days": 90}`, at least 1) with `admin:audit:write`. The change is
+  a record of its own.
+- **Filters.** `since` and `until` (times; a date alone is that day's start, in UTC);
+  `actor`; `event`, an event (`user.created`) or a kind of event (`user`); `target`, a
+  name, and `target_kind`. Newest first, a page at a time (`limit`, `offset`).
+- **Export.** `GET /api/v1/audit/export?format=jsonl` (JSON Lines) or `format=csv`, with
+  the same filters: every record they give, streamed. A CSV cell that a spreadsheet
+  would take for a formula (it starts with `=`, `+`, `-` or `@`) is written with a `'`
+  before it. Export what you must keep longer than the days kept.
+- **MCP.** A tool's change is recorded by the route it calls, as the token's user.
+
 ### What an administrator may be given
 
 The built-in `admin` role holds `*`, which is everything. A role of your own can hold

@@ -53,7 +53,7 @@ const ROLES = [
   }),
   role("deployers", {
     description: "May deploy releases",
-    permissions: ["repository:maven:releases:add", "admin:audit:read"],
+    permissions: ["repository:maven:releases:add", "admin:jobs:read"],
     roles: ["anonymous"],
   }),
 ];
@@ -851,7 +851,7 @@ describe("a role", () => {
     // A permission this UI has no lists for is there as it was typed.
     expect(
       within(screen.getByRole("group", { name: "Permission 2" })).getByLabelText("Pattern"),
-    ).toHaveValue("admin:audit:read");
+    ).toHaveValue("admin:jobs:read");
     // A role does not contain itself, so it is not offered itself.
     expect(await screen.findByRole("checkbox", { name: "anonymous" })).toBeChecked();
     expect(screen.queryByRole("checkbox", { name: "deployers" })).toBeNull();
@@ -862,7 +862,7 @@ describe("a role", () => {
     await waitFor(() => expect(notices()).toHaveTextContent("Saved the role deployers."));
     expect(of(calls, "PUT")[0]?.body).toEqual({
       description: "May deploy releases",
-      permissions: ["repository:maven:releases:add", "admin:audit:read"],
+      permissions: ["repository:maven:releases:add", "admin:jobs:read"],
       roles: ["anonymous"],
     });
     await waitFor(() => expect(calls.some((call) => call.path === "/auth/session")).toBe(true));
@@ -1014,7 +1014,7 @@ describe("anonymous access (A9)", () => {
     expect(screen.getByText("Browse in every repository.")).toBeVisible();
     expect(screen.getByText("Read in every repository.")).toBeVisible();
     // Not what a visitor is never allowed, whatever the roles say.
-    expect(screen.queryByText("admin:audit:read")).toBeNull();
+    expect(screen.queryByText("admin:jobs:read")).toBeNull();
     await expectAccessible();
   });
 

@@ -70,7 +70,7 @@ describe("a permission pattern", () => {
     "admin",
     "admin:users",
     "repository:maven:releases:publish", // an action this UI does not know
-    "admin:audit:read", // an area this UI does not know
+    "admin:jobs:read", // an area this UI does not know
     "admin:users:read:more",
     "*:users:read",
     "metrics:read",

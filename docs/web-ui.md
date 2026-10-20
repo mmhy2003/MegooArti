@@ -81,6 +81,11 @@ repositories, blob stores and the installation's own settings.
     Fetch asks a server what it presents, its own certificate first; a certificate
     is trusted after a question that shows its whole fingerprint, to check with
     whoever runs the server. One can also be pasted in PEM, and removed.
+  - **Audit log** lists who changed what and every sign-in, newest first: when, who
+    and how they signed in, the event, what it was about and the address it came
+    from; each opens to what changed, before and after. Filter by a kind of event,
+    who, what it was about, and the days; export what the filters give as JSON Lines
+    or CSV. Whoever may change it sets how many days records are kept.
   - **Manage repositories** lists every repository as it is set up. A new one is made
     on one page: choose the format and the type, and the page shows what that
     combination has. A hosted repository has a deployment policy; a proxy has its

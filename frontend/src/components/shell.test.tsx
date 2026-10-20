@@ -82,10 +82,12 @@ describe("the shell", () => {
       ["Manage repositories", "/admin/repositories"],
       ["Blob stores", "/admin/blob-stores"],
       ["System", "/admin/system"],
+      ["Audit log", "/admin/audit"],
     ]);
     // One user's page is among the users.
     expect(links.map((link) => link.getAttribute("aria-current"))).toEqual([
       "page",
+      null,
       null,
       null,
       null,

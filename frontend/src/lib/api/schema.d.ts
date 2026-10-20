@@ -4,6 +4,68 @@
  */
 
 export interface paths {
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Records
+         * @description The records, newest first, a page at a time.
+         */
+        get: operations["list_records_api_v1_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Records
+         * @description Every record the filters give, newest first, as JSON Lines or CSV: streamed, a
+         *     record a line, however many there are.
+         */
+        get: operations["export_records_api_v1_audit_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Retention */
+        get: operations["read_retention_api_v1_audit_retention_get"];
+        /**
+         * Set Retention
+         * @description How many days a record is kept: the hourly job removes older ones.
+         */
+        put: operations["set_retention_api_v1_audit_retention_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth-sources": {
         parameters: {
             query?: never;
@@ -1170,6 +1232,37 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** AuditRecordOut */
+        AuditRecordOut: {
+            /** Actor */
+            actor: string | null;
+            /** Address */
+            address: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Changes */
+            changes: {
+                [key: string]: unknown;
+            } | null;
+            /** Event */
+            event: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Method */
+            method: string | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Target Kind */
+            target_kind: string | null;
+            /** Target Name */
+            target_name: string | null;
+        };
         /** BaseUrl */
         BaseUrl: {
             /** Base Url */
@@ -1530,6 +1623,17 @@ export interface components {
         Order: {
             /** Ids */
             ids: string[];
+        };
+        /** Page[AuditRecordOut] */
+        Page_AuditRecordOut_: {
+            /** Items */
+            items: components["schemas"]["AuditRecordOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
         };
         /** Page[BlobStoreOut] */
         Page_BlobStoreOut_: {
@@ -1909,6 +2013,11 @@ export interface components {
             repository: string;
             /** Version */
             version: string;
+        };
+        /** Retention */
+        Retention: {
+            /** Audit Retention Days */
+            audit_retention_days: number;
         };
         /** RoleContent */
         RoleContent: {
@@ -2341,6 +2450,143 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_records_api_v1_audit_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+                until?: string | null;
+                actor?: string | null;
+                event?: string | null;
+                target?: string | null;
+                target_kind?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AuditRecordOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    export_records_api_v1_audit_export_get: {
+        parameters: {
+            query?: {
+                format?: "jsonl" | "csv";
+                since?: string | null;
+                until?: string | null;
+                actor?: string | null;
+                event?: string | null;
+                target?: string | null;
+                target_kind?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    read_retention_api_v1_audit_retention_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Retention"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_retention_api_v1_audit_retention_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Retention"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Retention"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_sources_api_v1_auth_sources_get: {
         parameters: {
             query?: {

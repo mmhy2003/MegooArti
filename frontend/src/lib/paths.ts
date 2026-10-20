@@ -32,6 +32,7 @@ export const NEW_REPOSITORY = "/admin/repositories/~new" as Route;
 export const BLOB_STORES = "/admin/blob-stores" as Route;
 export const CERTIFICATES = "/admin/certificates" as Route;
 export const SYSTEM = "/admin/system" as Route;
+export const AUDIT = "/admin/audit" as Route;
 
 const segments = (path: string) => path.split("/").filter((segment) => segment !== "");
 const encoded = (path: string) => segments(path).map(encodeURIComponent).join("/");
@@ -71,6 +72,11 @@ export function searchHref(wanted: Record<string, string | undefined>): Route {
 }
 
 /** A page of a list that has numbered pages. The first has no number in its address. */
+/** The audit log, with the filters asked, at a page. */
+export function auditHref(filters: Record<string, string | undefined>, page: number): Route {
+  return withQuery(AUDIT, { ...filters, page: page > 1 ? String(page) : undefined });
+}
+
 export function pageHref(list: Route, page: number): Route {
   return withQuery(list, { page: page > 1 ? String(page) : undefined });
 }
