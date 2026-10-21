@@ -16,6 +16,8 @@ class FormatOut(BaseModel):
     # The public repository a new proxy is given where no remote is said, by the
     # protocol of its settings ("" for a format without one): none, where there is no one.
     public_remotes: dict[str, str]
+    # Whether a cleanup policy of the format may choose by release type.
+    has_prereleases: bool
 
 
 @router.get("", response_model=Page[FormatOut])
@@ -32,6 +34,7 @@ async def list_formats(
                     name=name,
                     types=sorted(handler.types),
                     public_remotes=dict(handler.public_remotes),
+                    has_prereleases=handler.has_prereleases,
                 )
             )
     return page(every[params.offset : params.offset + params.limit], len(every), params)

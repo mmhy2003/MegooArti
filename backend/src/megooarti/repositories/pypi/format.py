@@ -425,6 +425,7 @@ def _pep440_key(text: str) -> tuple:
 
 class PypiFormat(Format):
     name = "pypi"
+    has_prereleases = True
     public_remotes = MappingProxyType({"": "https://pypi.org"})
 
     def search_text(self, key: ComponentKey, attributes: dict[str, Any]) -> str:

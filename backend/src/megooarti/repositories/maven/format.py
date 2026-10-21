@@ -393,6 +393,7 @@ def _kind(files: Sequence[str]) -> str:
 
 class MavenFormat(Format):
     name = "maven"
+    has_prereleases = True
     public_remotes = MappingProxyType({"": "https://repo1.maven.org/maven2"})
 
     def validate_config(

@@ -350,6 +350,7 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
 
 class YumFormat(Format):
     name = "yum"
+    has_prereleases = True
     types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True
     signs = signing.OPENPGP

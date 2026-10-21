@@ -23,6 +23,9 @@ async def test_every_format_is_listed_with_its_types_and_public_remotes(client, 
     assert listed["raw"]["public_remotes"] == {}
     assert listed["yum"]["public_remotes"] == {}
     assert listed["docker"]["types"] == ["group", "hosted", "proxy"]
+    # A cleanup policy's release type is offered by it (cleanup spec 4.2).
+    assert listed["npm"]["has_prereleases"] is True
+    assert listed["raw"]["has_prereleases"] is False
 
 
 async def test_the_formats_are_not_told_to_whoever_is_not_signed_in(client):

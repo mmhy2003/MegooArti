@@ -730,6 +730,7 @@ async def _group_search(context: RepositoryContext, request: Request) -> Respons
 
 class NpmFormat(Format):
     name = "npm"
+    has_prereleases = True
     public_remotes = MappingProxyType({"": "https://registry.npmjs.org"})
 
     async def upload(self, context: RepositoryContext, form: UploadForm) -> list[str]:

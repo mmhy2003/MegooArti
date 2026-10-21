@@ -132,6 +132,9 @@ class Format:
     # by the protocol of its `format_config` ("" for a format without one). None where
     # there is no one public repository of the format.
     public_remotes: Mapping[str, str] = MappingProxyType({})
+    # Whether some of this format's versions are pre-releases (`is_prerelease`): a cleanup
+    # policy of the format may then choose by release type.
+    has_prereleases: bool = False
 
     def public_remote(self, format_config: Mapping[str, Any]) -> str | None:
         """The public repository a proxy with these settings is made with, if there is one."""
