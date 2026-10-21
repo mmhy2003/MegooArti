@@ -82,6 +82,7 @@ describe("the navigation as it is", () => {
       ["users", "/admin/users"],
       ["roles", "/admin/roles"],
       ["contentSelectors", "/admin/content-selectors"],
+      ["cleanupPolicies", "/admin/cleanup-policies"],
       ["anonymousAccess", "/admin/anonymous-access"],
       ["authentication", "/admin/authentication"],
       ["certificates", "/admin/certificates"],
@@ -97,6 +98,10 @@ describe("the navigation as it is", () => {
     // The content selectors are an area of their own (spec 10).
     expect(administration({ ...ADMIN, permissions: ["admin:selectors:read"] })).toEqual([
       ["contentSelectors", "/admin/content-selectors"],
+    ]);
+    // The cleanup policies are an area of their own (cleanup spec E8).
+    expect(administration({ ...ADMIN, permissions: ["admin:cleanup:read"] })).toEqual([
+      ["cleanupPolicies", "/admin/cleanup-policies"],
     ]);
     // The audit log is an area of its own (spec 9).
     expect(administration({ ...ADMIN, permissions: ["admin:audit:read"] })).toEqual([

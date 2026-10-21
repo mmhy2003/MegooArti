@@ -5,6 +5,7 @@
 import {
   BadgeCheck,
   Boxes,
+  Eraser,
   Filter,
   HardDrive,
   KeyRound,
@@ -27,6 +28,7 @@ import {
   AUTHENTICATION,
   BLOB_STORES,
   CERTIFICATES,
+  CLEANUP_POLICIES,
   CONTENT_SELECTORS,
   MANAGE_REPOSITORIES,
   ROLES,
@@ -43,6 +45,7 @@ export type ItemKey =
   | "users"
   | "roles"
   | "contentSelectors"
+  | "cleanupPolicies"
   | "anonymousAccess"
   | "authentication"
   | "certificates"
@@ -99,6 +102,12 @@ export const NAVIGATION: readonly NavArea[] = [
         href: CONTENT_SELECTORS,
         icon: Filter,
         permission: "admin:selectors:read",
+      },
+      {
+        key: "cleanupPolicies",
+        href: CLEANUP_POLICIES,
+        icon: Eraser,
+        permission: "admin:cleanup:read",
       },
       {
         key: "anonymousAccess",
