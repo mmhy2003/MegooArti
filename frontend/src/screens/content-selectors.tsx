@@ -3,7 +3,7 @@
 import { Check, FlaskConical, Plus, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { FORMATS } from "@/components/permission-rows";
 import { Alert, StatusTag } from "@/components/ui/alert";
@@ -157,6 +157,10 @@ function PreviewPanel({
     .map((line) => line.trim())
     .filter(Boolean);
   const tooMany = paths.length > MOST_PATHS ? t("tooManyPaths", { most: MOST_PATHS }) : undefined;
+  const { reset } = preview;
+  // What was tried is forgotten once it changes: a result, or a refusal still on its way,
+  // would be said of what is not being tried any more.
+  useEffect(() => reset(), [reset, expression, format, typed]);
 
   function run() {
     if (expression.trim() === "" || paths.length === 0 || tooMany) return;
@@ -251,6 +255,9 @@ function SelectorForm({
   const [description, setDescription] = useState(selector?.description ?? "");
   const [expression, setExpression] = useState(selector?.expression ?? "");
   const [previewSaid, setPreviewSaid] = useState<string | undefined>();
+  // The expression as it was sent to be saved: what the server says of it is said only
+  // while it is still the one in the field.
+  const [sent, setSent] = useState<string | null>(null);
   const { form, tried: checked, attempt } = useAttempts(error);
 
   const refused = refusalsOf(error, ["name", "description", "expression"]);
@@ -266,13 +273,14 @@ function SelectorForm({
           : t("nameDots");
   const nameProblem = checked ? (ownName ?? taken ?? refused.at.name) : undefined;
   const ownExpression = expression.trim() === "" ? t("expressionNeeded") : undefined;
-  const expressionProblem =
-    (checked ? (ownExpression ?? refused.at.expression) : undefined) ?? previewSaid;
+  const savedSaid = sent === expression.trim() ? refused.at.expression : undefined;
+  const expressionProblem = (checked ? (ownExpression ?? savedSaid) : undefined) ?? previewSaid;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     attempt();
     if (ownName || ownExpression) return;
+    setSent(expression.trim());
     onSave({ name, description: description.trim(), expression: expression.trim() });
   }
 

@@ -164,6 +164,51 @@ describe("the content selectors (spec 10)", () => {
     await waitFor(() => expect(expression).toHaveAccessibleDescription(/at character 9/));
   });
 
+  test("show no result of a try once what was tried has changed", async () => {
+    const user = userEvent.setup();
+    render(<NewSelectorScreen />, "/admin/content-selectors/~new", {
+      "POST /content-selectors/preview": {
+        json: { paths: [{ path: "/com/acme/x.jar", matches: true }] },
+      },
+    });
+
+    const expression = screen.getByLabelText(/^Expression/);
+    await user.type(expression, 'path =^ "/com/acme/"');
+    await user.type(screen.getByLabelText(/^Paths to try/), "/com/acme/x.jar");
+    await user.click(screen.getByRole("button", { name: "Try the expression" }));
+    await screen.findByRole("list", { name: "What the expression matches" });
+
+    await user.clear(expression);
+    await user.type(expression, 'path =^ "/org/"');
+
+    expect(screen.queryByRole("list", { name: "What the expression matches" })).toBeNull();
+  });
+
+  test("say at the expression what the last try said, not what an earlier save did", async () => {
+    const user = userEvent.setup();
+    render(<NewSelectorScreen />, "/admin/content-selectors/~new", {
+      "POST /content-selectors": failure(422, "validation_error", "The request is not valid.", [
+        { field: "expression", message: "Unexpected '=' (at character 6)" },
+      ]),
+      "POST /content-selectors/preview": failure(422, "validation_error", "Not valid.", [
+        { field: "expression", message: "Expected a string in double quotes (at character 9)" },
+      ]),
+    });
+
+    await user.type(screen.getByLabelText(/^Name/), "acme");
+    const expression = screen.getByLabelText(/^Expression/);
+    await user.type(expression, 'path = "/com/"');
+    await user.click(screen.getByRole("button", { name: "Create content selector" }));
+    await waitFor(() => expect(expression).toHaveAccessibleDescription(/at character 6/));
+
+    await user.clear(expression);
+    await user.type(expression, "path == maven");
+    await user.type(screen.getByLabelText(/^Paths to try/), "/x");
+    await user.click(screen.getByRole("button", { name: "Try the expression" }));
+
+    await waitFor(() => expect(expression).toHaveAccessibleDescription(/at character 9/));
+  });
+
   test("are changed on their page, and kept there", async () => {
     const user = userEvent.setup();
     const { calls } = render(<SelectorScreen />, "/admin/content-selectors/acme", {
