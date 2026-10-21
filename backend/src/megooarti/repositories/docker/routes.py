@@ -24,11 +24,10 @@ from megooarti.repositories.content import build_context
 from megooarti.repositories.docker import errors, names
 from megooarti.repositories.docker.errors import RegistryError
 from megooarti.repositories.docker.format import FORMAT, images
-from megooarti.security import registry_tokens
+from megooarti.security import access, registry_tokens
 from megooarti.security.authentication import (
     Credentials,
     Principal,
-    authorize,
     issue_registry_token,
     registry_credentials,
 )
@@ -174,10 +173,15 @@ async def catalog(
         count, last = _paging(request)
         found: list[str] = []
         for repository in await service.repositories_of(db, FORMAT):
-            context = await build_context(db, request.app.state.settings, repository, principal)
-            if not repository.online or not principal.allows(context.permission("read")):
+            reached = access.reach(principal, repository, "read")
+            if not repository.online or not reached.anything:
                 continue
-            found.extend(f"{repository.name}/{image}" for image in await images(context))
+            context = await build_context(db, request.app.state.settings, repository, principal)
+            found.extend(
+                f"{repository.name}/{image}"
+                for image in await images(context)
+                if reached.folder(image)  # an image is what is under its name
+            )
         listed = sorted(name for name in found if name > last)
         page = listed[:count]
         headers = {}
@@ -222,7 +226,7 @@ async def repository_request(
             outbound=lambda: remote.client_of(request.app),
         )
         if request.method in ("GET", "HEAD"):
-            authorize(principal, context.permission("read"), scheme="Basic")
+            access.require(principal, repository, path, "read")
         if not repository.online:
             raise ApiError(503, "repository_offline", "This repository is offline.")
         response = await dispatch.serve(context, request, path)

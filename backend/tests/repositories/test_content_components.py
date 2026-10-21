@@ -116,11 +116,14 @@ async def test_components_lists_a_packages_versions_with_their_attributes(contex
     assert await context.components("acme", "nothing") == []
 
 
-async def test_annotate_changes_a_components_attributes(context, db):
-    await store(context, "acme/app/1.0/app.tgz", component_attributes={"n": 1})
+APP = "acme/app/1.0/app.tgz"
 
-    changed = await context.annotate("acme", "app", "1.0", {"n": 1, "deprecated": "old"})
-    missing = await context.annotate("acme", "app", "9.9", {"n": 9})
+
+async def test_annotate_changes_a_components_attributes(context, db):
+    await store(context, APP, component_attributes={"n": 1})
+
+    changed = await context.annotate("acme", "app", "1.0", {"n": 1, "deprecated": "old"}, path=APP)
+    missing = await context.annotate("acme", "app", "9.9", {"n": 9}, path=APP)
 
     assert (changed, missing) == (True, False)
     assert (await context.components("acme", "app"))[0].attributes == {"n": 1, "deprecated": "old"}
@@ -135,8 +138,8 @@ async def test_annotate_needs_edit_and_a_repository_that_takes_changes(db, files
         db, files, online=True, hosted={"deployment_policy": "read_only"}, format_config={}
     )
 
-    forbidden = await error_of(adder.annotate("acme", "app", "1.0", {"n": 2}))
-    read_only = await error_of(writer.annotate("acme", "app", "1.0", {"n": 2}))
+    forbidden = await error_of(adder.annotate("acme", "app", "1.0", {"n": 2}, path=APP))
+    read_only = await error_of(writer.annotate("acme", "app", "1.0", {"n": 2}, path=APP))
 
     assert (forbidden.status_code, forbidden.code) == (403, "forbidden")
     assert (read_only.status_code, read_only.code) == (403, "repository_read_only")

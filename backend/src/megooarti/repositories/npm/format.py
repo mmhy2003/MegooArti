@@ -482,7 +482,9 @@ async def _update(
 
     for version, message in plan.deprecations.items():  # needs `edit`
         changed = documents.deprecated(held[version], message)
-        await context.annotate(scope, name, version, {_MANIFEST: changed})
+        await context.annotate(
+            scope, name, version, {_MANIFEST: changed}, path=paths.tarball_path(package, version)
+        )
     for version in plan.removals:  # needs `delete`
         await context.delete(paths.tarball_path(package, version))
     if tags is not None:

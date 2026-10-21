@@ -97,6 +97,9 @@ async def test_what_a_component_is_found_by_has_a_limit(client, root, db):
     assert len(text) == 4000 and text.startswith("tool 1.0.0 tool word word")
 
 
+TARBALL = "tool/-/tool-1.0.0.tgz"
+
+
 async def test_changing_what_is_said_about_a_component_changes_what_it_is_found_by(
     client, root, db, context_for
 ):
@@ -104,7 +107,9 @@ async def test_changing_what_is_said_about_a_component_changes_what_it_is_found_
     await publish(client, root, "tool", "1.0.0", description="first words")
     context = await context_for(repository, someone("repository:npm:npm"))
 
-    await context.annotate("", "tool", "1.0.0", {"npm": {"description": "Deprecated: use saw"}})
+    await context.annotate(
+        "", "tool", "1.0.0", {"npm": {"description": "Deprecated: use saw"}}, path=TARBALL
+    )
     await db.commit()
 
     assert await texts(db, None) == ["tool 1.0.0 tool deprecated: use saw"]

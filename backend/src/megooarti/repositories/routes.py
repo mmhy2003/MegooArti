@@ -15,9 +15,9 @@ from megooarti.errors import ApiError
 from megooarti.repositories import dispatch, remote, service
 from megooarti.repositories.content import build_context
 from megooarti.repositories.formats import get_format
+from megooarti.security import access
 from megooarti.security.authentication import (
     Credentials,
-    authorize,
     client_credentials,
     unauthorized,
 )
@@ -63,7 +63,8 @@ async def repository_content(
     )
 
     if reading:
-        authorize(principal, context.permission("read"), scheme="Basic")
+        # The path asked for, as it is asked: a path is never rewritten to be served.
+        access.require(principal, repository, path, "read")
     elif principal is None and not in_body:
         raise unauthorized(scheme="Basic")
     if not repository.online:

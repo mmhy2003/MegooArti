@@ -26,8 +26,8 @@ from megooarti.repositories import serving
 from megooarti.repositories.formats import ComponentKey, Format, get_format
 from megooarti.repositories.models import Asset, AssetReference, Component, Repository
 from megooarti.repositories.paths import normalise_path
-from megooarti.security import client_login
-from megooarti.security.authentication import Principal, authorize, unauthorized
+from megooarti.security import access, client_login
+from megooarti.security.authentication import Principal, unauthorized
 from megooarti.storage import blobs
 from megooarti.storage.backends import BlobBackend, StagedBlob
 from megooarti.storage.blob_stores import backend_for
@@ -195,9 +195,6 @@ class RepositoryContext:
         self.outbound = outbound
         # Every staged blob recorded for this request, in case the request is rolled back.
         self.recorded: list[StagedBlob] = []
-
-    def permission(self, action: str) -> str:
-        return f"repository:{self.repository.format}:{self.repository.name}:{action}"
 
     def http(self) -> Any:
         """The application's outbound HTTP client, for fetching from a remote."""
@@ -720,24 +717,25 @@ class RepositoryContext:
                 409, "redeploy_disabled", "This repository does not allow a path to be replaced."
             )
 
-    def _check_may_store(self, existing: Asset | None) -> None:
+    def _check_may_store(self, path: str, existing: Asset | None) -> None:
         action = "add" if existing is None else "edit"
-        authorize(self.principal, self.permission(action), scheme="Basic")
+        access.require(self.principal, self.repository, path, action)
         self._check_policy(replacing=existing is not None)
 
     def require_write(self) -> None:
         """Refuse a caller who may not change this repository's content at all.
 
         For an upload a format accepts without storing it as sent: it needs `add` or
-        `edit`, and the repository must not be read-only.
+        `edit` somewhere in the repository (each path it stores is checked as it is), and
+        the repository must not be read-only.
         """
         if self.repository.type != "hosted":
             # A programming error, like caching into a repository that is not a proxy.
             raise RuntimeError("only a hosted repository takes uploads")
         try:
-            authorize(self.principal, self.permission("add"), scheme="Basic")
+            access.require_somewhere(self.principal, self.repository, "add")
         except ApiError:
-            authorize(self.principal, self.permission("edit"), scheme="Basic")
+            access.require_somewhere(self.principal, self.repository, "edit")
         self._check_policy(replacing=False)
 
     async def _new_revision(self) -> None:
@@ -811,7 +809,7 @@ class RepositoryContext:
         path may have been written while the body arrived.
         """
         path = normalise_path(path)
-        self._check_may_store(await self.get(path))
+        self._check_may_store(path, await self.get(path))
         await self.db.commit()  # give the connection back while the body arrives
         staged = await self.stage(
             chunks, expected_size=expected_size, expected_hashes=expected_hashes
@@ -895,7 +893,7 @@ class RepositoryContext:
             await self._lock("path", path)
             existing = await self.get(path, fresh=True)
             if checked:
-                self._check_may_store(existing)
+                self._check_may_store(path, existing)
             await self._new_revision()
             blob = await blobs.record(self.db, self.backend, self.repository.blob_store_id, staged)
             self.recorded.append(staged)
@@ -1048,7 +1046,7 @@ class RepositoryContext:
         """
         path = normalise_path(path)
         if removing:
-            authorize(self.principal, self.permission("delete"), scheme="Basic")
+            access.require(self.principal, self.repository, path, "delete")
             self._check_policy(replacing=False)
         else:
             self.require_write()
@@ -1082,14 +1080,15 @@ class RepositoryContext:
         )
 
     async def annotate(
-        self, namespace: str, name: str, version: str, attributes: dict[str, Any]
+        self, namespace: str, name: str, version: str, attributes: dict[str, Any], *, path: str
     ) -> bool:
         """Replace a component's attributes. False if there is no such component.
 
-        Changing what is said about a published version needs `edit`. It is not a
-        redeploy, so `disable_redeploy` does not stop it; a read-only repository does.
+        Changing what is said about a published version needs `edit`, at `path`: the
+        file of the version it is said of. It is not a redeploy, so `disable_redeploy`
+        does not stop it; a read-only repository does.
         """
-        authorize(self.principal, self.permission("edit"), scheme="Basic")
+        access.require(self.principal, self.repository, path, "edit")
         self._check_policy(replacing=False)
         key = ComponentKey(namespace, name, version)
         await self._lock_component(key)
@@ -1112,7 +1111,7 @@ class RepositoryContext:
     async def delete(self, path: str) -> bool:
         """Remove what is at a path. False if there was nothing. The caller commits."""
         path = normalise_path(path)
-        authorize(self.principal, self.permission("delete"), scheme="Basic")
+        access.require(self.principal, self.repository, path, "delete")
         self._check_policy(replacing=False)
         return await self._remove(path)
 
