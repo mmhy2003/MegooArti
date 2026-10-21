@@ -27,6 +27,7 @@ from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.formats import ComponentKey, Format, get_format
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
+from megooarti.repositories.removal import delete_file
 from megooarti.security import access
 from megooarti.security.authentication import (
     Principal,
@@ -360,14 +361,6 @@ async def _deletable(
     return await build_context(db, request.app.state.settings, repository, caller)
 
 
-async def _delete_file(context: RepositoryContext, path: str) -> bool:
-    """Delete one stored file as its format would. False if there is none."""
-    if context.repository.type == "proxy":
-        # Only ever a cached copy. It is fetched again when it is next asked for.
-        return await context.delete(path)
-    return await _handler(context.repository).delete_asset(context, path)
-
-
 @router.delete("/{repository}/asset", status_code=204)
 async def delete_asset(
     repository: str,
@@ -378,7 +371,7 @@ async def delete_asset(
 ) -> None:
     """Delete a file, as deleting it with its format's own client would."""
     context = await _deletable(request, db, repository, caller)
-    if not await _delete_file(context, normalise_path(path)):
+    if not await delete_file(context, normalise_path(path)):
         raise ApiError(404, "not_found", "No such file.")
     await db.commit()
 
@@ -412,7 +405,7 @@ async def delete_folder(
         if not deletable.allows(held):
             continue  # not theirs to delete: it stays, and is not said
         try:
-            deleted += await _delete_file(context, held)  # 0 if it went with an earlier one
+            deleted += await delete_file(context, held)  # 0 if it went with an earlier one
         except ApiError as error:
             if error.code != "managed_by_format":
                 raise
@@ -437,7 +430,7 @@ async def delete_component(
     if held is None:
         raise ApiError(404, "not_found", "No such component.")
     for file in held[1]:
-        await _delete_file(context, file.path)
+        await delete_file(context, file.path)
     await db.commit()
 
 
