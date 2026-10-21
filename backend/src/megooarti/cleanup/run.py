@@ -7,10 +7,11 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from typing import Literal
 
 import structlog
 from fastapi import FastAPI
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from megooarti.cleanup import selection
@@ -99,11 +100,15 @@ async def remove(context: RepositoryContext, component_id: uuid.UUID, now: datet
 
 # How often the daily run asks which repositories are due (E5).
 CHECK_SECONDS = 3600
+# How many runs started now one server runs at once, beside the daily one: each holds two
+# of the database's connections for as long as it lasts.
+MOST_AT_ONCE = 2
 
 
 async def due(db: AsyncSession, now: datetime, interval_seconds: int) -> list[uuid.UUID]:
     """The hosted and proxy repositories with a policy attached whose last run did not
-    finish within the interval (never run, run long ago, or cut short long ago)."""
+    finish within the interval: never run, run long ago, or cut short (R10). One under
+    way elsewhere is among them, and is passed over by its claim."""
     since = now - timedelta(seconds=interval_seconds)
     attached = select(RepositoryCleanupPolicy.repository_id).where(
         RepositoryCleanupPolicy.repository_id == Repository.id
@@ -117,7 +122,8 @@ async def due(db: AsyncSession, now: datetime, interval_seconds: int) -> list[uu
                 attached.exists(),
                 or_(
                     CleanupRun.repository_id.is_(None),
-                    func.coalesce(CleanupRun.finished_at, CleanupRun.started_at) < since,
+                    CleanupRun.finished_at.is_(None),
+                    CleanupRun.finished_at < since,
                 ),
             )
             .order_by(Repository.name_key)
@@ -137,19 +143,42 @@ async def daily(app: FastAPI) -> int:
         if connection is None:
             continue
         try:
-            await clean(app.state.sessionmaker, settings, repository_id)
-            cleaned += 1
+            # The list is old by now: a run here or elsewhere may have cleaned it since.
+            async with app.state.sessionmaker() as db:
+                still = await _still_due(
+                    db, repository_id, utcnow(), settings.cleanup_interval_seconds
+                )
+            if still:
+                await clean(app.state.sessionmaker, settings, repository_id)
+                cleaned += 1
         finally:
             await release(connection, repository_id)
     return cleaned
 
 
-async def start_now(app: FastAPI, repository: Repository, by: str) -> bool:
-    """Start a run of a repository in the server, unless one is under way (False). It
-    keeps the caller's context: its record names who asked (R7)."""
+async def _still_due(
+    db: AsyncSession, repository_id: uuid.UUID, now: datetime, interval_seconds: int
+) -> bool:
+    """Whether a repository's last run, read now, did not finish within the interval."""
+    kept = await db.get(CleanupRun, repository_id, populate_existing=True)
+    return (
+        kept is None
+        or kept.finished_at is None
+        or kept.finished_at < now - timedelta(seconds=interval_seconds)
+    )
+
+
+async def start_now(
+    app: FastAPI, repository: Repository, by: str
+) -> Literal["started", "running", "busy"]:
+    """Start a run of a repository in the server: `running` if one of it is under way,
+    `busy` if this server runs as many as it runs at once. It keeps the caller's context:
+    its record names who asked (R7)."""
+    if len(app.state.cleanups) >= MOST_AT_ONCE:
+        return "busy"
     connection = await claim(app.state.engine, repository.id)
     if connection is None:
-        return False
+        return "running"
 
     async def running() -> None:
         try:
@@ -162,7 +191,7 @@ async def start_now(app: FastAPI, repository: Repository, by: str) -> bool:
     task = asyncio.create_task(running())
     app.state.cleanups.add(task)
     task.add_done_callback(app.state.cleanups.discard)
-    return True
+    return "started"
 
 
 # --- One repository's run --------------------------------------------------------------

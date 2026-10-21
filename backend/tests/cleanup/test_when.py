@@ -42,6 +42,36 @@ async def test_a_repository_is_due_a_day_after_its_last_run(client, root, db, fi
     assert await run.due(db, utcnow(), DAY) == [files.id]
 
 
+async def test_a_run_cut_short_is_due_at_the_next_check(db, files):
+    # Stopped by a restart an hour ago: taken up again, not a day after it began (R10).
+    await attach(db, files)
+    await ran(db, files, hours_ago=1, finished=False)
+
+    assert await run.due(db, utcnow(), DAY) == [files.id]
+
+
+async def test_a_repository_cleaned_meanwhile_is_not_cleaned_again(
+    app, client, root, db, files, monkeypatch
+):
+    # Due when the list was made; cleaned by another run before its turn came.
+    await put(client, root, "old.txt")
+    await age(db, "old.txt", written=40)
+    await attach(db, files)
+    await ran(db, files, hours_ago=0)
+    kept = await db.get(CleanupRun, files.id)
+    finished = kept.finished_at
+
+    async def stale(db, now, interval_seconds):
+        return [files.id]
+
+    monkeypatch.setattr(run, "due", stale)
+
+    assert await run.daily(app) == 0
+    again = await db.get(CleanupRun, files.id, populate_existing=True)
+    assert again.finished_at == finished
+    assert await paths_of(db, files) == ["old.txt"]
+
+
 async def test_the_daily_check_cleans_what_is_due(app, client, root, db, files):
     await put(client, root, "old.txt")
     await age(db, "old.txt", written=40)

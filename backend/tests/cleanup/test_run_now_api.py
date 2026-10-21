@@ -54,6 +54,35 @@ async def test_a_repository_is_cleaned_by_one_run_at_a_time(app, admin_client, d
     assert elsewhere.status_code == 202
 
 
+async def test_runs_started_now_are_few_at_a_time(app, admin_client, db, files, monkeypatch):
+    # Each run holds connections for as long as it lasts: a few at once, not every one.
+    monkeypatch.setattr(run, "MOST_AT_ONCE", 1)
+    await attach(db, files)
+    other = await admin_client.post(
+        REPOSITORIES, json={"name": "other", "format": "raw", "type": "hosted"}
+    )
+    await admin_client.put(f"{REPOSITORIES}/other", json={"cleanup_policies": ["old"]})
+    going = asyncio.Event()
+    real = run.clean
+
+    async def slow(*args, **kwargs):
+        await going.wait()
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(run, "clean", slow)
+    first = await admin_client.post(f"{REPOSITORIES}/files/cleanup")
+    second = await admin_client.post(f"{REPOSITORIES}/other/cleanup")
+    going.set()
+    await asyncio.gather(*app.state.cleanups)
+    third = await admin_client.post(f"{REPOSITORIES}/other/cleanup")
+    await asyncio.gather(*app.state.cleanups)
+
+    assert other.status_code == 201
+    assert first.status_code == 202
+    assert (second.status_code, error_code(second)) == (409, "cleanup_busy")
+    assert third.status_code == 202
+
+
 async def test_clean_up_now_needs_policies_and_a_repository_that_holds(admin_client, files):
     bare = await admin_client.post(f"{REPOSITORIES}/files/cleanup")
     await admin_client.post(

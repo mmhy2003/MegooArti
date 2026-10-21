@@ -335,8 +335,15 @@ async def clean_up_now(
     repository = await _cleanable(db, name)
     # The request reads nothing more: its session is done before the run's own begin.
     await db.close()
-    if not await cleanup_run.start_now(request.app, repository, principal.user.username):
+    started = await cleanup_run.start_now(request.app, repository, principal.user.username)
+    if started == "running":
         raise ApiError(409, "cleanup_running", "A cleanup of this repository is already running.")
+    if started == "busy":
+        raise ApiError(
+            409,
+            "cleanup_busy",
+            "As many cleanups as this server runs at once are running. Try again when one ends.",
+        )
     log.info("cleanup_started", repository=name, by=principal.user.username)
     return Response(status_code=202)
 

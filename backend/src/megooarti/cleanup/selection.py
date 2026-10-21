@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, true
+from sqlalchemy import ColumnElement, and_, exists, func, or_, select, true
 
 from megooarti.cleanup.criteria import Criteria, Held
 from megooarti.repositories.content import RepositoryContext
@@ -56,7 +56,13 @@ async def _page(
     context: RepositoryContext, conditions: list, *, after: uuid.UUID | None, limit: int
 ) -> list[Held]:
     modified, downloaded, paths = _columns()
-    where = [Component.repository_id == context.repository.id, *conditions]
+    where = [
+        Component.repository_id == context.repository.id,
+        # A component with no file (an index's rebuild cut short) is no candidate: left
+        # in a page, it would make the page look like the last one.
+        exists().where(Asset.component_id == Component.id),
+        *conditions,
+    ]
     unlisted = context.format.unlisted_namespaces
     if unlisted:
         where.append(Component.namespace.not_in(sorted(unlisted)))

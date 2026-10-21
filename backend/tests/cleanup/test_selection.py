@@ -2,6 +2,8 @@
 database, a component as old as its newest file, never downloaded counting from when it
 was made."""
 
+import uuid
+
 from sqlalchemy import delete, select, update
 
 from megooarti.cleanup import selection
@@ -69,6 +71,20 @@ async def test_any_policy_selects(client, root, db, settings, files):
     found = await selected(db, settings, files, policies)
 
     assert sorted(found) == ["old.txt", "tmp/x.txt"]
+
+
+async def test_a_component_with_no_files_does_not_end_the_walk(client, root, db, settings, files):
+    # Left so by a rebuild of the index cut short: the first page holds it alone.
+    db.add(Component(id=uuid.UUID(int=0), repository_id=files.id, namespace="", name="empty"))
+    await db.commit()
+    paths = [f"old/{number}.txt" for number in range(3)]
+    for path in paths:
+        await put(client, root, path)
+        await age(db, path, written=40)
+
+    found = await selected(db, settings, files, [Criteria(asset_pattern=".*")], batch=1)
+
+    assert sorted(found) == paths
 
 
 async def test_the_preview_walks_a_repository_in_pages(client, root, db, settings, files):
