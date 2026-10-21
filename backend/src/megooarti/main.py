@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from megooarti import __version__
 from megooarti.api_docs import docs_router
+from megooarti.cleanup import api as cleanup_api
 from megooarti.clock import utcnow
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
@@ -202,6 +203,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_api.router, prefix=API_PREFIX)
     app.include_router(roles_api.router, prefix=API_PREFIX)
     app.include_router(selectors_api.router, prefix=API_PREFIX)
+    app.include_router(cleanup_api.router, prefix=API_PREFIX)
     app.include_router(sources_api.router, prefix=API_PREFIX)
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(information_router, prefix=API_PREFIX)
