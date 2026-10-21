@@ -7,11 +7,12 @@ from datetime import datetime
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from megooarti.cleanup import run as cleanup_run
 from megooarti.cleanup import selection
 from megooarti.cleanup.criteria import ANY_FORMAT, Criteria, problems
 from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
@@ -31,6 +32,8 @@ from megooarti.system import audit
 log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/cleanup-policies", tags=["cleanup policies"])
+# A repository's cleanup, run now or counted: its settings' (E8).
+repository_router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 
 class PolicyContent(BaseModel):
@@ -301,3 +304,56 @@ async def delete_policy(
     audit.record(db, "cleanup_policy.deleted", ("cleanup_policy", name), audit.diff(before, None))
     await db.commit()
     log.info("cleanup_policy_deleted", policy=name, by=principal.user.username)
+
+
+# --- A repository's cleanup, now ---------------------------------------------------------
+
+
+class CleanupCount(BaseModel):
+    total: int  # the components the policies attached would remove now, each once
+
+
+async def _cleanable(db: AsyncSession, name: str) -> Repository:
+    """A repository with policies attached to run. 404 if there is none of that name."""
+    repository = await service.get_repository(db, name)
+    if repository is None:
+        raise ApiError(404, "not_found", "No such repository.")
+    if repository.type == "group" or not await service.policy_names(db, repository):
+        raise ApiError(409, "no_cleanup_policies", "No cleanup policy is attached to it.")
+    return repository
+
+
+@repository_router.post("/{name}/cleanup", status_code=202)
+async def clean_up_now(
+    name: str,
+    request: Request,
+    principal: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Run the repository's cleanup policies now. It answers at once; the run goes on in
+    the server, and the repository's `cleanup` says how it went."""
+    repository = await _cleanable(db, name)
+    # The request reads nothing more: its session is done before the run's own begin.
+    await db.close()
+    if not await cleanup_run.start_now(request.app, repository, principal.user.username):
+        raise ApiError(409, "cleanup_running", "A cleanup of this repository is already running.")
+    log.info("cleanup_started", repository=name, by=principal.user.username)
+    return Response(status_code=202)
+
+
+@repository_router.post("/{name}/cleanup/preview", response_model=CleanupCount)
+async def count_cleanup(
+    name: str,
+    request: Request,
+    _: Principal = Depends(require("admin:repositories:write")),
+    db: AsyncSession = Depends(get_session),
+) -> CleanupCount:
+    """How many components the repository's policies would remove now: each once, of the
+    whole repository. Nothing is removed."""
+    repository = await _cleanable(db, name)
+    context = await build_context(db, request.app.state.settings, repository, None)
+    policies = [criteria for _, criteria in await cleanup_run.policies_of(db, repository)]
+    total = 0
+    async for _ in selection.selected(context, policies, utcnow()):
+        total += 1
+    return CleanupCount(total=total)

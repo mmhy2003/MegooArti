@@ -2,13 +2,15 @@
 a delete through the API would remove it, with nobody calling (5.3), checked again first
 against the policies as they are then (E6)."""
 
+import asyncio
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
-from sqlalchemy import select, text
+from fastapi import FastAPI
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from megooarti.cleanup import selection
@@ -91,6 +93,76 @@ async def remove(context: RepositoryContext, component_id: uuid.UUID, now: datet
                 await context.delete(companion)
     await context.format.cleaned_up(context, files)
     return chosen
+
+
+# --- When ------------------------------------------------------------------------------
+
+# How often the daily run asks which repositories are due (E5).
+CHECK_SECONDS = 3600
+
+
+async def due(db: AsyncSession, now: datetime, interval_seconds: int) -> list[uuid.UUID]:
+    """The hosted and proxy repositories with a policy attached whose last run did not
+    finish within the interval (never run, run long ago, or cut short long ago)."""
+    since = now - timedelta(seconds=interval_seconds)
+    attached = select(RepositoryCleanupPolicy.repository_id).where(
+        RepositoryCleanupPolicy.repository_id == Repository.id
+    )
+    return list(
+        await db.scalars(
+            select(Repository.id)
+            .outerjoin(CleanupRun, CleanupRun.repository_id == Repository.id)
+            .where(
+                Repository.type.in_(("hosted", "proxy")),
+                attached.exists(),
+                or_(
+                    CleanupRun.repository_id.is_(None),
+                    func.coalesce(CleanupRun.finished_at, CleanupRun.started_at) < since,
+                ),
+            )
+            .order_by(Repository.name_key)
+        )
+    )
+
+
+async def daily(app: FastAPI) -> int:
+    """Clean each repository that is due, one after another, passing over one another
+    container is cleaning. How many were cleaned."""
+    settings = app.state.settings
+    async with app.state.sessionmaker() as db:
+        found = await due(db, utcnow(), settings.cleanup_interval_seconds)
+    cleaned = 0
+    for repository_id in found:
+        connection = await claim(app.state.engine, repository_id)
+        if connection is None:
+            continue
+        try:
+            await clean(app.state.sessionmaker, settings, repository_id)
+            cleaned += 1
+        finally:
+            await release(connection, repository_id)
+    return cleaned
+
+
+async def start_now(app: FastAPI, repository: Repository, by: str) -> bool:
+    """Start a run of a repository in the server, unless one is under way (False). It
+    keeps the caller's context: its record names who asked (R7)."""
+    connection = await claim(app.state.engine, repository.id)
+    if connection is None:
+        return False
+
+    async def running() -> None:
+        try:
+            await clean(app.state.sessionmaker, app.state.settings, repository.id, by=by)
+        except Exception:
+            log.error("cleanup_failed", repository=repository.name, exc_info=True)
+        finally:
+            await release(connection, repository.id)
+
+    task = asyncio.create_task(running())
+    app.state.cleanups.add(task)
+    task.add_done_callback(app.state.cleanups.discard)
+    return True
 
 
 # --- One repository's run --------------------------------------------------------------

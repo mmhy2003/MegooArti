@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     login_failure_window_seconds: int = 900
     compaction_interval_seconds: int = 3600
     blob_grace_seconds: int = 86400
+    # How long after its last cleanup run a repository is cleaned again; 0 for never by
+    # itself (cleanup spec E5).
+    cleanup_interval_seconds: int = 86400
     secret_key: str | None = None
     npm_max_publish_bytes: int = 100 * 1024 * 1024
 
