@@ -3,6 +3,7 @@
 Alembic's autogenerate and the model/migration drift test both rely on this module.
 """
 
+from megooarti.cleanup import models as _cleanup_models  # noqa: F401
 from megooarti.repositories import models as _repository_models  # noqa: F401
 from megooarti.security import models as _security_models  # noqa: F401
 from megooarti.storage import models as _storage_models  # noqa: F401
