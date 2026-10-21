@@ -1687,6 +1687,7 @@
           "paths": {
             "default": [],
             "items": {
+              "maxLength": 1024,
               "type": "string"
             },
             "maxItems": 100,

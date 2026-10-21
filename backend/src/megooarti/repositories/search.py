@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.repositories.formats import get_format
 from megooarti.repositories.models import Asset, Component, Repository
-from megooarti.repositories.reached import holding, unreached
+from megooarti.repositories.reached import excluding, holding, unreached
 from megooarti.security.access import Reached
 from megooarti.storage.models import Blob
 
@@ -136,7 +136,7 @@ async def search(
         conditions.append(holding(reached))
         hidden = await unreached(db, reached, conditions)
         if hidden:
-            conditions.append(Component.id.not_in(hidden))
+            conditions.append(excluding(hidden))
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
     # By bytes, so that the order is the same whatever the database orders by.
     order = (

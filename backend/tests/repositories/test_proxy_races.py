@@ -9,6 +9,7 @@ from megooarti.repositories import service
 from megooarti.repositories.content import build_context
 from megooarti.repositories.models import Repository
 from megooarti.repositories.proxy import handle_proxy
+from tests.repositories.conftest import someone
 from tests.repositories.fake_remote import FakeRemote
 from tests.storage.test_races import Factory, run
 
@@ -36,7 +37,8 @@ def test_many_readers_of_one_uncached_file_ask_the_remote_once(empty_database, t
         async def read_once() -> bytes:
             async with factory() as db:
                 mirror = await db.get(Repository, repository.id)
-                context = await build_context(db, settings, mirror, None, outbound=lambda: http)
+                reader = someone("repository:raw:mirror:read")
+                context = await build_context(db, settings, mirror, reader, outbound=lambda: http)
                 request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
                 response = await handle_proxy(context, request, "big.bin")
                 return b"".join([chunk async for chunk in response.body_iterator])

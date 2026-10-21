@@ -136,3 +136,18 @@ async def test_what_a_database_is_asked_keeps_every_match_and_is_exact_where_it_
         assert kept or not matched, (text, path)
         if exact:
             assert kept == matched, (text, path)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["^/(\\\\w+/?)*\\\\.jar$", "(a+)+", "(a*)*b", "(?:x+){2,}", "((ab)+c)*"],
+)
+def test_a_pattern_that_repeats_a_repetition_is_refused(pattern):
+    # Each takes time that doubles with the length of a path made to defeat it.
+    with pytest.raises(SelectorError, match="repeats a repetition"):
+        parse(f'path =~ "{pattern}"')
+
+
+@pytest.mark.parametrize("pattern", [".*\\\\.jar", "(abc)+/x", "[a-z]+/.*", "(a|b)*", "x{2,5}"])
+def test_a_pattern_that_repeats_no_repetition_is_kept(pattern):
+    assert parse(f'path =~ "{pattern}"')

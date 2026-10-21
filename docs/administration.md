@@ -274,14 +274,25 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   - Changing a selector changes, at once, what every permission naming it gives.
 - **Reading, writing, deleting.**
   - A download is checked at the path asked for, whether by a package client, the
-    registry, or the API's file details.
-  - Each file stored or deleted is checked at its own path.
+    registry, or the API's file details; and again at the path of the file served,
+    where a format keeps it elsewhere (NuGet's V2 download, npm's revisions).
+  - Each file stored or deleted is checked at its own path, and so is each document a
+    format keeps of what was changed (npm's dist-tags, at `/-/package/<package>/`;
+    Maven's metadata): a selector for publishing names those paths too.
   - An upload needs `add` or `edit` somewhere in the repository before its body is
     read, and then at each path it stores.
   - Changing what is said of a published version (npm's deprecate) needs `edit` at
     the version's file.
-  - Through a group, the group's permission is checked at the path asked for; its
-    members are not checked again.
+  - Through a group, the group's permission is checked at the path asked for and at
+    the path served; its members are not checked again.
+  - Docker is checked at the registry's path, by image: pulls by selector work, and
+    a layer is served by its digest, which a manifest the caller may read names.
+    Pushing and deleting check the paths images are kept at (`blobs/`, `manifests/`,
+    `tags/`), which no image's selector names: give those a repository permission.
+  - A format's own indexes and searches (npm's search, NuGet's feeds, PyPI's simple
+    index, APT, YUM and APK indexes) still name what a selector hides, though its
+    files are not served: to keep a package's very name from someone, keep it in a
+    repository they may not browse.
 - **What is listed.**
   - A repository is listed to a caller holding a selector permission that names it,
     with a selector that can match its format.
@@ -307,8 +318,9 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   - Listing through a selector asks the database for what its prefixes allow. Where a
     pattern is in it, each file kept is then checked: a listing a pattern decides is
     slower in a large repository.
-  - A pattern is run against paths that anyone may send. Keep patterns simple: one
-    that nests repetitions, such as `(a+)+`, can take very long on a crafted path.
+  - A pattern is run against paths that anyone may send, so one that repeats a
+    repetition (`(a+)+`, `(\w+/?)*`) is refused: its time on a crafted path doubles
+    with each character.
   - Each change of a selector is recorded in the audit log (`selector.created`,
     `selector.updated`, `selector.deleted`).
 

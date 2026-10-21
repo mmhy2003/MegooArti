@@ -150,3 +150,12 @@ async def test_selectors_need_their_permissions(client, make_user, sessionmaker)
 
     assert (nobody.status_code, sam.status_code) == (401, 403)
     assert (reads.status_code, previews.status_code, makes.status_code) == (200, 200, 403)
+
+
+async def test_a_preview_takes_paths_no_longer_than_a_path_is(admin_client):
+    refused = await admin_client.post(
+        f"{SELECTORS}/preview",
+        json={"expression": 'path =^ "/"', "paths": ["/" + "a" * 1024]},
+    )
+
+    assert refused.status_code == 422

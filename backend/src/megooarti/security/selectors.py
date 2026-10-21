@@ -17,6 +17,8 @@ listing only what may match before each is checked.
 import enum
 import functools
 import re
+import re._constants as _ops
+import re._parser as _patterns
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -215,6 +217,30 @@ class _Either(Expression):
         return or_(left, right), exact_left and exact_right
 
 
+def _repeats_a_repetition(items, inside: bool = False) -> bool:
+    """Whether a parsed pattern repeats something that repeats itself (`(a+)+`): such a
+    pattern can take time that doubles with each character of a path made to defeat it,
+    and paths are what anyone may send."""
+    for op, value in items:
+        if op in (_ops.MAX_REPEAT, _ops.MIN_REPEAT, _ops.POSSESSIVE_REPEAT):
+            _, most, inner = value
+            many = most is _ops.MAXREPEAT or most > 1
+            if many and inside:
+                return True
+            if _repeats_a_repetition(inner, inside or many):
+                return True
+        elif op is _ops.SUBPATTERN or op is _ops.ATOMIC_GROUP:
+            if _repeats_a_repetition(value[-1] if op is _ops.SUBPATTERN else value, inside):
+                return True
+        elif op is _ops.BRANCH:
+            if any(_repeats_a_repetition(branch, inside) for branch in value[1]):
+                return True
+        elif op in (_ops.ASSERT, _ops.ASSERT_NOT):
+            if _repeats_a_repetition(value[1], inside):
+                return True
+    return False
+
+
 class _Parser:
     def __init__(self, text: str) -> None:
         self.tokens = _tokens(text)
@@ -287,6 +313,11 @@ class _Parser:
             compiled = re.compile(value.text)
         except re.error as error:
             raise SelectorError(f"Not a pattern: {error.msg}", value.at) from None
+        if _repeats_a_repetition(_patterns.parse(value.text)):
+            raise SelectorError(
+                "A pattern that repeats a repetition can take very long: write it another way",
+                value.at,
+            )
         return _Compare(token.text, operator.text, value.text, compiled)
 
 

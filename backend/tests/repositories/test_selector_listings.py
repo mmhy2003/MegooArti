@@ -2,6 +2,8 @@
 in them only the folders, files and components it reaches, in the content API, search
 and MCP; and a folder deleted is deleted where it may be."""
 
+import uuid
+
 import pytest
 
 from megooarti.repositories import service
@@ -146,3 +148,42 @@ async def test_a_folder_deleted_loses_what_may_be_deleted_and_keeps_the_rest(
     assert deleted.json()["deleted"] == 3
     assert everything.json()["deleted"] == 0
     assert kept.status_code == 200
+
+
+async def test_a_folder_shows_what_is_reached_however_far_past_the_first_page(
+    client, db, files, context_for, make_user
+):
+    owner = await context_for(files, someone("*"))
+    for index in range(60):
+        await store(owner, f"a{index:02}/f.txt")
+    await store(owner, "zz/f.txt")
+    await db.commit()
+    db.add(ContentSelector(name="zz", expression='path =^ "/zz/"'))
+    await roles.create_role(db, "zz", "", ["selector:zz:raw:files:browse"], [])
+    await db.commit()
+    await make_user("zed", roles=["zz"])
+
+    root = await client.get(f"{CONTENT}/files/tree", headers=basic("zed", PASSWORD))
+
+    assert [entry["name"] for entry in root.json()["items"]] == ["zz"]
+
+
+async def test_very_many_components_left_out_through_a_pattern_are_listed_without_a_failure(
+    client, kim, monkeypatch
+):
+    from megooarti.repositories import browse, reached, search
+
+    async def many(db, by_id, conditions):
+        kept = await reached.unreached(db, by_id, conditions)
+        return [*kept, *(uuid.uuid4() for _ in range(40000))]
+
+    # Where they are used: more ids left out than a statement may have parameters.
+    monkeypatch.setattr(browse, "unreached", many)
+    monkeypatch.setattr(search, "unreached", many)
+    tia = basic("tia", PASSWORD)
+
+    listed = await client.get(f"{CONTENT}/files/components", headers=tia)
+    searched = await client.get("/api/v1/search", headers=tia)
+
+    assert (listed.status_code, searched.status_code) == (200, 200)
+    assert [found["name"] for found in listed.json()["items"]] == ["app", "lib"]

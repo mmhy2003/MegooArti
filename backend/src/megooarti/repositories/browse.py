@@ -16,7 +16,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.repositories.models import Asset, Component, Repository
-from megooarti.repositories.reached import holding, unreached
+from megooarti.repositories.reached import excluding, holding, unreached
 from megooarti.security.access import Reached
 from megooarti.storage.models import Blob, BlobStore
 
@@ -256,7 +256,7 @@ async def components(
         conditions.append(holding(by_id))
         hidden = await unreached(db, by_id, conditions)
         if hidden:
-            conditions.append(Component.id.not_in(hidden))
+            conditions.append(excluding(hidden))
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
     # The page is chosen first, and only its components' files are looked at: grouping
     # every component with its files to show fifty would read the whole repository.

@@ -382,7 +382,8 @@ async def cached(context, content: bytes, etag: str, now: datetime):
 
 
 async def test_cache_records_remote_content_without_asking_who_is_reading(mirror, context_for):
-    context = await context_for(mirror, None)
+    # Caching asks nobody; serving the file asks whether its reader may read it.
+    context = await context_for(mirror, someone("repository:raw:mirror:read"))
 
     asset = await cached(context, HELLO, '"v1"', NOW)
 

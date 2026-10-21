@@ -4,6 +4,7 @@ selector permissions (`selector:<name>:<format>:<repository>:<action>`) name. Ke
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends
@@ -15,6 +16,7 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
+from megooarti.repositories.paths import MAX_PATH_BYTES
 from megooarti.security.authentication import Principal, require
 from megooarti.security.models import ContentSelector, Role, RolePermission
 from megooarti.security.selectors import MAX_LENGTH, SelectorError, parse
@@ -46,7 +48,10 @@ class SelectorCreate(SelectorContent):
 class Preview(BaseModel):
     expression: str = Field(min_length=1, max_length=MAX_LENGTH)
     format: str = Field(default="", max_length=32)
-    paths: list[str] = Field(default=[], max_length=100)
+    # A path is at most as long as one kept can be.
+    paths: list[Annotated[str, Field(max_length=MAX_PATH_BYTES)]] = Field(
+        default=[], max_length=100
+    )
 
 
 class Previewed(BaseModel):

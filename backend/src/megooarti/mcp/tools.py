@@ -80,11 +80,16 @@ def holding(permission: str) -> Callable[[Principal], bool]:
 
 
 def _could(pattern: str, action: str) -> bool:
-    """Whether a pattern grants `action` on the content of some repository."""
-    wanted = ("repository", None, None, action)  # None: whatever its format and its name
-    return all(
-        part == "*" or want is None or part == want
-        for part, want in zip(pattern.split(":"), wanted, strict=False)
+    """Whether a pattern grants `action` on the content of some repository: by a
+    repository permission, or by a selector permission (spec 10)."""
+    # None: whatever its format and its name, and whichever selector.
+    shapes = (("repository", None, None, action), ("selector", None, None, None, action))
+    return any(
+        all(
+            part == "*" or want is None or part == want
+            for part, want in zip(pattern.split(":"), wanted, strict=False)
+        )
+        for wanted in shapes
     )
 
 

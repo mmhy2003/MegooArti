@@ -184,10 +184,14 @@ class RepositoryContext:
         format: Format,
         backend: BlobBackend | None,
         outbound: Callable[[], Any] | None = None,
+        asked: Repository | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
         self.repository = repository
+        # The repository the request was addressed to: a group, for its members. What is
+        # served is read as from it (spec 10, as group.py has it).
+        self.asked = asked or repository
         self.principal = principal
         self.format = format
         self.backend = backend  # None for a group, which stores nothing itself
@@ -1050,6 +1054,12 @@ class RepositoryContext:
             self._check_policy(replacing=False)
         else:
             self.require_write()
+            # The document is the caller's change at its own path (npm's dist-tags):
+            # what a selector does not reach is not changed through it.
+            try:
+                access.require(self.principal, self.repository, path, "add")
+            except ApiError:
+                access.require(self.principal, self.repository, path, "edit")
         await self._lock("path", path)
         existing = await self.get(path, fresh=True)
         if existing is not None and existing.kind != _MAINTAINED:
@@ -1214,9 +1224,19 @@ class RepositoryContext:
         await self.db.flush()
         return len(rows), removed, rows[-1][0] if len(rows) == limit else None
 
+    def _check_served(self, path: str) -> None:
+        """Refuse to serve a path the caller may not read. The route checked the path
+        asked for; a format may serve a file kept at another path (NuGet's V2 download,
+        npm's revision), and that one is the file served. The registry is checked at its
+        request's path, which is how its paths are named (spec 10)."""
+        if self.format is None or self.format.served_at != "registry":
+            access.require(self.principal, self.asked, path, "read")
+
     async def respond(self, path: str, request: Request) -> Response:
-        """The response to a GET or HEAD for a path. The caller has checked `read`."""
+        """The response to a GET or HEAD for a path. The caller has checked `read` at the
+        path asked; the path served is checked here too."""
         path = normalise_path(path)
+        self._check_served(path)
         found = (
             await self.db.execute(
                 select(Asset, Blob)
@@ -1275,6 +1295,7 @@ class RepositoryContext:
         so none is declared and ranges are not served.
         """
         path = normalise_path(path)
+        self._check_served(path)
         found = (
             await self.db.execute(
                 select(Asset, Blob)
@@ -1363,6 +1384,7 @@ async def build_context(
     repository: Repository,
     principal: Principal | None,
     outbound: Callable[[], Any] | None = None,
+    asked: Repository | None = None,
 ) -> RepositoryContext:
     backend = None
     if repository.blob_store_id is not None:
@@ -1376,4 +1398,5 @@ async def build_context(
         format=get_format(repository.format),
         backend=backend,
         outbound=outbound,
+        asked=asked,
     )

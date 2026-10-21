@@ -11,7 +11,8 @@ nothing for this.
 import uuid
 from collections.abc import Mapping
 
-from sqlalchemy import ColumnElement, and_, exists, false, literal, or_, select
+from sqlalchemy import ColumnElement, Uuid, all_, and_, exists, false, literal, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -38,6 +39,11 @@ def holding(reached: Mapping[uuid.UUID, Reached]) -> ColumnElement[bool]:
         else:
             parts.append(and_(theirs, exists().where(held.component_id == Component.id, condition)))
     return or_(*parts) if parts else false()
+
+
+def excluding(ids: list[uuid.UUID]) -> ColumnElement[bool]:
+    """None of these components: as one parameter, however many there are."""
+    return Component.id != all_(literal(ids, ARRAY(Uuid)))
 
 
 async def unreached(

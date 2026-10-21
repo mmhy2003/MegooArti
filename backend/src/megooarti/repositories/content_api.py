@@ -217,6 +217,10 @@ async def get_repository(
     return await _view(db, found, await _base(request, db), caller)
 
 
+# How many reads of a folder one listing makes to fill a page the caller may see little of.
+_FOLDER_READS = 20
+
+
 @router.get("/{repository}/tree", response_model=Listing)
 async def list_folder(
     repository: str,
@@ -236,21 +240,30 @@ async def list_folder(
     if folder:
         normalise_path(folder)
     unlisted = _handler(found).unlisted_namespaces
-    try:
-        items, following = await browse.children(
-            db, found, folder, unlisted=unlisted, after=after, limit=limit
-        )
-    except browse.BadCursor:
-        details = [{"field": "after", "message": "Not something a listing returned."}]
-        raise ApiError(422, "validation_error", "The request is not valid.", details) from None
-    if folder and ((not items and not after) or not reach.folder(folder)):
+    if folder and not reach.folder(folder):
         raise ApiError(404, "not_found", "No such folder.")
-    # What the caller may not see is left out: a page may be shorter, `next` leads on.
-    shown = [
-        child
-        for child in items
-        if (reach.folder(child.path) if child.kind == "folder" else reach.allows(child.path))
-    ]
+    shown: list[browse.Child] = []
+    cursor = after
+    # What the caller may not see is left out, and the page filled from further on, up
+    # to a bounded number of reads: a page may still be shorter, `next` leads on.
+    for read in range(_FOLDER_READS):
+        try:
+            items, following = await browse.children(
+                db, found, folder, unlisted=unlisted, after=cursor, limit=limit - len(shown)
+            )
+        except browse.BadCursor:
+            details = [{"field": "after", "message": "Not something a listing returned."}]
+            raise ApiError(422, "validation_error", "The request is not valid.", details) from None
+        if read == 0 and folder and not items and not after:
+            raise ApiError(404, "not_found", "No such folder.")
+        shown += [
+            child
+            for child in items
+            if (reach.folder(child.path) if child.kind == "folder" else reach.allows(child.path))
+        ]
+        if following is None or len(shown) >= limit:
+            break
+        cursor = following
     return Listing(items=[_entry(child) for child in shown], next=following)
 
 

@@ -91,6 +91,7 @@ async def members_in(
             await db.get(Repository, member_id),
             context.principal,
             outbound=context.outbound,
+            asked=context.asked,
         )
         for member_id in ids
     ]

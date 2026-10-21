@@ -37,7 +37,12 @@ async def member_contexts(context: RepositoryContext, request: Request) -> list[
     seen.add(context.repository.id)
     return [
         await build_context(
-            context.db, context.settings, member, context.principal, outbound=context.outbound
+            context.db,
+            context.settings,
+            member,
+            context.principal,
+            outbound=context.outbound,
+            asked=context.asked,
         )
         for member in await service.members(context.db, context.repository)
         if member.online
@@ -81,7 +86,12 @@ async def leaves(context: RepositoryContext) -> list[Leaf]:
         if member.id in found or (not usable and member.id in online):
             continue
         made = await build_context(
-            context.db, context.settings, member, context.principal, outbound=context.outbound
+            context.db,
+            context.settings,
+            member,
+            context.principal,
+            outbound=context.outbound,
+            asked=context.asked,
         )
         found[member.id] = Leaf(made, usable)
     return list(found.values())
