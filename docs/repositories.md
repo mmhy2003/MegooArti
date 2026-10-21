@@ -182,5 +182,34 @@ It answers the components, the most recently written first, a page at a time, wi
 `total`. It lists what you may browse in the repository, and removes nothing.
 
 Policies are kept with `admin:cleanup:read` and `admin:cleanup:write`; attaching them
-is a repository's setting, with `admin:repositories:write`. In this version nothing is
-removed by them yet.
+is a repository's setting, with `admin:repositories:write`.
+
+**When they run.** Every hour MegooArti looks for repositories with policies attached
+whose last run finished more than `MEGOOARTI_CLEANUP_INTERVAL_SECONDS` (a day) ago, and
+cleans them one after another. A restart does not put the next run off. A repository is
+cleaned by one run at a time, whatever the number of containers. To clean one now:
+
+```bash
+curl -u admin -X POST http://localhost:8000/api/v1/repositories/maven-snapshots/cleanup/preview
+curl -u admin -X POST http://localhost:8000/api/v1/repositories/maven-snapshots/cleanup
+```
+
+The first says how many components its policies would remove now (`{"total": 12}`).
+The second answers `202` at once, or `409 cleanup_running` while a run of it is under
+way; `GET /api/v1/repositories/maven-snapshots` then says how the last run went, in
+`cleanup`: when it started and finished, how many it removed, how many could not be
+removed, and who asked. The audit log records each run once, as
+`repository.cleaned_up`.
+
+**What a run does.** Each component is checked again against the policies as they are
+when it is reached, so one downloaded meanwhile is kept, and is removed as deleting it
+through the API would: npm's dist-tags move off the version, a NuGet version takes its
+symbols, APT, YUM and apk indexes no longer list the package. A read-only repository is
+cleaned too: attaching the policy is the permission. In a proxy, the files cached beside
+a removed file go with it (`x.whl.metadata`); what is removed is fetched again when it
+is next asked for. A component that cannot be removed is logged and counted, and the run
+goes on. A run stopped by a restart is taken up again at the next check.
+
+**The space.** A removed file's content is deleted by the compaction that runs every
+`MEGOOARTI_COMPACTION_INTERVAL_SECONDS`, once nothing has used it for
+`MEGOOARTI_BLOB_GRACE_SECONDS` (a day): the disk is given back a day or so after a run.

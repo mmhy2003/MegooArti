@@ -123,6 +123,21 @@ Each is optional; a policy has at least one (E3).
 
 Today a delete that runs the format's own effects needs a caller with the `delete` permission; only `sweep` works without one, and it skips the format's effects. The run needs a way of its own to delete a component through the format with no caller, having the effects E4 names. Whether that is a context for maintenance, a format hook `delete_component`, or both, is the builder's, held to this: the effects of a component's delete by the run are those of its delete through `DELETE /api/v1/content/{repository}/components/{id}` (in a proxy too, where that is the cached files' removal), with Docker's one addition (7.3), and no route of a request can reach that way.
 
+### Settled while building plan 16b
+
+| # | What | Why |
+| --- | --- | --- |
+| R1 | `RepositoryContext.unattended` (keyword-only, False unless given): `delete` and `maintain(removing=True)` then check no principal and no deployment policy. Only `cleanup/run.py` passes it; a test reads the source for any other. | 5.3: every format's effects, and no route of a request can reach that way. |
+| R2 | Deleting a file as the content API does is `repositories/removal.delete_file(context, path)`, used by the API and the run alike. | 5.3: the run's effects are the API's. |
+| R3 | A proxy's companions are its files of no component whose path is a removed file's path followed by `.` and more (`x.whl.metadata`). A Maven proxy keeps none: it answers checksums from the cached file. | 7.2: one rule for every format. |
+| R4 | `Format.cleaned_up(context, files)` follows a component's removal by a run, given its files' paths and SHA-256s as they were; the generic format does nothing. Docker drops a removed tag's manifest by its digest when no tag and no manifest names it any more. | 7.3. |
+| R5 | A repository's last run is a row of `cleanup_runs` (started, finished, removed, failed, error, by): `by` the user who asked, None for the daily run. `GET /repositories/{name}` shows it as `cleanup`; a repository's audit records do not (it is not configuration). | 5.1. |
+| R6 | A repository's lock is `pg_try_advisory_lock(19779, hashtext(<repository id>))`, held on a connection of its own for the run. "Clean up now" takes it in the request, and hands it to the run it starts. | E12; a 409 must be answered before the 202. |
+| R7 | "Clean up now" with no policy attached, or of a group, is `409 no_cleanup_policies`. Its record names whoever asked: the run is started from the request, and keeps its context. | 5.1; E11. |
+| R8 | `POST /repositories/{name}/cleanup/preview` answers `{"total": n}`, with `admin:repositories:write`. | 5.1. |
+| R9 | A run gathers the ids of what its policies select (the ids alone), then removes each in a transaction of its own. Its record's `changes` are `removed` and `policies`, and `failed` where some could not be removed. | 5.2; E11. |
+| R10 | Shutdown cancels runs an administrator started with the other background work: a run stops between two components, its record unfinished, and the next hourly check takes it up. | 5.2. |
+
 ## 6. The web UI (plan 16c)
 
 - Administration, Cleanup policies, after Content selectors, with `admin:cleanup:read`: the list (name, format, criteria in words, the repositories attached), a new one at `/admin/cleanup-policies/~new`, one at `/admin/cleanup-policies/<name>`, deleted after a question that names the repositories it will be detached from.

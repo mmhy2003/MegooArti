@@ -419,3 +419,9 @@ curl -u admin http://localhost:8000/api/v1/system/information
 `schema.current` is false when the database is at another revision than this version
 was written for, which is also when `/api/v1/status/ready` answers `503`. Nothing of the
 configuration is in it.
+
+Beside what it serves, the backend works on its own: every hour it checks LDAP users,
+removes audit records older than the days kept, and runs the cleanup policies of the
+repositories that are due ([Repositories](repositories.md#cleanup-policies)); and it
+compacts the blob stores every `MEGOOARTI_COMPACTION_INTERVAL_SECONDS`. A repository's
+last cleanup run is in its `cleanup`.

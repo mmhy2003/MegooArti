@@ -843,6 +843,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repositories/{name}/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clean Up Now
+         * @description Run the repository's cleanup policies now. It answers at once; the run goes on in
+         *     the server, and the repository's `cleanup` says how it went.
+         */
+        post: operations["clean_up_now_api_v1_repositories__name__cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{name}/cleanup/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Count Cleanup
+         * @description How many components the repository's policies would remove now: each once, of the
+         *     whole repository. Nothing is removed.
+         */
+        post: operations["count_cleanup_api_v1_repositories__name__cleanup_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repositories/{name}/invalidate-cache": {
         parameters: {
             query?: never;
@@ -1475,6 +1517,32 @@ export interface components {
             pem: string;
             /** Subject */
             subject: string;
+        };
+        /** CleanupCount */
+        CleanupCount: {
+            /** Total */
+            total: number;
+        };
+        /**
+         * CleanupRunOut
+         * @description A repository's last cleanup run (cleanup spec 5.1).
+         */
+        CleanupRunOut: {
+            /** By */
+            by: string | null;
+            /** Error */
+            error: string | null;
+            /** Failed */
+            failed: number;
+            /** Finished At */
+            finished_at: string | null;
+            /** Removed */
+            removed: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
         };
         /** ComponentDetail */
         ComponentDetail: {
@@ -2211,6 +2279,7 @@ export interface components {
         RepositoryOut: {
             /** Blob Store */
             blob_store: string | null;
+            cleanup: components["schemas"]["CleanupRunOut"] | null;
             /** Cleanup Policies */
             cleanup_policies: string[];
             /** Format */
@@ -4802,6 +4871,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    clean_up_now_api_v1_repositories__name__cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    count_cleanup_api_v1_repositories__name__cleanup_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupCount"];
+                };
             };
             /** @description Any error. */
             default: {

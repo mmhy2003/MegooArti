@@ -47,6 +47,7 @@ const stored = (change: Partial<RepositoryOut>): RepositoryOut => ({
   group: null,
   status: null,
   cleanup_policies: [],
+  cleanup: null,
   ...change,
 });
 

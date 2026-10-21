@@ -466,6 +466,81 @@
         "title": "CertificateView",
         "type": "object"
       },
+      "CleanupCount": {
+        "properties": {
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "CleanupCount",
+        "type": "object"
+      },
+      "CleanupRunOut": {
+        "description": "A repository's last cleanup run (cleanup spec 5.1).",
+        "properties": {
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "finished_at",
+          "removed",
+          "failed",
+          "error",
+          "by"
+        ],
+        "title": "CleanupRunOut",
+        "type": "object"
+      },
       "ComponentDetail": {
         "properties": {
           "created": {
@@ -2430,6 +2505,16 @@
             ],
             "title": "Blob Store"
           },
+          "cleanup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CleanupRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cleanup_policies": {
             "items": {
               "type": "string"
@@ -2515,7 +2600,8 @@
           "proxy",
           "group",
           "status",
-          "cleanup_policies"
+          "cleanup_policies",
+          "cleanup"
         ],
         "title": "RepositoryOut",
         "type": "object"
@@ -7149,6 +7235,90 @@
           }
         },
         "summary": "Update Repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/cleanup": {
+      "post": {
+        "description": "Run the repository's cleanup policies now. It answers at once; the run goes on in\nthe server, and the repository's `cleanup` says how it went.",
+        "operationId": "clean_up_now_api_v1_repositories__name__cleanup_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Clean Up Now",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/cleanup/preview": {
+      "post": {
+        "description": "How many components the repository's policies would remove now: each once, of the\nwhole repository. Nothing is removed.",
+        "operationId": "count_cleanup_api_v1_repositories__name__cleanup_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupCount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Count Cleanup",
         "tags": [
           "repositories"
         ]

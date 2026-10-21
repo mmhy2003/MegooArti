@@ -43,6 +43,9 @@ export type PolicyContent = Schemas["PolicyContent"];
 /** A policy, kept or not, tried against a repository; and what it would remove. */
 export type Previewing = Schemas["Previewing"];
 export type Selected = Schemas["Selected"];
+/** A repository's last cleanup run, and how many components its policies would remove now. */
+export type CleanupRunOut = Schemas["CleanupRunOut"];
+export type CleanupCount = Schemas["CleanupCount"];
 export type SettingsOut = Schemas["SettingsOut"];
 /** The default role, and whether MegooArti's own users sign in (spec 4.1). */
 export type SignInSettings = Schemas["SignInSettings"];
