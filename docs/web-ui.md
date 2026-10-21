@@ -70,6 +70,17 @@ repositories, blob stores and the installation's own settings.
     read it, an expression is tried against paths, a line each, in a repository of a
     format, and each path is said to match or not. A selector is deleted after a
     question; one a role names says which roles do, and is kept.
+  - **Cleanup policies** lists each policy with its format, what it removes in words
+    ("Not updated in 30 days, pre-releases") and the repositories it is attached to.
+    A new one is made with a name, a description, a format (or every format), chosen
+    once, and its criteria, each ticked with its value: not updated in so many days,
+    not downloaded in so many days, a release type (only for a format that has
+    pre-releases), a pattern a file's path matches. Beside the form, what the policy
+    would remove from a repository of its format is listed as it is typed, a page at
+    a time with the total, half a second after the typing stops; nothing is removed
+    or saved by it. A policy is deleted after a question that names the repositories
+    it is detached from. Whoever may only read a policy sees it and what it would
+    remove.
   - **Anonymous access** is one switch, which asks before it is turned on, and shows
     what someone who is not signed in may then do. If the `anonymous` user is
     disabled, nothing is given though the switch is on, and the page says so.
@@ -118,7 +129,11 @@ repositories, blob stores and the installation's own settings.
     or apk shows its signing key, with the public key to copy or download, and
     signs with a new or an imported key after asking: every machine must then
     install the new public key. A group's page lists the members a check left out,
-    with why.
+    with why. A hosted or proxy repository's page has a Cleanup section: the cleanup
+    policies of its format and of every format, ticked for those attached (whoever
+    may not see the policies sees the names attached, which saving keeps), its last
+    cleanup run, and Clean up now, which says how many components it would remove
+    before it starts, and then what it removed.
   - **Blob stores** lists the stores with how many blobs each holds, their size and
     the space left, makes a new one, and deletes one that no repository uses. Its
     files stay on the disk. The store called `default` is always kept: a repository

@@ -145,6 +145,16 @@ Today a delete that runs the format's own effects needs a caller with the `delet
 - A repository's settings: a Cleanup section with the policies attached, the last run (when, how many removed, or the error), and "Clean up now", which asks first, saying how many components it would remove (5.1's count). The policies of its format are offered to attach to whoever holds `admin:cleanup:read`; to others, the section shows those attached, and keeps them, as a role's row shows a selector to whoever may not read selectors (U3 of the identity spec).
 - The role editor's administration areas gain `cleanup`.
 
+### Settled while building plan 16c
+
+| # | What | Why |
+| --- | --- | --- |
+| W1 | The screens are Administration, Cleanup policies, after Content selectors, with `admin:cleanup:read`: `/admin/cleanup-policies`, `/admin/cleanup-policies/~new`, `/admin/cleanup-policies/<name>`. Whoever may only read sees each, and its preview. | Section 6; as selectors' screens (U1). |
+| W2 | A criterion is a checkbox with its value beside it: days as a number, release type as a choice of two, the pattern as text. Each is said in words in the list ("Not updated in 14 days, pre-releases"). | Section 6; 4.2. |
+| W3 | The preview asks again half a second after the form last changed, with what the form holds, while its criteria have no problem (a name not yet right does not stop it); the first 50, a pager, and the total. Its repository is chosen among the hosted and proxy repositories of the policy's format, the first by name unless chosen. | Section 6: refreshed as the form changes; API-5. |
+| W4 | A hosted or proxy repository's settings have a Cleanup section: checkboxes of the policies of its format and of every format, to whoever holds `admin:cleanup:read`; to others, the names attached, as text, which saving keeps (the `PUT` leaves them out). A new repository is made with none: they are attached on its settings. | Section 6; U3 of the identity spec. |
+| W5 | "Clean up now" goes by the policies the server holds, asks first with the count `cleanup/preview` gives, starts the run, and asks the repository again every 2 seconds until its `cleanup.finished_at` is later than when it started, then says what was removed. `409 cleanup_running` is said as "A cleanup of this repository is already running." The API client takes a `202` as done, with nothing more said. | Section 6; 5.1. |
+
 ## 7. Formats
 
 ### 7.1 What a component is
