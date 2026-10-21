@@ -619,3 +619,25 @@ describe("the remote a proxy is made with", () => {
     expect(defaultRemoteOf(making({ format: "maven", type: "proxy" }), {})).toBe("");
   });
 });
+
+describe("a repository's cleanup policies (cleanup spec 6, W4)", () => {
+  test("are part of its form, and sent only by whoever may read them", () => {
+    const held = draftOf(stored({ cleanup_policies: ["stale"] }));
+
+    expect(held.cleanupPolicies).toEqual(["stale"]);
+    expect(updateBody(held, true).cleanup_policies).toEqual(["stale"]);
+    // Left out, the server keeps them: whoever may not read them does not empty them.
+    expect("cleanup_policies" in updateBody(held, false)).toBe(false);
+    expect(createBody(draft({ cleanupPolicies: ["stale"] }), true).cleanup_policies).toEqual([
+      "stale",
+    ]);
+    expect(createBody(draft({ cleanupPolicies: ["stale"] })).cleanup_policies).toEqual([]);
+  });
+
+  test("are none of a group's", () => {
+    const group = draft({ type: "group", cleanupPolicies: ["stale"] });
+
+    expect(createBody(group, true).cleanup_policies).toEqual([]);
+    expect("cleanup_policies" in updateBody(group, true)).toBe(false);
+  });
+});

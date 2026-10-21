@@ -1087,7 +1087,31 @@
       "remote": "The remote",
       "cache": "What it cached",
       "blocking": "When the remote fails",
-      "maven": "Maven"
+      "maven": "Maven",
+      "cleanup": "Cleanup"
+    },
+    "cleanup": {
+      "policies": "Cleanup policies",
+      "none": "No cleanup policy of this format is made yet.",
+      "attached": "Attached",
+      "attachedNone": "No cleanup policy is attached.",
+      "unreadable": "You may not see the cleanup policies: those attached stay as they are.",
+      "title": "Clean up now",
+      "intro": "Removes now what the attached policies select, as the daily run does.",
+      "never": "It has not been cleaned up yet.",
+      "last": "Last cleaned up {when}{by, select, none {} other { by {by}}}: {removed, plural, one {# component} other {# components}} removed.",
+      "failed": "{failed, plural, one {# component} other {# components}} could not be removed.",
+      "lastError": "The last cleanup failed: {error}",
+      "unfinished": "Running, or cut short, since {when}.",
+      "button": "Clean up now",
+      "noPolicies": "Attach a cleanup policy, and save, first.",
+      "ask": "Clean up {name} now?",
+      "askBody": "This removes {count, plural, one {# component} other {# components}} from {name} now. It cannot be undone.",
+      "counting": "Counting what it would remove…",
+      "confirm": "Clean up",
+      "running": "A cleanup of this repository is already running.",
+      "started": "Cleaning up {name}.",
+      "done": "{removed, plural, one {# component} other {# components}} removed."
     },
     "types": {
       "hosted": "Hosted",

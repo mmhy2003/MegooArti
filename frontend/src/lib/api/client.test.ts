@@ -143,6 +143,13 @@ describe("a request that fails", () => {
     expect([error.status, error.code]).toEqual([0, "network_error"]);
   });
 
+  test("takes an accepted request, which says nothing more, as done", async () => {
+    // A cleanup run started now goes on in the server (cleanup spec 5.1).
+    mockApi({ "POST /thing": { status: 202 } });
+
+    await expect(api.post("/thing")).resolves.toBeUndefined();
+  });
+
   test("says so when a success is not JSON", async () => {
     mockApi({ "GET /thing": { status: 200, text: "<html>" } });
 

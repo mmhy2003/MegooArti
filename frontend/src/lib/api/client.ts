@@ -119,7 +119,8 @@ export async function request<T>(
     throw new ApiError(0, "network_error", "");
   }
   if (!response.ok) throw await failure(response);
-  if (response.status === 204) return undefined as T;
+  // Nothing to say: done (204), or going on in the server (202, a cleanup run).
+  if (response.status === 204 || response.status === 202) return undefined as T;
   try {
     return (await response.json()) as T;
   } catch {

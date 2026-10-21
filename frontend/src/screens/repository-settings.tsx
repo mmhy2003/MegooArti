@@ -1,9 +1,10 @@
 "use client";
 
-import { FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Eraser, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { MemberList } from "@/components/member-list";
 import { Alert, StatusTag } from "@/components/ui/alert";
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Fact, Facts, Time } from "@/components/ui/details";
 import { TextAreaField, TextField } from "@/components/ui/field";
-import { CheckboxField, ChoiceGroup, SelectField } from "@/components/ui/inputs";
+import { CheckboxField, CheckList, ChoiceGroup, SelectField } from "@/components/ui/inputs";
 import { AppLink } from "@/components/ui/link";
 import { useNotify } from "@/components/ui/notifications";
 import { PageHeader, Panel } from "@/components/ui/panel";
@@ -30,7 +31,9 @@ import {
 } from "@/lib/administration";
 import { isApiError } from "@/lib/api/client";
 import type { RepositoryOut } from "@/lib/api/types";
+import { criteriaInWords, useCleanupCount, useCleanUpNow, useEveryPolicy } from "@/lib/cleanup";
 import { useRepository } from "@/lib/content";
+import { exactTime } from "@/lib/format";
 import { useAttempts } from "@/lib/focus";
 import {
   browseHref,
@@ -95,7 +98,10 @@ const REFUSED_AT = [
   "format_config.remote_keys",
   "format_config.protocol",
   "format_config.symbol_url",
+  "cleanup_policies",
 ] as const;
+// How often a run started now is asked after, until it has finished (W5).
+const RUN_POLL_MS = 2000;
 
 function useMay(): (permission: string) => boolean {
   const session = useSession();
@@ -147,6 +153,10 @@ function RepositoryForm({
   const stores = useEveryBlobStore(creating && storesReadable);
   // Asked for only where they are chosen from: a group's members.
   const others = useEveryManagedRepository(draft.type === "group");
+  // The policies a repository can be given, to whoever may see them (W4).
+  const say = useTranslations("cleanup.criteria");
+  const policiesReadable = may("admin:cleanup:read");
+  const policies = useEveryPolicy(!creating && draft.type !== "group" && policiesReadable);
 
   const own = problemsOf(draft, creating);
   const refused = refusalsOf(error, REFUSED_AT);
@@ -454,6 +464,59 @@ function RepositoryForm({
             ) : null}
           </fieldset>
         ) : null}
+
+        {!creating && type !== "group" ? (
+          <fieldset className={SECTION}>
+            <legend className={LEGEND}>{t("sections.cleanup")}</legend>
+            {policiesReadable ? (
+              policies.isError ? (
+                <ErrorState error={policies.error} onRetry={() => void policies.refetch()} />
+              ) : !policies.data ? (
+                <LoadingState className="p-2" />
+              ) : (
+                <CheckList
+                  legend={t("cleanup.policies")}
+                  value={draft.cleanupPolicies}
+                  onChange={(value) => set({ cleanupPolicies: value })}
+                  empty={t("cleanup.none")}
+                  options={policies.data.items
+                    .filter(
+                      (policy) =>
+                        policy.format === draft.format ||
+                        policy.format === "*" ||
+                        draft.cleanupPolicies.includes(policy.name),
+                    )
+                    .map((policy) => ({
+                      value: policy.name,
+                      label: policy.name,
+                      hint: criteriaInWords(policy, say),
+                    }))}
+                />
+              )
+            ) : (
+              <>
+                <p className="text-fg-muted">
+                  {draft.cleanupPolicies.length > 0
+                    ? t("cleanup.attached")
+                    : t("cleanup.attachedNone")}
+                </p>
+                {draft.cleanupPolicies.length > 0 ? (
+                  <ul className="flex flex-col gap-1">
+                    {draft.cleanupPolicies.map((name) => (
+                      <li key={name} className="font-mono text-sm">
+                        {name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <p className="text-sm text-fg-subtle">{t("cleanup.unreadable")}</p>
+              </>
+            )}
+            {refused.at.cleanup_policies ? (
+              <Alert tone="danger">{refused.at.cleanup_policies}</Alert>
+            ) : null}
+          </fieldset>
+        ) : null}
       </fieldset>
       {error && taken === null && refused.elsewhere ? <ErrorState error={error} /> : null}
       {mayWrite ? (
@@ -630,6 +693,120 @@ function RebuildIndex({ repository }: { repository: RepositoryOut }) {
   );
 }
 
+/** How a repository's last cleanup went, in words (W4). */
+function LastRun({ run }: { run: RepositoryOut["cleanup"] }) {
+  const t = useTranslations("manage.cleanup");
+  if (!run) return <p className="text-fg-muted">{t("never")}</p>;
+  if (run.finished_at === null) {
+    return (
+      <p className="text-fg-muted">
+        {t("unfinished", { when: exactTime(new Date(run.started_at)) })}
+      </p>
+    );
+  }
+  if (run.error) return <Alert tone="danger">{t("lastError", { error: run.error })}</Alert>;
+  return (
+    <p className="text-fg-muted">
+      {t("last", {
+        when: exactTime(new Date(run.finished_at)),
+        by: run.by ?? "none",
+        removed: run.removed,
+      })}
+      {run.failed > 0 ? ` ${t("failed", { failed: run.failed })}` : null}
+    </p>
+  );
+}
+
+/**
+ * Cleaning a repository up now (W5): asked first, with how many components it would
+ * remove; the run goes on in the server, and is asked after until it has finished.
+ */
+function CleanUpNow({ repository }: { repository: RepositoryOut }) {
+  const t = useTranslations("manage.cleanup");
+  const notify = useNotify();
+  const client = useQueryClient();
+  const [asking, setAsking] = useState(false);
+  // When the run that was asked for began: it is followed until it has finished.
+  const [since, setSince] = useState<number | null>(null);
+  const count = useCleanupCount(repository.name, asking);
+  const start = useCleanUpNow(repository.name);
+  const attached = repository.cleanup_policies.length > 0;
+  const run = repository.cleanup;
+  const done =
+    since !== null && run?.finished_at != null && new Date(run.finished_at).getTime() >= since;
+
+  useEffect(() => {
+    if (since === null || done) return;
+    const asking = setInterval(
+      () => void client.invalidateQueries({ queryKey: ["repositories", "one", repository.name] }),
+      RUN_POLL_MS,
+    );
+    return () => clearInterval(asking);
+  }, [client, since, done, repository.name]);
+  // The run that was said to be done: it is said once.
+  const told = useRef<number | null>(null);
+  const removed = run?.removed ?? 0;
+  useEffect(() => {
+    if (!done || told.current === since) return;
+    told.current = since;
+    notify(t("done", { removed }));
+  }, [done, since, removed, notify, t]);
+
+  return (
+    <Panel className="p-6">
+      <h2 className={H2}>{t("title")}</h2>
+      <p className="mb-4 text-fg-muted">{t("intro")}</p>
+      <div className="mb-4">
+        <LastRun run={run} />
+      </div>
+      {isApiError(start.error) && start.error.code === "cleanup_running" ? (
+        <Alert tone="warning" className="mb-4">
+          {t("running")}
+        </Alert>
+      ) : start.isError ? (
+        <ErrorState error={start.error} className="mb-4" />
+      ) : null}
+      {attached ? null : <p className="mb-4 text-sm text-fg-subtle">{t("noPolicies")}</p>}
+      <Button
+        disabled={!attached}
+        busy={since !== null && !done}
+        onClick={() => {
+          start.reset();
+          setAsking(true);
+        }}
+      >
+        <Eraser aria-hidden="true" className="size-4" />
+        {t("button")}
+      </Button>
+      <ConfirmDialog
+        open={asking}
+        onOpenChange={setAsking}
+        title={t("ask", { name: repository.name })}
+        confirmLabel={t("confirm")}
+        busy={start.isPending || !count.data}
+        onConfirm={() => {
+          const began = Date.now();
+          start.mutate(undefined, {
+            onSuccess: () => {
+              setSince(began);
+              notify(t("started", { name: repository.name }));
+            },
+            onSettled: () => setAsking(false),
+          });
+        }}
+      >
+        {count.isError ? (
+          <ErrorState error={count.error} />
+        ) : count.data ? (
+          t("askBody", { count: count.data.total, name: repository.name })
+        ) : (
+          t("counting")
+        )}
+      </ConfirmDialog>
+    </Panel>
+  );
+}
+
 /** One repository as an administrator sees it: its settings, its state, and deleting it. */
 export function RepositorySettingsScreen() {
   const t = useTranslations("manage");
@@ -720,7 +897,7 @@ export function RepositorySettingsScreen() {
           saveLabel={t("save")}
           onSave={async (draft) => {
             try {
-              const saved = await update.mutateAsync(updateBody(draft));
+              const saved = await update.mutateAsync(updateBody(draft, may("admin:cleanup:read")));
               notify(t("saved", { name: saved.name }));
               // What was sent may have had a secret in it: the store lets go of it.
               update.reset();
@@ -735,6 +912,7 @@ export function RepositorySettingsScreen() {
       {hasSigningKey(found) ? <SigningKeyPanel repository={found} mayWrite={mayWrite} /> : null}
       {found.type === "proxy" ? <ProxyState repository={found} mayWrite={mayWrite} /> : null}
       {mayWrite && found.type !== "group" ? <RebuildIndex repository={found} /> : null}
+      {mayWrite && found.type !== "group" ? <CleanUpNow repository={found} /> : null}
       {mayWrite ? (
         <Panel className="p-6">
           <h2 className={H2}>{t("deleteTitle")}</h2>

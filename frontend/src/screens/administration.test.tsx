@@ -64,6 +64,8 @@ const repository = (name: string, more: Record<string, unknown> = {}) => ({
   proxy: null,
   group: null,
   status: null,
+  cleanup_policies: [] as string[],
+  cleanup: null as unknown,
   ...more,
 });
 const proxy = (name: string, more: Record<string, unknown> = {}, status: object = {}) =>
@@ -880,6 +882,7 @@ describe("the settings of a repository", () => {
       [`GET /repositories/${which.name}`]: { json: which },
       [`GET /content/${which.name}`]: { json: view(which) },
       "GET /repositories": { json: page([ALL, CENTRAL, NPM, RELEASES]) },
+      "GET /cleanup-policies": { json: page([]) },
       ...more,
     });
     navigation.at(`/admin/repositories/${which.name}`);
@@ -944,7 +947,9 @@ describe("the settings of a repository", () => {
     const { calls } = settings();
 
     await screen.findByText("https://ui.test/repository/releases/");
+    // And the cleanup policies it may be given, which are not repositories.
     expect(calls.map((call) => call.path).sort()).toEqual([
+      "/cleanup-policies?limit=200",
       "/content/releases",
       "/repositories/releases",
     ]);
@@ -969,6 +974,7 @@ describe("the settings of a repository", () => {
       proxy: null,
       group: null,
       format_config: { version_policy: "release", layout_policy: "permissive" },
+      cleanup_policies: [],
     });
     expect(save()).toHaveFocus();
   });
@@ -1254,6 +1260,163 @@ describe("the settings of a repository", () => {
   });
 });
 
+describe("a repository's cleanup (cleanup spec 6, W4, W5)", () => {
+  const policy = (name: string, format: string) => ({
+    id: name,
+    name,
+    description: "",
+    format,
+    updated_days: 30,
+    downloaded_days: null,
+    release_type: null,
+    asset_pattern: null,
+    repositories: [],
+    created_at: "2026-10-21T08:00:00Z",
+    updated_at: "2026-10-21T08:00:00Z",
+  });
+  const POLICIES = [policy("old-jars", "maven"), policy("stale", "npm"), policy("tmp", "*")];
+  const LAST = {
+    started_at: "2026-10-20T03:00:00Z",
+    finished_at: "2026-10-20T03:00:05Z",
+    removed: 12,
+    failed: 0,
+    error: null,
+    by: "root",
+  };
+
+  function cleaned(which: ReturnType<typeof repository>, more: Routes = {}, session = ADMIN) {
+    const api = mockApi({
+      [`GET /repositories/${which.name}`]: { json: which },
+      [`GET /content/${which.name}`]: { json: view(which) },
+      "GET /repositories": { json: page([which]) },
+      "GET /cleanup-policies": { json: page(POLICIES) },
+      ...more,
+    });
+    navigation.at(`/admin/repositories/${which.name}`);
+    return { ...renderUi(<RepositorySettingsScreen />, { session }), ...api };
+  }
+  const OWN = repository("npm-hosted", {
+    format: "npm",
+    format_config: {},
+    cleanup_policies: ["stale"],
+  });
+
+  test("a repository's cleanup policies are chosen among those of its format", async () => {
+    const user = userEvent.setup();
+    const { calls } = cleaned(OWN, {
+      "PUT /repositories/npm-hosted": { json: { ...OWN, cleanup_policies: ["stale", "tmp"] } },
+    });
+
+    const chosen = await screen.findByRole("group", { name: "Cleanup policies" });
+    expect(within(chosen).getByRole("checkbox", { name: /stale/ })).toBeChecked();
+    expect(within(chosen).getByRole("checkbox", { name: /tmp/ })).not.toBeChecked();
+    expect(within(chosen).queryByRole("checkbox", { name: /old-jars/ })).toBeNull();
+    await user.click(within(chosen).getByRole("checkbox", { name: /tmp/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(of(calls, "PUT")).toHaveLength(1));
+    expect(of(calls, "PUT")[0]?.body).toMatchObject({ cleanup_policies: ["stale", "tmp"] });
+  });
+
+  test("whoever may not read policies keeps them when saving", async () => {
+    const user = userEvent.setup();
+    const { calls } = cleaned(
+      OWN,
+      { "PUT /repositories/npm-hosted": { json: OWN } },
+      holding("admin:repositories:read", "admin:repositories:write"),
+    );
+
+    expect(await screen.findByText("stale")).toBeVisible();
+    expect(screen.queryByRole("group", { name: "Cleanup policies" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(of(calls, "PUT")).toHaveLength(1));
+    expect(of(calls, "PUT")[0]?.body).not.toHaveProperty("cleanup_policies");
+    expect(calls.filter((call) => call.path.startsWith("/cleanup-policies"))).toEqual([]);
+  });
+
+  test("the last run is said", async () => {
+    const first = cleaned({ ...OWN, cleanup: LAST });
+    expect(await screen.findByText(/by root: 12 components removed\./)).toBeVisible();
+    first.unmount();
+
+    const second = cleaned({ ...OWN, cleanup: { ...LAST, error: "OperationalError: gone" } });
+    expect(await screen.findByText(/OperationalError: gone/)).toBeVisible();
+    second.unmount();
+
+    cleaned({ ...OWN, cleanup: { ...LAST, finished_at: null } });
+    expect(await screen.findByText(/Running, or cut short/)).toBeVisible();
+  });
+
+  test("clean up now asks first with the count, then says what it removed", async () => {
+    const user = userEvent.setup();
+    let started = false;
+    const { calls } = cleaned(OWN, {
+      "POST /repositories/npm-hosted/cleanup/preview": { json: { total: 12 } },
+      "POST /repositories/npm-hosted/cleanup": () => {
+        started = true;
+        return { status: 202 };
+      },
+      "GET /repositories/npm-hosted": () => ({
+        json: started
+          ? {
+              ...OWN,
+              cleanup: {
+                ...LAST,
+                started_at: new Date().toISOString(),
+                finished_at: new Date(Date.now() + 1000).toISOString(),
+              },
+            }
+          : OWN,
+      }),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Clean up now" }));
+    const asked = await screen.findByRole("alertdialog", { name: "Clean up npm-hosted now?" });
+    expect(await within(asked).findByText(/removes 12 components from npm-hosted/)).toBeVisible();
+    await user.click(within(asked).getByRole("button", { name: "Clean up" }));
+
+    await waitFor(() => expect(notices()).toHaveTextContent("12 components removed."), {
+      timeout: 5000,
+    });
+    expect(
+      calls.filter(
+        (call) => call.method === "POST" && call.path === "/repositories/npm-hosted/cleanup",
+      ),
+    ).toHaveLength(1);
+    // The run is asked after every two seconds: the test waits as long as one ask.
+  }, 10000);
+
+  test("a run already under way is said", async () => {
+    const user = userEvent.setup();
+    cleaned(OWN, {
+      "POST /repositories/npm-hosted/cleanup/preview": { json: { total: 1 } },
+      "POST /repositories/npm-hosted/cleanup": failure(
+        409,
+        "cleanup_running",
+        "A cleanup of this repository is already running.",
+      ),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Clean up now" }));
+    const asked = await screen.findByRole("alertdialog");
+    await within(asked).findByText(/removes 1 component from/);
+    await user.click(within(asked).getByRole("button", { name: "Clean up" }));
+
+    expect(
+      await screen.findByText("A cleanup of this repository is already running."),
+    ).toBeVisible();
+  });
+
+  test("a group has no cleanup section", async () => {
+    cleaned(ALL);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "all" })).toBeVisible();
+    expect(screen.queryByRole("group", { name: "Cleanup policies" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clean up now" })).toBeNull();
+  });
+});
+
 describe("the signing key of a repository (4.2)", () => {
   const APT = repository("apt-own", { format: "apt", format_config: { suite: "stable" } });
   const APK = repository("apk-own", { format: "apk", format_config: {} });
@@ -1275,6 +1438,7 @@ describe("the signing key of a repository (4.2)", () => {
       [`GET /content/${which.name}`]: { json: view(which) },
       [`GET /repositories/${which.name}/signing-key`]: { json: KEY },
       "GET /repositories": { json: page([which]) },
+      "GET /cleanup-policies": { json: page([]) },
       ...more,
     });
     navigation.at(`/admin/repositories/${which.name}`);
