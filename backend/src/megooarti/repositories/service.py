@@ -12,7 +12,7 @@ from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.cleanup.criteria import ANY_FORMAT
-from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
+from megooarti.cleanup.models import CleanupPolicy, CleanupRun, RepositoryCleanupPolicy
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.repositories.formats import Format, format_names, get_format
@@ -47,6 +47,8 @@ class RepositoryView:
     status: dict[str, Any] | None = None
     # The cleanup policies attached to it, by name (cleanup spec 4.3).
     cleanup_policies: list[str] = field(default_factory=list)
+    # Its last cleanup run, if it had one (cleanup spec 5.1): not a setting.
+    cleanup: dict[str, Any] | None = None
 
 
 def _invalid(field: str, message: str) -> ApiError:
@@ -278,7 +280,22 @@ async def describe(db: AsyncSession, repository: Repository) -> RepositoryView:
         group=group,
         status=status,
         cleanup_policies=await policy_names(db, repository),
+        cleanup=await _last_run(db, repository),
     )
+
+
+async def _last_run(db: AsyncSession, repository: Repository) -> dict[str, Any] | None:
+    run = await db.get(CleanupRun, repository.id, populate_existing=True)
+    if run is None:
+        return None
+    return {
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "removed": run.removed,
+        "failed": run.failed,
+        "error": run.error,
+        "by": run.by,
+    }
 
 
 async def policy_names(db: AsyncSession, repository: Repository) -> list[str]:

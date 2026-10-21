@@ -92,6 +92,17 @@ class ProxyStatus(BaseModel):
     last_error: str | None
 
 
+class CleanupRunOut(BaseModel):
+    """A repository's last cleanup run (cleanup spec 5.1)."""
+
+    started_at: datetime
+    finished_at: datetime | None  # none while it is under way, or when it was cut short
+    removed: int
+    failed: int
+    error: str | None
+    by: str | None  # who asked for it; none for the daily run
+
+
 class RepositoryOut(BaseModel):
     name: str
     format: str
@@ -105,6 +116,7 @@ class RepositoryOut(BaseModel):
     group: GroupSettings | None
     status: ProxyStatus | None
     cleanup_policies: list[str]  # by name
+    cleanup: CleanupRunOut | None
 
 
 class RepositoryCreate(BaseModel):
@@ -139,8 +151,11 @@ def _plain(model: BaseModel | None) -> dict[str, Any] | None:
 
 
 def told(view: RepositoryView) -> dict[str, Any]:
-    """A repository as its records tell it: its settings, not how its remote is doing."""
-    return {name: value for name, value in asdict(view).items() if name != "status"}
+    """A repository as its records tell it: its settings, not how its remote is doing nor
+    how its last cleanup went."""
+    return {
+        name: value for name, value in asdict(view).items() if name not in ("status", "cleanup")
+    }
 
 
 def _given(proxy: ProxyIn | None) -> list[str]:
