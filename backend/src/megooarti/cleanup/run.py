@@ -2,20 +2,27 @@
 a delete through the API would remove it, with nobody calling (5.3), checked again first
 against the policies as they are then (E6)."""
 
+import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from megooarti.cleanup import selection
 from megooarti.cleanup.criteria import Criteria
-from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
+from megooarti.cleanup.models import CleanupPolicy, CleanupRun, RepositoryCleanupPolicy
+from megooarti.clock import utcnow
 from megooarti.config import Settings
 from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.models import Asset, Repository
 from megooarti.repositories.removal import delete_file
 from megooarti.storage.models import Blob
+from megooarti.system import audit
+
+log = structlog.get_logger(__name__)
 
 
 async def unattended_context(
@@ -84,3 +91,130 @@ async def remove(context: RepositoryContext, component_id: uuid.UUID, now: datet
                 await context.delete(companion)
     await context.format.cleaned_up(context, files)
     return chosen
+
+
+# --- One repository's run --------------------------------------------------------------
+
+# With a repository's id, the advisory lock of its run (R6): `0x4D43`.
+LOCK_CLASS = 0x4D43
+_LOCK = f"({LOCK_CLASS}, hashtext(CAST(:repository AS text)))"
+
+
+async def claim(engine: AsyncEngine, repository_id: uuid.UUID) -> AsyncConnection | None:
+    """A connection holding the lock of a repository's run, or None if another holds it,
+    here or in another container (E12). Give it back with `release`."""
+    connection = await engine.execution_options(isolation_level="AUTOCOMMIT").connect()
+    try:
+        taken = await connection.scalar(
+            text(f"SELECT pg_try_advisory_lock{_LOCK}"), {"repository": str(repository_id)}
+        )
+    except BaseException:
+        await connection.close()
+        raise
+    if not taken:
+        await connection.close()
+        return None
+    return connection
+
+
+async def release(connection: AsyncConnection, repository_id: uuid.UUID) -> None:
+    try:
+        await connection.execute(
+            text(f"SELECT pg_advisory_unlock{_LOCK}"), {"repository": str(repository_id)}
+        )
+    finally:
+        await connection.close()
+
+
+async def _selected_ids(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    repository_id: uuid.UUID,
+    now: datetime,
+    batch: int,
+) -> list[uuid.UUID]:
+    """The ids of what the repository's policies select now: the ids alone are held."""
+    async with sessionmaker() as db:
+        repository = await db.get(Repository, repository_id)
+        if repository is None:
+            return []
+        context = await build_context(db, settings, repository, None)
+        policies = [criteria for _, criteria in await policies_of(db, repository)]
+        return [held.id async for held in selection.selected(context, policies, now, batch=batch)]
+
+
+async def clean(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    repository_id: uuid.UUID,
+    *,
+    by: str | None = None,
+    now: Callable[[], datetime] = utcnow,
+    batch: int = selection.BATCH,
+) -> CleanupRun | None:
+    """Run a repository's policies: each component they select removed in a transaction of
+    its own. The caller holds the repository's claim. None if there is no such repository.
+
+    A component that cannot be removed is logged and counted, and the run goes on. A run
+    that is cancelled stops between two components, and its record says it did not finish.
+    """
+    began = time.monotonic()
+    async with sessionmaker() as db:
+        repository = await db.get(Repository, repository_id)
+        if repository is None:
+            return None
+        name = repository.name
+        kept = await db.get(CleanupRun, repository_id) or CleanupRun(repository_id=repository_id)
+        kept.started_at, kept.finished_at, kept.by = now(), None, by
+        kept.removed, kept.failed, kept.error = 0, 0, None
+        db.add(kept)
+        await db.commit()
+
+    removed = failed = 0
+    chose: set[str] = set()
+    error = None
+    try:
+        ids = await _selected_ids(sessionmaker, settings, repository_id, now(), batch)
+    except Exception as failure:
+        ids, error = [], f"{type(failure).__name__}: {failure}"
+        log.error("cleanup_failed", repository=name, exc_info=True)
+    for component_id in ids:
+        try:
+            async with sessionmaker() as db:
+                repository = await db.get(Repository, repository_id)
+                if repository is None:
+                    break  # deleted meanwhile, and everything in it
+                context = await unattended_context(db, settings, repository)
+                policy = await remove(context, component_id, now())
+                await db.commit()
+        except Exception:
+            failed += 1
+            log.error(
+                "cleanup_component_failed",
+                repository=name,
+                component=str(component_id),
+                exc_info=True,
+            )
+            continue
+        if policy is not None:
+            removed += 1
+            chose.add(policy)
+
+    async with sessionmaker() as db:
+        kept = await db.get(CleanupRun, repository_id, populate_existing=True)
+        if kept is not None:
+            kept.removed, kept.failed, kept.error = removed, failed, error
+            kept.finished_at = now()
+            said = {"removed": removed, "policies": sorted(chose)}
+            if failed:
+                said["failed"] = failed
+            audit.record(db, "repository.cleaned_up", ("repository", name), audit.diff(None, said))
+        await db.commit()
+    log.info(
+        "cleanup_finished",
+        repository=name,
+        removed=removed,
+        failed=failed,
+        seconds=round(time.monotonic() - began, 3),
+    )
+    return kept
