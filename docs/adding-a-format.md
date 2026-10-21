@@ -71,6 +71,8 @@ raises.
 | `public_remote` | Which of them a proxy with given settings is made with | the protocol's, else `""`'s |
 | `ordered_versions` | A package's versions from the oldest to the newest, as the format's clients order them, or none where they have no order (Docker's tags): what an agent is told is the newest | numbers read as numbers: 1.10 after 1.9 |
 | `is_prerelease` | Whether a client takes a version only when it is asked for: a prerelease, a snapshot | none is |
+| `has_prereleases` | Whether some versions are prereleases (`is_prerelease`), so that a cleanup policy of the format may choose by release type | no |
+| `last_used` | When else a component was last used than by a download of its files, for a cleanup policy's "not downloaded" (a Docker tag, by its manifest pulled by digest) | none |
 | `delete_asset` | Delete a file as the format's own client would, with what goes with it; refuse one the format keeps itself | removes the file |
 | `upload` | Store what an upload form carries, as the format's own client's upload would | a `directory`, and each `file` in it |
 | `describe_fetched` | What a proxy reads of a file it fetched, kept with it and its component | nothing |

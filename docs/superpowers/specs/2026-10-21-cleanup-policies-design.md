@@ -90,6 +90,18 @@ Each is optional; a policy has at least one (E3).
 - A policy's answer includes the repositories it is attached to, by name.
 - Each change is recorded: `cleanup_policy.created`, `updated`, `deleted`; a delete records each repository it is detached from as `repository.updated` (E10).
 
+### Settled while building plan 16a
+
+| # | What | Why |
+| --- | --- | --- |
+| P1 | Policies are `megooarti/cleanup/`'s: `models.py` (`CleanupPolicy`, `RepositoryCleanupPolicy`), `criteria.py`, `selection.py`, `api.py`. A policy's name is a `NewName`, unique whatever its case (`name_key`, as a repository's). | Section 4.1; one place for what 16b and 16c build on. |
+| P2 | The database narrows by the days alone; the pattern and the release type are checked in Python (`Criteria.selects`), on a page of components and their files at a time. | A database's regular expressions are not Python's: the pattern G14 checks must be the one that matches. |
+| P3 | A component's `modified` is the latest `updated_at` of its files; its `downloaded` is the latest `last_downloaded_at` of its files, else its `created_at`; and, where a format says it was used later (`Format.last_used`: Docker's manifest pulled by digest), that. | Section 4.2; 7.3's first point. |
+| P4 | The preview orders what is selected newest first by `modified`, keeping only the page asked for while it counts them all. Its `last_downloaded` is a download, never the time a component was made. | Section 4.4: a page and the total, without holding the repository. |
+| P5 | A pattern is checked by `selectors.checked_pattern`, the very check a selector's `=~` has. Its refusal is said at `asset_pattern`. | Section 4.2: as a selector's is. |
+| P6 | `GET /api/v1/formats` says `has_prereleases` for each format. | Section 4.2 and 16c: the form offers release type by it. |
+| P7 | A `PUT` of a policy may send its format back unchanged; another is `409 immutable`. The preview refuses a policy's own problems at their fields first, then a repository that is not there (`404`), then one of another format or a group (`422` at `repository`). | E9; 4.4. |
+
 ## 5. The run (plan 16b)
 
 ### 5.1 When
@@ -101,7 +113,7 @@ Each is optional; a policy has at least one (E3).
 
 ### 5.2 How
 
-- The components a repository's policies select are found in the database, a page at a time, by the criteria the database can test (the days and the pattern), and the release type checked in Python on what they give. A repository's components are never all held in memory.
+- The components a repository's policies select are found in the database, a page at a time, by the criteria the database can test (the days), and the pattern and the release type checked in Python on what they give (P2). A repository's components are never all held in memory.
 - Each selected component is checked again and deleted in a transaction of its own (E6), through the format (E4), under the locks a delete through the API takes. A component that went in the meantime is passed over.
 - One component that cannot be deleted (a format refusing it, an error) is logged with why, and the run goes on; a run that ends with failures says how many.
 - Shutdown stops a run between two components; what was removed stays removed, and the next run goes on from what is left.

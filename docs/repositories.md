@@ -130,3 +130,57 @@ them could not ask its remote: a build that names several repositories then goes
 to the next. The proxy's own page, and `GET /api/v1/repositories/<name>`, say what it
 last met at its remote. (A Docker group answers `502` in that case: see
 [Docker](formats/docker.md).)
+
+## Cleanup policies
+
+A cleanup policy says which components to remove from the repositories it is attached
+to: a Maven version with all its files, an npm version, a Docker tag. A file that
+belongs to no component (npm's dist-tags, Maven's metadata) is never chosen.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "stale-snapshots", "format": "maven",
+  "updated_days": 14, "release_type": "prerelease"
+}' http://localhost:8000/api/v1/cleanup-policies
+```
+
+A policy has a format, or `*` for every format, which cannot be changed later, and at
+least one criterion. A component is chosen only when every criterion the policy has
+is met:
+
+| Criterion | Chosen when |
+| --- | --- |
+| `updated_days` | its newest file was last written more than that many days ago |
+| `downloaded_days` | none of its files was downloaded in that many days; a component never downloaded counts from when it was stored |
+| `release_type` | it is a `release`, or a `prerelease` (a Maven `-SNAPSHOT` is one) |
+| `asset_pattern` | one of its files' paths, with a `/` before it, matches the whole regular expression |
+
+- Days are 1 to 36500. Downloads are noted at most once an hour, so "not downloaded" is
+  to the hour.
+- `release_type` is for Maven, npm, PyPI, NuGet, APT, YUM and apk; not for Raw, Docker,
+  or a policy of every format. `GET /api/v1/formats` says `has_prereleases` for each.
+- A pattern is at most 1,000 characters. One that repeats a repetition, such as
+  `(a+)+`, is refused: matched against a path made to defeat it, it can take very long.
+
+**Attaching.** A hosted or proxy repository holds any number of policies, of its
+format or of every format, in `cleanup_policies` (by name) when it is made or changed.
+A component is removed when any of its repository's policies chooses it. A `PUT` of a
+repository that leaves `cleanup_policies` out keeps the ones it has. Deleting a policy
+detaches it from every repository, and the audit log records each.
+
+**Seeing what a policy would remove.** Before you attach a policy, or save it, ask what
+it would remove from a repository now:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "format": "maven", "updated_days": 14, "release_type": "prerelease",
+  "repository": "maven-snapshots"
+}' 'http://localhost:8000/api/v1/cleanup-policies/preview?limit=50'
+```
+
+It answers the components, the most recently written first, a page at a time, with
+`total`. It lists what you may browse in the repository, and removes nothing.
+
+Policies are kept with `admin:cleanup:read` and `admin:cleanup:write`; attaching them
+is a repository's setting, with `admin:repositories:write`. In this version nothing is
+removed by them yet.

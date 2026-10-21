@@ -366,6 +366,7 @@ export function createBody(draft: Draft): RepositoryCreate {
     format: draft.format,
     type: draft.type,
     blob_store: draft.type === "group" ? null : draft.blobStore || DEFAULT_BLOB_STORE,
+    cleanup_policies: [],
     ...parts(draft),
   };
 }

@@ -238,6 +238,7 @@ describe("a new repository (R2)", () => {
       proxy: null,
       group: null,
       format_config: { version_policy: "snapshot", layout_policy: "strict" },
+      cleanup_policies: [],
     });
     expect(notices()).toHaveTextContent("Created the repository snapshots.");
   });

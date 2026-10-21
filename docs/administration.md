@@ -382,6 +382,7 @@ area's name alone gives both.
 | `admin:certificates` | The certificates outbound TLS trusts besides the usual authorities; to write, also fetching what a host presents |
 | `admin:audit` | The audit log: to read, its records and their export; to write, how many days they are kept |
 | `admin:selectors` | The content selectors: the expressions that selector permissions name |
+| `admin:cleanup` | The cleanup policies, and what they would remove from a repository. Attaching them to a repository is `admin:repositories:write` |
 
 What a repository holds is not given by these, but by `repository:` permissions:
 see [Repositories](repositories.md). Whoever may change roles, or the roles a user

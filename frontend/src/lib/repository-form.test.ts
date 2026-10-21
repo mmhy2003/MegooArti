@@ -46,6 +46,7 @@ const stored = (change: Partial<RepositoryOut>): RepositoryOut => ({
   proxy: null,
   group: null,
   status: null,
+  cleanup_policies: [],
   ...change,
 });
 
@@ -95,6 +96,7 @@ describe("what is sent to make a repository", () => {
       proxy: null,
       group: null,
       format_config: { version_policy: "mixed", layout_policy: "strict" },
+      cleanup_policies: [],
     });
   });
 
@@ -521,23 +523,49 @@ describe("the remote a proxy is made with", () => {
   const making = (change: Partial<Draft>): Draft => ({ ...EMPTY, ...change });
   // As the server gives them (GET /formats).
   const REMOTES = publicRemotesOf([
-    { name: "maven", types: [], public_remotes: { "": "https://repo1.maven.org/maven2" } },
-    { name: "npm", types: [], public_remotes: { "": "https://registry.npmjs.org" } },
-    { name: "pypi", types: [], public_remotes: { "": "https://pypi.org" } },
-    { name: "docker", types: [], public_remotes: { "": "https://registry-1.docker.io" } },
-    { name: "apt", types: [], public_remotes: { "": "http://deb.debian.org/debian" } },
-    { name: "apk", types: [], public_remotes: { "": "https://dl-cdn.alpinelinux.org/alpine" } },
+    {
+      name: "maven",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://repo1.maven.org/maven2" },
+    },
+    {
+      name: "npm",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://registry.npmjs.org" },
+    },
+    { name: "pypi", types: [], has_prereleases: false, public_remotes: { "": "https://pypi.org" } },
+    {
+      name: "docker",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://registry-1.docker.io" },
+    },
+    {
+      name: "apt",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "http://deb.debian.org/debian" },
+    },
+    {
+      name: "apk",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://dl-cdn.alpinelinux.org/alpine" },
+    },
     {
       name: "nuget",
       types: [],
+      has_prereleases: false,
       public_remotes: {
         "": "https://api.nuget.org/v3/index.json",
         v3: "https://api.nuget.org/v3/index.json",
         v2: "https://community.chocolatey.org/api/v2/",
       },
     },
-    { name: "yum", types: [], public_remotes: {} },
-    { name: "raw", types: [], public_remotes: {} },
+    { name: "yum", types: [], has_prereleases: false, public_remotes: {} },
+    { name: "raw", types: [], has_prereleases: false, public_remotes: {} },
   ]);
 
   test.each([
