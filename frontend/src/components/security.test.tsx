@@ -32,6 +32,7 @@ function Rows({ initial, checked = false }: { initial: string[]; checked?: boole
         initial={initial}
         onChange={setPatterns}
         repositories={REPOSITORIES}
+        selectors={["acme", "jars"]}
         checked={checked}
       />
       <output aria-label="Patterns">{JSON.stringify(patterns)}</output>
@@ -91,6 +92,41 @@ describe("permissions as rows (A2)", () => {
       "snapshots",
       "npm-own",
     ]);
+  });
+
+  test("a selector's row gives an action where a content selector matches (spec 10)", async () => {
+    const user = userEvent.setup();
+    renderUi(<Rows initial={["selector:gone:npm:*:edit"]} />);
+
+    expect(within(row(1)).getByLabelText("About")).toHaveValue("selector");
+    // A selector a row holds is one of its choices, though it is not among those there are.
+    expect(options(within(row(1)).getByLabelText("Content selector"))).toEqual([
+      "Any",
+      "gone",
+      "acme",
+      "jars",
+    ]);
+    expect(row(1)).toHaveTextContent(
+      "Edit in every npm repository, where the content selector gone matches.",
+    );
+
+    await user.selectOptions(within(row(1)).getByLabelText("About"), "repository");
+    await user.selectOptions(within(row(1)).getByLabelText("About"), "selector");
+    expect(patterns()).toEqual(["selector:*:*:*:read"]);
+    expect(row(1)).toHaveTextContent(
+      "Read in every repository, where any content selector matches.",
+    );
+
+    await user.selectOptions(within(row(1)).getByLabelText("Content selector"), "acme");
+    await user.selectOptions(within(row(1)).getByLabelText("Format"), "maven");
+    await user.selectOptions(within(row(1)).getByLabelText("Repository"), "releases");
+    await user.selectOptions(within(row(1)).getByLabelText("Action"), "add");
+
+    expect(patterns()).toEqual(["selector:acme:maven:releases:add"]);
+    expect(row(1)).toHaveTextContent(
+      "Add in the maven repository releases, where the content selector acme matches.",
+    );
+    await expectAccessible();
   });
 
   test("offers every format, whether or not a repository of it exists", () => {

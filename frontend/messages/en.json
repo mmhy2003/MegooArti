@@ -372,7 +372,8 @@
       "repository": "A repository",
       "admin": "Administration",
       "all": "Everything",
-      "typed": "Typed by hand"
+      "typed": "Typed by hand",
+      "selector": "Some of a repository, by a content selector"
     },
     "any": "Any",
     "format": "Format",
@@ -397,7 +398,8 @@
       "repositories": "Repositories",
       "security": "Sign-in",
       "certificates": "Certificates",
-      "audit": "Audit log"
+      "audit": "Audit log",
+      "selectors": "Content selectors"
     },
     "add": "Add a permission",
     "remove": "Remove permission {number}",
@@ -433,10 +435,15 @@
         "repositories": "the repositories",
         "security": "how people sign in",
         "certificates": "the trusted certificates",
-        "audit": "the audit log"
+        "audit": "the audit log",
+        "selectors": "the content selectors"
       },
-      "other": "Whatever this pattern matches."
-    }
+      "other": "Whatever this pattern matches.",
+      "selected": "{action} in {where}, where {which} matches.",
+      "anySelector": "any content selector",
+      "oneSelector": "the content selector {name}"
+    },
+    "selector": "Content selector"
   },
   "tokens": {
     "title": "API tokens",

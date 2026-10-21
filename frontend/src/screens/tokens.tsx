@@ -25,6 +25,7 @@ import { endOfDay } from "@/lib/format";
 import { ACCOUNT_TOKENS, pageHref, pageOf } from "@/lib/paths";
 import { READ_ONLY } from "@/lib/patterns";
 import { refusalsOf } from "@/lib/refusals";
+import { useSelectorNames } from "@/lib/selectors";
 import { AT_ONCE, useCreateToken, useMyTokens, useRevokeToken } from "@/lib/security";
 
 const DAY = 24 * 3600 * 1000;
@@ -82,6 +83,7 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
   const t = useTranslations("tokens");
   const create = useCreateToken();
   const repositories = useRepositories();
+  const selectors = useSelectorNames();
   const [name, setName] = useState("");
   const [lasts, setLasts] = useState<Lasts>("90");
   const [day, setDay] = useState("");
@@ -168,6 +170,7 @@ function Create({ onCreated }: { onCreated: (token: TokenCreated) => void }) {
               initial={custom}
               onChange={setCustom}
               repositories={repositories.data?.items ?? []}
+              selectors={selectors}
               checked={checked}
             />
             {problems.custom ? <Alert tone="danger">{problems.custom}</Alert> : null}

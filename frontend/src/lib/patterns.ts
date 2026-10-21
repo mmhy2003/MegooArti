@@ -21,6 +21,7 @@ export const ADMIN_AREAS = [
   "security",
   "certificates",
   "audit",
+  "selectors",
 ] as const;
 export const ADMIN_ACTIONS = ["read", "write"] as const;
 /** What a token that may only read is limited to. */
@@ -35,6 +36,8 @@ export function isValidPattern(pattern: string): boolean {
 
 export type Row =
   | { kind: "repository"; format: string; name: string; action: string }
+  // Some of a repository: what a content selector matches in it (spec 10).
+  | { kind: "selector"; selector: string; format: string; name: string; action: string }
   | { kind: "admin"; area: string; action: string }
   | { kind: "all" }
   | { kind: "typed"; text: string };
@@ -49,6 +52,8 @@ export function toPattern(row: Row): string {
   switch (row.kind) {
     case "repository":
       return `repository:${row.format}:${row.name}:${row.action}`;
+    case "selector":
+      return `selector:${row.selector}:${row.format}:${row.name}:${row.action}`;
     case "admin":
       return `admin:${row.area}:${row.action}`;
     case "all":
@@ -67,8 +72,19 @@ export function fromPattern(pattern: string): Row {
   if (pattern === ANY) return { kind: "all" };
   const typed: Row = { kind: "typed", text: pattern };
   if (!isValidPattern(pattern)) return typed;
-  const [about, second, third, fourth, ...more] = pattern.split(":");
-  if (more.length > 0 || second === undefined || third === undefined) return typed;
+  const [about, second, third, fourth, fifth, ...more] = pattern.split(":");
+  if (
+    about === "selector" &&
+    more.length === 0 &&
+    second !== undefined &&
+    third !== undefined &&
+    fourth !== undefined &&
+    fifth !== undefined &&
+    known(REPOSITORY_ACTIONS, fifth)
+  ) {
+    return { kind: "selector", selector: second, format: third, name: fourth, action: fifth };
+  }
+  if (fifth !== undefined || second === undefined || third === undefined) return typed;
   if (about === "repository" && fourth !== undefined && known(REPOSITORY_ACTIONS, fourth)) {
     return { kind: "repository", format: second, name: third, action: fourth };
   }
@@ -88,6 +104,8 @@ export function startOf(kind: RowKind): Row {
   switch (kind) {
     case "repository":
       return { kind, format: ANY, name: ANY, action: "read" };
+    case "selector":
+      return { kind, selector: ANY, format: ANY, name: ANY, action: "read" };
     case "admin":
       return { kind, area: ANY, action: "read" };
     case "all":

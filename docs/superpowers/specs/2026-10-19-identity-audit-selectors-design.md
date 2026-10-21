@@ -247,6 +247,15 @@ Settled here, by the designer:
 | G14 | A pattern that repeats a repetition (`(a+)+`, `(\w+/?)*`) is refused when it is saved: its time on a crafted path doubles with each character, and paths are what anyone sends. A preview's path is at most 1,024 bytes. | The final review: 3.8 seconds on 28 characters. |
 | G15 | A folder's page is filled from further on, up to 20 reads, past what a selector leaves out; the components left out after a pattern's check are passed as one array parameter, however many. | The final review: a reachable folder shown empty; more than 32,767 parameters. |
 
+### Settled while building plan 15h
+
+| # | What | Why |
+| --- | --- | --- |
+| U1 | The screens are Administration, Content selectors, after Roles, with `admin:selectors:read`: the list at `/admin/content-selectors`, a new one at `/admin/content-selectors/~new` (a selector may be called `new`), one at `/admin/content-selectors/<name>`. A selector is made with a name of the server's rule, said before it is sent, a description and an expression; changed on its page; deleted after a question, and one a role names says which (`409 in_use`). Whoever may only read sees each, and tries it. | Section 10: the screens (15h); as the roles' screens are. |
+| U2 | An expression is tried as it is typed, against paths a line each (at most 100) in a repository of a format (Maven unless chosen), and each path is said to match or not; nothing is kept. What the server finds wrong with the expression, saving or trying it, is said at the expression, with its character. | Section 10: a preview against paths. |
+| U3 | A role's row, and a token's, may be about some of a repository: `selector:<selector>:<format>:<repository>:<action>`, the selector chosen from those there are (read only by whoever holds `admin:selectors:read`; to others, the one a row holds and Any), then the format, the repository and the action as a repository's row, and said in words (`Add in the maven repository releases, where the content selector acme matches.`). A shorter or another shape is a typed row, kept as it is. The administration areas gain `selectors`. | Section 10: the role editor's rows offer selector permissions. |
+| U4 | What else the web UI offers by permission stays by repository permissions: Upload in the navigation, the repositories the upload screen offers, and the browse screens' delete buttons. Whoever holds only selector permissions does those through package clients, the API or MCP. | Section 10 names the screens of 15h only; each of those is its own change. |
+
 ## 11. Errors and limits
 
 - Sign-in through an external source answers as a local one does: `401 Invalid credentials.`, throttled alike (SEC-19); what went wrong is logged and audited, not said.

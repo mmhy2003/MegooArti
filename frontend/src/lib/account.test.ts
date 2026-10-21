@@ -57,6 +57,15 @@ describe("a permission pattern", () => {
     ["admin:users:write", { kind: "admin", area: "users", action: "write" }],
     ["admin:*:read", { kind: "admin", area: "*", action: "read" }],
     ["admin:*:*", { kind: "admin", area: "*", action: "*" }],
+    ["admin:selectors:write", { kind: "admin", area: "selectors", action: "write" }],
+    [
+      "selector:acme:maven:releases:read",
+      { kind: "selector", selector: "acme", format: "maven", name: "releases", action: "read" },
+    ],
+    [
+      "selector:*:*:*:browse",
+      { kind: "selector", selector: "*", format: "*", name: "*", action: "browse" },
+    ],
   ])("%s is taken apart into a row, and the row makes it again", (pattern, row) => {
     expect(fromPattern(pattern)).toEqual(row);
     expect(toPattern(row)).toBe(pattern);
@@ -74,6 +83,9 @@ describe("a permission pattern", () => {
     "admin:users:read:more",
     "*:users:read",
     "metrics:read",
+    "selector:acme", // shorter: whatever acme matches, everywhere
+    "selector:acme:maven:releases:publish",
+    "selector:acme:maven:releases:read:more",
   ])("%s is of no shape a row has, and stays as it was typed", (pattern) => {
     expect(fromPattern(pattern)).toEqual({ kind: "typed", text: pattern });
     expect(toPattern(fromPattern(pattern))).toBe(pattern);
@@ -86,6 +98,7 @@ describe("a permission pattern", () => {
 
   test("a row starts as the widest of its shape that only reads", () => {
     expect(toPattern(startOf("repository"))).toBe("repository:*:*:read");
+    expect(toPattern(startOf("selector"))).toBe("selector:*:*:*:read");
     expect(toPattern(startOf("admin"))).toBe("admin:*:read");
     expect(toPattern(startOf("all"))).toBe("*");
     expect(toPattern(startOf("typed"))).toBe("");

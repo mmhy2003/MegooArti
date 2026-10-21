@@ -20,7 +20,7 @@ import {
   type RowKind,
 } from "@/lib/patterns";
 
-const KINDS: readonly RowKind[] = ["repository", "admin", "all", "typed"];
+const KINDS: readonly RowKind[] = ["repository", "selector", "admin", "all", "typed"];
 // The formats there are, whether or not a repository of each exists yet.
 export const FORMATS = ["raw", "maven", "npm", "pypi", "docker", "apt", "yum", "apk", "nuget"];
 
@@ -41,7 +41,8 @@ export function usePatternWords(): (pattern: string) => string | null {
     switch (row.kind) {
       case "all":
         return t("grants.all");
-      case "repository": {
+      case "repository":
+      case "selector": {
         const { format, name } = row;
         const where =
           format === ANY && name === ANY
@@ -51,8 +52,13 @@ export function usePatternWords(): (pattern: string) => string | null {
               : format === ANY
                 ? t("grants.everyNamed", { name })
                 : t("grants.oneRepository", { format, name });
-        const action = row.action === ANY ? "any" : (row.action as "read");
-        return t("grants.repository", { action: t(`grants.doing.${action}`), where });
+        const action = t(`grants.doing.${row.action === ANY ? "any" : (row.action as "read")}`);
+        if (row.kind === "repository") return t("grants.repository", { action, where });
+        const which =
+          row.selector === ANY
+            ? t("grants.anySelector")
+            : t("grants.oneSelector", { name: row.selector });
+        return t("grants.selected", { action, where, which });
       }
       case "admin": {
         const action = row.action === ANY ? "any" : (row.action as "read");
@@ -99,12 +105,15 @@ export function PermissionRows({
   initial,
   onChange,
   repositories,
+  selectors = [],
   checked = false,
 }: {
   legend: string;
   initial: string[];
   onChange: (patterns: string[]) => void;
   repositories: Held[];
+  /** The content selectors there are, by their names: none for who may not read them. */
+  selectors?: string[];
   /** Saving was tried: a row that is still empty is now said to be wrong. */
   checked?: boolean;
 }) {
@@ -169,7 +178,15 @@ export function PermissionRows({
                     onChange={(event) => set(id, startOf(event.target.value as RowKind))}
                     choices={KINDS.map((kind) => ({ value: kind, label: t(`kinds.${kind}`) }))}
                   />
-                  {row.kind === "repository" ? (
+                  {row.kind === "selector" ? (
+                    <SelectField
+                      label={t("selector")}
+                      value={row.selector}
+                      onChange={(event) => set(id, { ...row, selector: event.target.value })}
+                      choices={listed(selectors, row.selector, plain)}
+                    />
+                  ) : null}
+                  {row.kind === "repository" || row.kind === "selector" ? (
                     <>
                       <SelectField
                         label={t("format")}

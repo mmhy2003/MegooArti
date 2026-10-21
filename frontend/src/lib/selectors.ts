@@ -15,6 +15,8 @@ import type {
   SelectorCreate,
   SelectorOut,
 } from "@/lib/api/types";
+import { allows } from "@/lib/session/rules";
+import { useSession } from "@/lib/session/session";
 
 // As many of a list as one page shows (A13).
 export const AT_ONCE = 50;
@@ -44,6 +46,17 @@ export function useEverySelector(enabled = true) {
     queryFn: () => api.get<Page<SelectorOut>>("/content-selectors", { query: { limit: EVERY } }),
     enabled,
   });
+}
+
+/**
+ * The names of the selectors there are, for a selector permission's row to choose from:
+ * none for whoever may not read them, who types a selector's name instead.
+ */
+export function useSelectorNames(): string[] {
+  const session = useSession();
+  const mayRead = session.data !== undefined && allows(session.data, "admin:selectors:read");
+  const every = useEverySelector(mayRead);
+  return mayRead ? (every.data?.items.map((selector) => selector.name) ?? []) : [];
 }
 
 export function useSelector(name: string | null) {

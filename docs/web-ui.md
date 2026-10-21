@@ -60,7 +60,16 @@ repositories, blob stores and the installation's own settings.
     action from lists. The pattern the row makes is shown with what it grants in
     words. A pattern the lists cannot make is typed by hand, and a role that was
     written through the API opens with nothing lost. The `admin` role is shown and
-    cannot be changed.
+    cannot be changed. A row may be about some of a repository, by a content selector:
+    chosen from those there are (or typed, by whoever may not read them), with the
+    format, repository and action, and said in words.
+  - **Content selectors** lists what selector permissions name: each one's name,
+    description and expression. A new one is made with a name, a description and an
+    expression; whatever the server finds wrong with the expression is said at it,
+    with the character where it went wrong. Before it is saved, or by whoever may only
+    read it, an expression is tried against paths, a line each, in a repository of a
+    format, and each path is said to match or not. A selector is deleted after a
+    question; one a role names says which roles do, and is kept.
   - **Anonymous access** is one switch, which asks before it is turned on, and shows
     what someone who is not signed in may then do. If the `anonymous` user is
     disabled, nothing is given though the switch is on, and the page says so.

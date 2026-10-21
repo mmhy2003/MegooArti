@@ -24,6 +24,7 @@ import { useRepositories } from "@/lib/content";
 import { useAttempts, usePageFocus, useWithinPages } from "@/lib/focus";
 import { isAddressable, NEW_ROLE, pageHref, pageOf, parseRole, roleHref, ROLES } from "@/lib/paths";
 import { refusalsOf } from "@/lib/refusals";
+import { useSelectorNames } from "@/lib/selectors";
 import {
   AT_ONCE,
   useCreateRole,
@@ -151,6 +152,7 @@ function RoleForm({
 }) {
   const t = useTranslations("roles");
   const repositories = useRepositories();
+  const selectors = useSelectorNames();
   const others = useEveryRole();
   const [name, setName] = useState("");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -214,6 +216,7 @@ function RoleForm({
         initial={permissions}
         onChange={setPermissions}
         repositories={repositories.data?.items ?? []}
+        selectors={selectors}
         checked={checked}
       />
       {refused.at.permissions ? <Alert tone="danger">{refused.at.permissions}</Alert> : null}

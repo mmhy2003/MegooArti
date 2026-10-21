@@ -714,6 +714,7 @@ describe("a role", () => {
       [`GET /roles/${which?.name}`]: { json: which },
       "GET /roles": { json: page(ROLES) },
       "GET /content": { json: REPOSITORIES },
+      "GET /content-selectors": { json: page([]) },
       "GET /users": { json: page([SELF]) },
       "GET /auth/session": { json: session },
       ...more,
@@ -725,6 +726,7 @@ describe("a role", () => {
     const api = mockApi({
       "GET /roles": { json: page(ROLES) },
       "GET /content": { json: REPOSITORIES },
+      "GET /content-selectors": { json: page([]) },
       "GET /users": { json: page([SELF]) },
       "GET /auth/session": { json: ADMIN },
       "POST /roles": (call) => ({ status: 201, json: role((call.body as { name: string }).name) }),
@@ -754,6 +756,30 @@ describe("a role", () => {
       roles: ["anonymous"],
     });
     expect(notices()).toHaveTextContent("Created the role readers.");
+  });
+
+  test("offers the content selectors there are to a permission's row (spec 10)", async () => {
+    const user = userEvent.setup();
+    const acme = {
+      id: "s1",
+      name: "acme",
+      description: "",
+      expression: 'path =^ "/com/acme/"',
+      created_at: "2026-10-21T08:00:00Z",
+      updated_at: "2026-10-21T08:00:00Z",
+    };
+    const { calls } = fresh({ "GET /content-selectors": { json: page([acme]) } });
+
+    await user.type(screen.getByLabelText("Name"), "acme-readers");
+    await user.click(screen.getByRole("button", { name: "Add a permission" }));
+    await user.selectOptions(screen.getByLabelText("About"), "selector");
+    await user.selectOptions(await screen.findByLabelText("Content selector"), "acme");
+    await user.click(screen.getByRole("button", { name: "Create role" }));
+
+    await waitFor(() => expect(of(calls, "POST")).toHaveLength(1));
+    expect((of(calls, "POST")[0]?.body as { permissions: string[] }).permissions).toEqual([
+      "selector:acme:*:*:read",
+    ]);
   });
 
   test("needs a name of the kind a role has, and one no other role has", async () => {
