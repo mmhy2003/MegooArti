@@ -843,6 +843,23 @@ class DockerFormat(Format):
             )
         )
 
+    async def cleaned_up(
+        self, context: RepositoryContext, files: Sequence[tuple[str, str]]
+    ) -> None:
+        """A tag a cleanup run removed takes the image it named, when no tag and no other
+        manifest names it any more (cleanup spec 7.3). A tag deleted otherwise goes alone."""
+        await context.lock(_REFERENCES)
+        for path, sha256 in files:
+            named = names.tag_of(path)
+            if named is None:
+                continue
+            image, digest = named[0], f"sha256:{sha256}"
+            if await _tags_naming(context, image, digest):
+                continue
+            if await context.referenced([names.manifest_path(image, digest)]):
+                continue  # a platform's, which an index names
+            await _drop(context, image, digest)
+
     async def maintain(self, context: RepositoryContext, now: datetime) -> None:
         """Remove blobs that no manifest has referred to for a day."""
         await context.lock(_REFERENCES)

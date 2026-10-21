@@ -320,6 +320,12 @@ class Format:
         None."""
         return None
 
+    async def cleaned_up(
+        self, context: "RepositoryContext", files: Sequence[tuple[str, str]]
+    ) -> None:
+        """Finish a component's removal by a cleanup run, given its files' paths and
+        SHA-256s, as they were. The generic format: nothing more."""
+
     async def maintain(self, context: "RepositoryContext", now: datetime) -> None:
         """Do what one repository needs done from time to time. The generic format: nothing.
 

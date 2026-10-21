@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import select, update
 
+from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
 from megooarti.clock import utcnow
 from megooarti.repositories.models import Asset, Component, Repository
 from tests.accounts import PASSWORD, basic
@@ -59,3 +60,50 @@ async def age(
             .values(created_at=days_ago(made))
         )
     await db.commit()
+
+
+async def age_everything(db, repository: Repository, *, written: float) -> None:
+    """Make every file of a repository, and every component, written that many days ago."""
+    await db.execute(
+        update(Asset)
+        .where(Asset.repository_id == repository.id)
+        .values(updated_at=days_ago(written), last_downloaded_at=None)
+    )
+    await db.execute(
+        update(Component)
+        .where(Component.repository_id == repository.id)
+        .values(created_at=days_ago(written))
+    )
+    await db.commit()
+
+
+async def attach(db, repository: Repository, name: str = "old", **criteria) -> CleanupPolicy:
+    """A policy of the repository's format attached to it: by default, not updated in 30
+    days."""
+    policy = CleanupPolicy(
+        name=name,
+        name_key=name.lower(),
+        format=repository.format,
+        **(criteria or {"updated_days": 30}),
+    )
+    db.add(policy)
+    await db.flush()
+    db.add(RepositoryCleanupPolicy(repository_id=repository.id, policy_id=policy.id))
+    await db.commit()
+    return policy
+
+
+async def component_id(db, repository: Repository, name: str, version: str):
+    found = await db.scalar(
+        select(Component.id).where(
+            Component.repository_id == repository.id,
+            Component.name == name,
+            Component.version == version,
+        )
+    )
+    assert found is not None, (name, version)
+    return found
+
+
+async def paths_of(db, repository: Repository) -> list[str]:
+    return sorted(await db.scalars(select(Asset.path).where(Asset.repository_id == repository.id)))
