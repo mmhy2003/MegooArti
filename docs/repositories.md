@@ -196,7 +196,8 @@ curl -u admin -X POST http://localhost:8000/api/v1/repositories/maven-snapshots/
 
 The first says how many components its policies would remove now (`{"total": 12}`).
 The second answers `202` at once, or `409 cleanup_running` while a run of it is under
-way; `GET /api/v1/repositories/maven-snapshots` then says how the last run went, in
+way, or `409 cleanup_busy` while the server already runs two that were started this way
+(each holds database connections for as long as it lasts); `GET /api/v1/repositories/maven-snapshots` then says how the last run went, in
 `cleanup`: when it started and finished, how many it removed, how many could not be
 removed, and who asked. The audit log records each run once, as
 `repository.cleaned_up`.

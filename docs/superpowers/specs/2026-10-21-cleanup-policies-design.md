@@ -136,7 +136,9 @@ Today a delete that runs the format's own effects needs a caller with the `delet
 | R7 | "Clean up now" with no policy attached, or of a group, is `409 no_cleanup_policies`. Its record names whoever asked: the run is started from the request, and keeps its context. | 5.1; E11. |
 | R8 | `POST /repositories/{name}/cleanup/preview` answers `{"total": n}`, with `admin:repositories:write`. | 5.1. |
 | R9 | A run gathers the ids of what its policies select (the ids alone), then removes each in a transaction of its own. Its record's `changes` are `removed` and `policies`, and `failed` where some could not be removed. | 5.2; E11. |
-| R10 | Shutdown cancels runs an administrator started with the other background work: a run stops between two components, its record unfinished, and the next hourly check takes it up. | 5.2. |
+| R10 | Shutdown cancels runs an administrator started with the other background work: a run stops between two components, its record unfinished, and the next hourly check takes it up. A repository is due when its last run never finished or finished more than the interval ago; the daily check reads that again once it holds the repository's claim, and passes over one cleaned meanwhile. | 5.2; the final review. |
+| R11 | One server runs at most two runs started now at once (`MOST_AT_ONCE`), beside the daily one; another is `409 cleanup_busy`. Each holds two of the database's connections for as long as it lasts. | The final review: runs on many large repositories at once would take every connection. |
+| R12 | A component with no file (an index's rebuild cut short) is no candidate: it is left out in the database, so a page never looks like the last one before it is. | The final review: the walk stopped there, silently. |
 
 ## 6. The web UI (plan 16c)
 
@@ -153,7 +155,7 @@ Today a delete that runs the format's own effects needs a caller with the `delet
 | W2 | A criterion is a checkbox with its value beside it: days as a number, release type as a choice of two, the pattern as text. Each is said in words in the list ("Not updated in 14 days, pre-releases"). | Section 6; 4.2. |
 | W3 | The preview asks again half a second after the form last changed, with what the form holds, while its criteria have no problem (a name not yet right does not stop it); the first 50, a pager, and the total. Its repository is chosen among the hosted and proxy repositories of the policy's format, the first by name unless chosen. | Section 6: refreshed as the form changes; API-5. |
 | W4 | A hosted or proxy repository's settings have a Cleanup section: checkboxes of the policies of its format and of every format, to whoever holds `admin:cleanup:read`; to others, the names attached, as text, which saving keeps (the `PUT` leaves them out). A new repository is made with none: they are attached on its settings. | Section 6; U3 of the identity spec. |
-| W5 | "Clean up now" goes by the policies the server holds, asks first with the count `cleanup/preview` gives, starts the run, and asks the repository again every 2 seconds until its `cleanup.finished_at` is later than when it started, then says what was removed. `409 cleanup_running` is said as "A cleanup of this repository is already running." The API client takes a `202` as done, with nothing more said. | Section 6; 5.1. |
+| W5 | "Clean up now" goes by the policies the server holds, asks first with the count `cleanup/preview` gives, starts the run, and asks the repository again every 2 seconds until its `cleanup` is a run that started other than the one it had before and has finished (the server's times, never the browser's clock), then says what was removed. While the formats are not known, a policy keeps the release type it has. `409 cleanup_running` is said as "A cleanup of this repository is already running." The API client takes a `202` as done, with nothing more said. | Section 6; 5.1. |
 
 ## 7. Formats
 
