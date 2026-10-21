@@ -7,20 +7,24 @@ from datetime import datetime
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from megooarti.cleanup.criteria import Criteria, problems
+from megooarti.cleanup import selection
+from megooarti.cleanup.criteria import ANY_FORMAT, Criteria, problems
 from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
+from megooarti.clock import utcnow
 from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import api as repositories_api
 from megooarti.repositories import service
-from megooarti.repositories.models import Repository
+from megooarti.repositories.content import build_context
+from megooarti.repositories.models import Asset, Repository
+from megooarti.security import access
 from megooarti.security.authentication import Principal, require
 from megooarti.system import audit
 
@@ -51,6 +55,22 @@ class PolicyContent(BaseModel):
 class PolicyCreate(PolicyContent):
     name: NewName
     format: str = Field(max_length=32)  # a format's name, or `*` for every format
+
+
+class Previewing(PolicyContent):
+    format: str = Field(max_length=32)
+    repository: str = Field(max_length=64)
+
+
+class Selected(BaseModel):
+    """A component a policy would remove."""
+
+    id: uuid.UUID
+    namespace: str
+    name: str
+    version: str
+    modified: datetime
+    last_downloaded: datetime | None
 
 
 class PolicyOut(BaseModel):
@@ -163,6 +183,53 @@ async def create_policy(
     await db.commit()
     log.info("cleanup_policy_created", policy=policy.name, by=principal.user.username)
     return await _shown(db, policy)
+
+
+@router.post("/preview", response_model=Page[Selected])
+async def preview_policy(
+    body: Previewing,
+    request: Request,
+    params: PageParams = Depends(),
+    caller: Principal = Depends(require("admin:cleanup:read")),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """What a policy, kept or not, would remove from a repository now: of what the caller
+    may browse there, newest first. Nothing is removed."""
+    _refused(problems(body.format, body.criteria))
+    repository = await service.get_repository(db, body.repository)
+    if repository is None:
+        raise ApiError(404, "not_found", "No such repository.")
+    if repository.type == "group" or body.format not in (repository.format, ANY_FORMAT):
+        message = "A hosted or proxy repository of the policy's format."
+        _refused([{"field": "repository", "message": message}])
+    context = await build_context(db, request.app.state.settings, repository, caller)
+    found, total = await selection.preview(
+        context,
+        body.criteria,
+        utcnow(),
+        limit=params.limit,
+        offset=params.offset,
+        reached=access.reach(caller, repository, "browse"),
+    )
+    items = [
+        Selected(
+            id=held.id,
+            namespace=held.namespace,
+            name=held.name,
+            version=held.version,
+            modified=held.modified,
+            # `downloaded` is when it was made where nothing was downloaded: not a download.
+            last_downloaded=await _last_download(db, held.id),
+        )
+        for held in found
+    ]
+    return page(items, total, params)
+
+
+async def _last_download(db: AsyncSession, component_id: uuid.UUID) -> datetime | None:
+    return await db.scalar(
+        select(func.max(Asset.last_downloaded_at)).where(Asset.component_id == component_id)
+    )
 
 
 @router.get("/{name}", response_model=PolicyOut)

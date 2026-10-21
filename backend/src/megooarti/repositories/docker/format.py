@@ -37,9 +37,11 @@ from types import MappingProxyType
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
+from sqlalchemy import select
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from megooarti.cleanup.criteria import Held
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.repositories import group, proxy, uploads
@@ -55,6 +57,7 @@ from megooarti.repositories.formats import (
     plain,
     register,
 )
+from megooarti.repositories.models import Asset
 from megooarti.storage.backends import StagedBlob
 
 FORMAT = "docker"
@@ -825,6 +828,20 @@ class DockerFormat(Format):
             return ComponentKey("", *named)
         held = names.manifest_of(path)
         return None if held is None else ComponentKey(names.MANIFESTS, *held)
+
+    async def last_used(self, context: RepositoryContext, held: Held) -> datetime | None:
+        """A tag is used while the image it names is pulled, by its digest too."""
+        if held.namespace:
+            return None
+        stored = await context.stat(names.tag_path(held.name, held.version))
+        if stored is None:
+            return None
+        manifest = names.manifest_path(held.name, f"sha256:{stored.sha256}")
+        return await context.db.scalar(
+            select(Asset.last_downloaded_at).where(
+                Asset.repository_id == context.repository.id, Asset.path == manifest
+            )
+        )
 
     async def maintain(self, context: RepositoryContext, now: datetime) -> None:
         """Remove blobs that no manifest has referred to for a day."""

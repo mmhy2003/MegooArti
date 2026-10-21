@@ -21,6 +21,7 @@ from megooarti.repositories.paths import normalise_path
 from megooarti.repositories.versions import natural_key
 
 if TYPE_CHECKING:
+    from megooarti.cleanup.criteria import Held
     from megooarti.repositories.content import RepositoryContext
     from megooarti.repositories.forms import UploadForm
     from megooarti.repositories.models import Repository
@@ -312,6 +313,12 @@ class Format:
         the principal, and must check the credentials through the context.
         """
         return False
+
+    async def last_used(self, context: "RepositoryContext", held: "Held") -> datetime | None:
+        """When else a component was last used than by a download of its files, for a
+        cleanup policy's "not downloaded"; None if by nothing else. The generic format:
+        None."""
+        return None
 
     async def maintain(self, context: "RepositoryContext", now: datetime) -> None:
         """Do what one repository needs done from time to time. The generic format: nothing.
