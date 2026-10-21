@@ -38,7 +38,8 @@ docker compose exec backend cat /var/lib/megooarti/admin.password
 
 (In Git Bash on Windows, with two slashes: `//var/lib/megooarti/admin.password`.)
 Sign in with it, as `admin`, at <http://localhost:8000>, and choose a password of
-your own. [Installation](docs/installation.md) says the rest.
+your own. [Installation](docs/installation.md) says the rest, and what to do when
+`admin` cannot sign in.
 
 Compose starts four containers: the database, the backend, the frontend, and a
 gateway (nginx) that is the one published address and sends each request to the

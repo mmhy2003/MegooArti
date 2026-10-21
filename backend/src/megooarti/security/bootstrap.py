@@ -27,7 +27,7 @@ def password_file(settings: Settings) -> Path:
     return settings.data_dir / _FILE_NAME
 
 
-def _write_private(path: Path, content: str) -> None:
+def write_private(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -57,7 +57,7 @@ async def ensure_initial_admin_password(
         path = password_file(settings)
         written: str | None = str(path)
         try:
-            _write_private(path, password)
+            write_private(path, password)
         except OSError as error:
             written = None
             log.warning(

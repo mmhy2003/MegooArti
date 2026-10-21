@@ -97,6 +97,22 @@ second answers `204`, with nothing in it. Until the password has been changed, e
 other request as `admin` is refused with `403 password_change_required`, with the
 session and with the password alike.
 
+### When admin cannot sign in
+
+If the password of `admin` is lost, or `admin` was disabled, or sign-in is blocked
+after too many failures, whoever runs the containers can let it in again:
+
+```bash
+docker compose exec backend python -m megooarti.security.reset_admin
+```
+
+(`make reset-admin` says the same.) It prints a new random password, and writes it to
+`admin.password` as at the first start. `admin` is made active again, its sessions
+end, every sign-in block is lifted, for every name and address, and it must choose a
+new password at the next sign-in. The audit log records the change as the system's.
+It does not change the roles of `admin`. It needs a database at the version of the
+backend: start the backend once after an upgrade before running it.
+
 ## The base URL
 
 MegooArti gives its own address to clients: in the links of an npm package document,

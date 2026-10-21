@@ -1,5 +1,20 @@
 # Development
 
+## Shortcuts
+
+The `Makefile` at the top of the repository has the commands below under shorter
+names: `make` alone lists them. It needs GNU make, and works from a shell on Linux or
+macOS and from PowerShell on Windows, where `winget install ezwinports.make` installs
+one.
+
+```bash
+make up                       # build and start the stack
+make logs SERVICE=backend     # follow its logs, of one service or of all
+make reset-admin              # when admin cannot sign in: see Installation
+make test-backend ARGS="-k reset"   # starts the db service first
+make lint
+```
+
 ## The backend
 
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and Docker.
