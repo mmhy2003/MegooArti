@@ -8,7 +8,7 @@ Queries and plain values only. Which repositories may be searched is the route's
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.repositories.formats import get_format
 from megooarti.repositories.models import Asset, Component, Repository
+from megooarti.repositories.reached import holding, unreached
+from megooarti.security.access import Reached
 from megooarti.storage.models import Blob
 
 # Lower-case hexadecimal digits of each checksum.
@@ -116,16 +118,25 @@ async def search(
     *,
     limit: int,
     offset: int,
+    reached: Mapping[uuid.UUID, Reached] | None = None,
 ) -> tuple[list[Found], int]:
     """A page of the components in these repositories that match, and how many there are.
 
-    In the order of name, namespace and repository, the newest first. Raises BadChecksum.
+    In the order of name, namespace and repository, the newest first. With `reached`
+    (each repository's, by its id), only the components with a file it reaches (spec
+    10). Raises BadChecksum.
     """
     conditions = _conditions(wanted)
     if not repositories:
         return [], 0
-    conditions.append(Component.repository_id.in_([repository.id for repository in repositories]))
     conditions += _unlisted(repositories)
+    if reached is None or all(reach.whole for reach in reached.values()):
+        conditions.append(Component.repository_id.in_([found.id for found in repositories]))
+    else:
+        conditions.append(holding(reached))
+        hidden = await unreached(db, reached, conditions)
+        if hidden:
+            conditions.append(Component.id.not_in(hidden))
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
     # By bytes, so that the order is the same whatever the database orders by.
     order = (

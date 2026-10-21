@@ -105,7 +105,9 @@ curl -u alice -X DELETE 'https://repo.example.com/api/v1/content/maven-releases/
 - **Seeing needs `browse`** on the repository, and downloading needs `read`. Deleting
   through this API needs `browse` and `delete`, and nothing else: not the right to
   publish. The list leaves out what you may not browse, and a group names only the
-  members you may browse.
+  members you may browse. Through a content selector you see only what it reaches:
+  its folders, files and components (see
+  [Content selectors](administration.md#content-selectors)).
 - **A folder** (`tree`) lists what is directly in it, in the byte order of the names,
   each entry a `folder` or a `file`. It is read a page at a time: give the `next` of
   one answer as `after` in the following request. There is no total, because a
@@ -221,7 +223,8 @@ curl -u alice -F file=@greeter-1.0-py3-none-any.whl -F file=@greeter-1.0.tar.gz 
 
 ## Search
 
-`/api/v1/search` finds components in every repository you may browse.
+`/api/v1/search` finds components in every repository you may browse, and, where a
+content selector lets you browse some of one, the components with a file it reaches.
 
 ```bash
 curl -u alice 'https://repo.example.com/api/v1/search?q=commons+lang'

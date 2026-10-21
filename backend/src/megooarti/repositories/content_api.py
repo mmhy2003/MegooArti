@@ -27,9 +27,9 @@ from megooarti.repositories.content import RepositoryContext, build_context
 from megooarti.repositories.formats import ComponentKey, Format, get_format
 from megooarti.repositories.models import Repository
 from megooarti.repositories.paths import normalise_path
+from megooarti.security import access
 from megooarti.security.authentication import (
     Principal,
-    authorize,
     require_caller,
     unauthorized,
 )
@@ -110,10 +110,6 @@ class Uploaded(BaseModel):
     files: list[AssetView]
 
 
-def _permission(repository: Repository, action: str) -> str:
-    return f"repository:{repository.format}:{repository.name}:{action}"
-
-
 async def _base(request: Request, db: AsyncSession) -> str:
     """The public address of this server, without a slash at its end."""
     return (await get_setting(db, "base_url") or str(request.base_url)).rstrip("/")
@@ -145,7 +141,7 @@ async def _view(
         members = [
             member.name
             for member in await service.members(db, repository)
-            if caller.allows(_permission(member, "browse"))
+            if access.may_somewhere(caller, member, "browse")
         ]
     handler = get_format(repository.format)
     url = _address(repository, handler, base)
@@ -164,11 +160,11 @@ async def _view(
 async def _repository(
     db: AsyncSession, name: str, caller: Principal, action: str = "browse"
 ) -> Repository:
-    """The repository, if the caller may do this to it. Raises 404, 401 or 403."""
+    """The repository, if the caller may do this to some of it. Raises 404, 401 or 403."""
     repository = await service.get_repository(db, name)
     if repository is None:
         raise ApiError(404, "not_found", "No such repository.")
-    authorize(caller, _permission(repository, action))
+    access.require_somewhere(caller, repository, action, scheme="Bearer")
     return repository
 
 
@@ -203,7 +199,7 @@ async def list_repositories(
 ) -> dict:
     """The repositories the caller may browse."""
     every = await service.all_repositories(db)
-    allowed = [found for found in every if caller.allows(_permission(found, "browse"))]
+    allowed = [found for found in every if access.may_somewhere(caller, found, "browse")]
     base = await _base(request, db)
     shown = allowed[params.offset : params.offset + params.limit]
     views = [await _view(db, found, base, caller) for found in shown]
@@ -235,6 +231,7 @@ async def list_folder(
     A folder may hold millions of entries, so there is no total: `next` leads on.
     """
     found = await _holding(db, repository, caller)
+    reach = access.reach(caller, found, "browse")
     folder = path.strip("/")
     if folder:
         normalise_path(folder)
@@ -246,9 +243,15 @@ async def list_folder(
     except browse.BadCursor:
         details = [{"field": "after", "message": "Not something a listing returned."}]
         raise ApiError(422, "validation_error", "The request is not valid.", details) from None
-    if folder and not items and not after:
+    if folder and ((not items and not after) or not reach.folder(folder)):
         raise ApiError(404, "not_found", "No such folder.")
-    return Listing(items=[_entry(child) for child in items], next=following)
+    # What the caller may not see is left out: a page may be shorter, `next` leads on.
+    shown = [
+        child
+        for child in items
+        if (reach.folder(child.path) if child.kind == "folder" else reach.allows(child.path))
+    ]
+    return Listing(items=[_entry(child) for child in shown], next=following)
 
 
 @router.get("/{repository}/asset", response_model=AssetView)
@@ -261,10 +264,9 @@ async def get_asset(
 ) -> AssetView:
     found = await _holding(db, repository, caller)
     handler = _handler(found)
-    detail = await browse.asset(
-        db, found, normalise_path(path), unlisted=handler.unlisted_namespaces
-    )
-    if detail is None:
+    path = normalise_path(path)
+    detail = await browse.asset(db, found, path, unlisted=handler.unlisted_namespaces)
+    if detail is None or not access.may(caller, found, path, "browse"):
         raise ApiError(404, "not_found", "No such file.")
     return _asset_view(found, handler, detail, await _base(request, db))
 
@@ -288,6 +290,7 @@ async def list_components(
         name=name,
         limit=params.limit,
         offset=params.offset,
+        reached=access.reach(caller, found, "browse"),
     )
     return page(items, total, params)
 
@@ -302,7 +305,13 @@ async def get_component(
 ) -> ComponentDetail:
     found = await _holding(db, repository, caller)
     handler = _handler(found)
-    held = await browse.component(db, found, component_id, unlisted=handler.unlisted_namespaces)
+    held = await browse.component(
+        db,
+        found,
+        component_id,
+        unlisted=handler.unlisted_namespaces,
+        reached=access.reach(caller, found, "browse"),
+    )
     if held is None:
         raise ApiError(404, "not_found", "No such component.")
     summary, files = held
@@ -334,7 +343,7 @@ async def _deletable(
 ) -> RepositoryContext:
     """A context for deleting from a repository that holds files. Raises as `_holding` does."""
     repository = await _holding(db, name, caller)
-    authorize(caller, _permission(repository, "delete"))
+    access.require_somewhere(caller, repository, "delete", scheme="Bearer")
     return await build_context(db, request.app.state.settings, repository, caller)
 
 
@@ -384,8 +393,11 @@ async def delete_folder(
     found = await browse.paths_under(
         db, context.repository, folder, after=after, limit=_FOLDER_AT_ONCE
     )
+    deletable = access.reach(caller, context.repository, "delete")
     deleted = skipped = 0
     for held in found:
+        if not deletable.allows(held):
+            continue  # not theirs to delete: it stays, and is not said
         try:
             deleted += await _delete_file(context, held)  # 0 if it went with an earlier one
         except ApiError as error:
@@ -464,9 +476,9 @@ async def upload(
     if found is None:
         raise ApiError(404, "not_found", "No such repository.")
     try:
-        authorize(caller, _permission(found, "add"))
+        access.require_somewhere(caller, found, "add", scheme="Bearer")
     except ApiError:
-        authorize(caller, _permission(found, "edit"))
+        access.require_somewhere(caller, found, "edit", scheme="Bearer")
     handler = _handler(found)
     refusal = _NO_UPLOAD.get(found.type) or handler.no_upload
     if refusal is not None:

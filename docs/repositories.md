@@ -35,7 +35,9 @@ In place of a password, use an API token as the password, or send it as
 - **Permissions** are `repository:<format>:<name>:<action>`, where the action is `browse`
   (see what is there), `read` (download), `add` (a new path), `edit` (replace a path) or
   `delete`. For example `repository:raw:files:read`, or `repository:raw` for everything
-  on every Raw repository.
+  on every Raw repository. A selector permission,
+  `selector:<selector>:<format>:<name>:<action>`, gives the same for the paths a content
+  selector matches: see [Content selectors](administration.md#content-selectors).
 - **Deployment policy** per hosted repository: `allow_redeploy`, `disable_redeploy`
   (a path can be written once) or `read_only`. A repository that is made without one
   allows redeploy, except a Maven repository for releases, which refuses it: a release
@@ -118,7 +120,8 @@ curl -u admin -H 'Content-Type: application/json' -d '{
 
 - Members are tried in order and the first that has the path answers. Offline members,
   and proxies whose remote is unavailable, are passed over.
-- Reading through a group needs `read` on the group only, not on its members.
+- Reading through a group needs `read` on the group only, not on its members: by a
+  repository permission, or by a selector permission on the group at the path asked.
 - A group may contain other groups. It cannot be written to, and a repository cannot be
   deleted while a group presents it.
 

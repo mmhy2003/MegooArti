@@ -235,6 +235,83 @@ Certificates, or at `/api/v1/certificates`, and is trusted by all of them at onc
 The full API is described at `/api/docs`. The page is served with its own script and
 stylesheet, and asks nothing of another host.
 
+### Content selectors
+
+A content selector names some of what repositories hold, by the repository's format and
+a file's path. A **selector permission** gives an action on what it names, where a
+repository permission gives it on all of a repository. Selectors are kept at
+`/api/v1/content-selectors`, with `admin:selectors:read` and `admin:selectors:write`.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "acme", "description": "Acme artifacts",
+  "expression": "format == \"maven\" and path =^ \"/com/acme/\""
+}' https://repo.example.com/api/v1/content-selectors
+```
+
+- **The expression.**
+  - Each comparison sets `format` or `path` against a string in double quotes:
+    - `==` means equal to;
+    - `=^` means starts with;
+    - `=~` means the whole value matches a regular expression (Python's, at most
+      1,000 characters).
+  - Combine comparisons with `and`, `or`, `not` and parentheses; `and` binds before
+    `or`.
+  - In a string, `\"` is a quote and `\\` a backslash. A pattern's own backslash is
+    written twice, so `\\.` stands for a literal dot.
+  - A path starts with `/`, and is the path after the repository's address:
+    - for Maven, `/com/acme/app/1.0/app-1.0.jar`;
+    - for Docker, the path after `/v2/<repository>/`, such as `/team/app/manifests/1.0`.
+  - An expression that does not parse is refused at `expression`, with the character
+    where it went wrong.
+- **The permission.**
+  - Its form is `selector:<selector>:<format>:<repository>:<action>`, with each part
+    `*` allowed and the same actions as a repository permission's. It gives that
+    action on the paths of those repositories that the selector matches.
+    `selector:acme:maven:*:read` reads Acme's artifacts in every Maven repository.
+  - A role can name only selectors that exist, and a selector a role names cannot be
+    deleted (`409 in_use`).
+  - Changing a selector changes, at once, what every permission naming it gives.
+- **Reading, writing, deleting.**
+  - A download is checked at the path asked for, whether by a package client, the
+    registry, or the API's file details.
+  - Each file stored or deleted is checked at its own path.
+  - An upload needs `add` or `edit` somewhere in the repository before its body is
+    read, and then at each path it stores.
+  - Changing what is said of a published version (npm's deprecate) needs `edit` at
+    the version's file.
+  - Through a group, the group's permission is checked at the path asked for; its
+    members are not checked again.
+- **What is listed.**
+  - A repository is listed to a caller holding a selector permission that names it,
+    with a selector that can match its format.
+  - Inside it are listed:
+    - the folders that may hold something reached. A pattern's folders cannot be
+      told, so all of them are listed.
+    - the files the selector reaches.
+    - the components that have a file it reaches, each with only those files.
+  - Search finds the same.
+  - Deleting a folder deletes what may be deleted, and keeps the rest.
+- **Tokens and anonymous access.**
+  - A token's scopes narrow a selector permission as they would the repository
+    permission it stands in for: a token that may only read reads through a selector
+    too.
+  - The `anonymous` user's selector permissions are everyone's, as its repository
+    permissions are.
+- **Preview.** `POST /api/v1/content-selectors/preview`, with `{"expression": ...,
+  "format": "maven", "paths": [...]}`, says which of up to 100 paths an expression
+  matches.
+- **What it costs.**
+  - Whoever holds no selector permission pays nothing for selectors, and an expression
+    is read once.
+  - Listing through a selector asks the database for what its prefixes allow. Where a
+    pattern is in it, each file kept is then checked: a listing a pattern decides is
+    slower in a large repository.
+  - A pattern is run against paths that anyone may send. Keep patterns simple: one
+    that nests repetitions, such as `(a+)+`, can take very long on a crafted path.
+  - Each change of a selector is recorded in the audit log (`selector.created`,
+    `selector.updated`, `selector.deleted`).
+
 ### Audit log
 
 Every change of configuration or security, and every sign-in, is recorded: under

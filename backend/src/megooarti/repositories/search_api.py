@@ -12,6 +12,7 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.pagination import Page, PageParams, page
 from megooarti.repositories import search, service
+from megooarti.security import access
 from megooarti.security.authentication import Principal, require_caller
 
 router = APIRouter(prefix="/search", tags=["content"])
@@ -59,18 +60,23 @@ async def search_components(
     components that have a file with exactly that checksum. `format` and `repository`
     narrow where to look. With nothing given, everything is listed.
     """
-    allowed = [
-        found
+    reached = {
+        found.id: (found, access.reach(caller, found, "browse"))
         for found in await service.all_repositories(db)
         if found.type != "group"  # a group holds nothing of its own
         and (not format or found.format == format)
         and (not repository or found.name == repository)
-        and caller.allows(f"repository:{found.format}:{found.name}:browse")
-    ]
+    }
+    allowed = {key: reach for key, (_, reach) in reached.items() if reach.anything}
     wanted = search.Wanted(q, namespace, name, version, md5, sha1, sha256, sha512)
     try:
         items, total = await search.search(
-            db, allowed, wanted, limit=params.limit, offset=params.offset
+            db,
+            [reached[key][0] for key in allowed],
+            wanted,
+            limit=params.limit,
+            offset=params.offset,
+            reached=allowed,
         )
     except search.BadChecksum as error:
         digits = search.CHECKSUMS[str(error)]

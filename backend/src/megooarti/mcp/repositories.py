@@ -13,6 +13,7 @@ from megooarti.mcp.results import Cursor, Limit, Page, offset_of, page_of
 from megooarti.mcp.tools import caller, database, tool
 from megooarti.repositories import api as repositories_api
 from megooarti.repositories import content_api, service
+from megooarti.security import access
 
 READ_SETTINGS = "admin:repositories:read"
 
@@ -52,7 +53,7 @@ async def list_repositories(
             for held in await service.all_repositories(db)
             if (not format or held.format == format)
             and (not type or held.type == type)
-            and principal.allows(f"repository:{held.format}:{held.name}:browse")
+            and access.may_somewhere(principal, held, "browse")
         ]
         summaries = []
         for held in allowed[offset : offset + limit]:

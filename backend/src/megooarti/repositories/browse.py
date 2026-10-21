@@ -16,6 +16,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from megooarti.repositories.models import Asset, Component, Repository
+from megooarti.repositories.reached import holding, unreached
+from megooarti.security.access import Reached
 from megooarti.storage.models import Blob, BlobStore
 
 # The character after "/" in byte order. Every path under `folder/` is below `folder0`.
@@ -236,17 +238,25 @@ async def components(
     name: str | None = None,
     limit: int,
     offset: int,
+    reached: Reached | None = None,
 ) -> tuple[list[ComponentSummary], int]:
     """A page of a repository's components, and how many there are.
 
     In the order of namespace and name, the newest first. `unlisted` are the
-    namespaces the repository's format keeps for itself.
+    namespaces the repository's format keeps for itself. With `reached`, only the
+    components with a file it reaches (spec 10).
     """
     conditions = _listed(repository, unlisted)
     if namespace is not None:
         conditions.append(Component.namespace == namespace)
     if name is not None:
         conditions.append(Component.name == name)
+    if reached is not None and not reached.whole:
+        by_id = {repository.id: reached}
+        conditions.append(holding(by_id))
+        hidden = await unreached(db, by_id, conditions)
+        if hidden:
+            conditions.append(Component.id.not_in(hidden))
     total = await db.scalar(select(func.count()).select_from(Component).where(*conditions))
     # The page is chosen first, and only its components' files are looked at: grouping
     # every component with its files to show fifty would read the whole repository.
@@ -290,9 +300,15 @@ def _summary(
 
 
 async def component(
-    db: AsyncSession, repository: Repository, component_id: uuid.UUID, *, unlisted: frozenset[str]
+    db: AsyncSession,
+    repository: Repository,
+    component_id: uuid.UUID,
+    *,
+    unlisted: frozenset[str],
+    reached: Reached | None = None,
 ) -> tuple[ComponentSummary, list[Child]] | None:
-    """One component and its files, in path order, or None if it is not one to show."""
+    """One component and its files, in path order, or None if it is not one to show.
+    With `reached`, only the files it reaches, and None if it reaches none (spec 10)."""
     found = (
         await db.execute(
             select(*_COLUMNS).where(Component.id == component_id, *_listed(repository, unlisted))
@@ -310,7 +326,10 @@ async def component(
     files = [
         Child(path.rpartition("/")[2], path, "file", size, modified, reference)
         for path, size, modified in rows
+        if reached is None or reached.allows(path)
     ]
+    if reached is not None and not files:
+        return None
     newest = max((child.modified for child in files), default=None)
     return _summary(*found, newest), files
 
