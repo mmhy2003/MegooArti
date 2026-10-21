@@ -711,7 +711,9 @@
       "downloaded": "Not downloaded in",
       "releaseType": "Release type",
       "pattern": "A file's path matches",
-      "days": "days"
+      "days": "{criterion}, days",
+      "which": "{criterion}, which",
+      "expression": "{criterion}, pattern"
     },
     "releaseTypes": {
       "release": "Releases",
