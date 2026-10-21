@@ -726,31 +726,34 @@ function CleanUpNow({ repository }: { repository: RepositoryOut }) {
   const notify = useNotify();
   const client = useQueryClient();
   const [asking, setAsking] = useState(false);
-  // When the run that was asked for began: it is followed until it has finished.
-  const [since, setSince] = useState<number | null>(null);
+  // The start of the run the server had when another was asked for, null for none; not
+  // asked for, undefined. The run asked for is the one that started otherwise: the
+  // server's own times, never the browser's clock, say which.
+  const [before, setBefore] = useState<string | null | undefined>(undefined);
   const count = useCleanupCount(repository.name, asking);
   const start = useCleanUpNow(repository.name);
   const attached = repository.cleanup_policies.length > 0;
   const run = repository.cleanup;
-  const done =
-    since !== null && run?.finished_at != null && new Date(run.finished_at).getTime() >= since;
+  const following = before !== undefined;
+  const done = following && run != null && run.finished_at !== null && run.started_at !== before;
 
   useEffect(() => {
-    if (since === null || done) return;
+    if (!following || done) return;
     const asking = setInterval(
       () => void client.invalidateQueries({ queryKey: ["repositories", "one", repository.name] }),
       RUN_POLL_MS,
     );
     return () => clearInterval(asking);
-  }, [client, since, done, repository.name]);
-  // The run that was said to be done: it is said once.
-  const told = useRef<number | null>(null);
+  }, [client, following, done, repository.name]);
+  // The run that was said to be done, by its start: it is said once.
+  const told = useRef<string | null>(null);
   const removed = run?.removed ?? 0;
+  const ended = done ? run.started_at : null;
   useEffect(() => {
-    if (!done || told.current === since) return;
-    told.current = since;
+    if (ended === null || told.current === ended) return;
+    told.current = ended;
     notify(t("done", { removed }));
-  }, [done, since, removed, notify, t]);
+  }, [ended, removed, notify, t]);
 
   return (
     <Panel className="p-6">
@@ -763,13 +766,17 @@ function CleanUpNow({ repository }: { repository: RepositoryOut }) {
         <Alert tone="warning" className="mb-4">
           {t("running")}
         </Alert>
+      ) : isApiError(start.error) && start.error.code === "cleanup_busy" ? (
+        <Alert tone="warning" className="mb-4">
+          {t("busy")}
+        </Alert>
       ) : start.isError ? (
         <ErrorState error={start.error} className="mb-4" />
       ) : null}
       {attached ? null : <p className="mb-4 text-sm text-fg-subtle">{t("noPolicies")}</p>}
       <Button
         disabled={!attached}
-        busy={since !== null && !done}
+        busy={following && !done}
         onClick={() => {
           start.reset();
           setAsking(true);
@@ -785,10 +792,10 @@ function CleanUpNow({ repository }: { repository: RepositoryOut }) {
         confirmLabel={t("confirm")}
         busy={start.isPending || !count.data}
         onConfirm={() => {
-          const began = Date.now();
+          const was = run?.started_at ?? null;
           start.mutate(undefined, {
             onSuccess: () => {
-              setSince(began);
+              setBefore(was);
               notify(t("started", { name: repository.name }));
             },
             onSettled: () => setAsking(false),

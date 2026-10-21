@@ -1361,10 +1361,12 @@ describe("a repository's cleanup (cleanup spec 6, W4, W5)", () => {
         json: started
           ? {
               ...OWN,
+              // The server's clock, years behind the browser's: what is done is its
+              // to say, not the browser's.
               cleanup: {
                 ...LAST,
-                started_at: new Date().toISOString(),
-                finished_at: new Date(Date.now() + 1000).toISOString(),
+                started_at: "2020-01-01T00:00:00Z",
+                finished_at: "2020-01-01T00:00:05Z",
               },
             }
           : OWN,

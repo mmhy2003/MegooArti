@@ -1110,6 +1110,7 @@
       "counting": "Counting what it would remove…",
       "confirm": "Clean up",
       "running": "A cleanup of this repository is already running.",
+      "busy": "As many cleanups as the server runs at once are running. Try again when one ends.",
       "started": "Cleaning up {name}.",
       "done": "{removed, plural, one {# component} other {# components}} removed."
     },

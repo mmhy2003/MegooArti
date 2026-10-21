@@ -272,6 +272,9 @@ function PolicyPreview({ wanted }: { wanted: (PolicyContent & { format: string }
       <p className="text-fg-muted">{t("previewIntro")}</p>
       {wanted === null ? (
         <Alert tone="info">{t("previewProblem")}</Alert>
+      ) : repositories.isError ? (
+        // Whoever may not list the repositories is told so, not kept waiting.
+        <ErrorState error={repositories.error} onRetry={() => void repositories.refetch()} />
       ) : repositories.data && choices.length === 0 ? (
         <p className="text-fg-muted">{t("previewNoRepository")}</p>
       ) : (
@@ -368,9 +371,13 @@ function PolicyForm({
   const { form, tried, attempt } = useAttempts(error);
   const creating = policy === null;
   const format = draft.format || formats.data?.[0]?.name || "";
+  // While the formats are not known, a release type the policy has is kept: sent without
+  // it, "pre-releases older than 30 days" would be every version older than 30 days.
   const hasReleases =
     format !== EVERY_FORMAT &&
-    (formats.data?.find((found) => found.name === format)?.has_prereleases ?? false);
+    (formats.data === undefined
+      ? draft.release
+      : (formats.data.find((found) => found.name === format)?.has_prereleases ?? false));
   const problems = useProblems(draft, creating, hasReleases);
   const refused = refusalsOf(error, FIELDS);
   const taken = isApiError(error) && error.code === "conflict" ? error.message : null;

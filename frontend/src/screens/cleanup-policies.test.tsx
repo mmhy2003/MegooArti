@@ -283,6 +283,37 @@ describe("the cleanup policies (cleanup spec 6)", () => {
     expect(of(calls, "DELETE", "/cleanup-policies/stale")).toHaveLength(1);
   });
 
+  test("a policy saved while the formats are not known keeps its release type", async () => {
+    // Saved without it, "npm pre-releases older than 30 days" would be every version.
+    const user = userEvent.setup();
+    const { calls } = render(<PolicyScreen />, "/admin/cleanup-policies/stale", {
+      "GET /cleanup-policies/stale": { json: STALE },
+      "GET /formats": failure(503, "unavailable", "Not now."),
+      "PUT /cleanup-policies/stale": { json: STALE },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(of(calls, "PUT", "/cleanup-policies/stale")).toHaveLength(1));
+    expect(of(calls, "PUT", "/cleanup-policies/stale")[0]?.body).toMatchObject({
+      release_type: "prerelease",
+    });
+  });
+
+  test("a reader who may not list the repositories is told why there is no preview", async () => {
+    render(
+      <PolicyScreen />,
+      "/admin/cleanup-policies/stale",
+      {
+        "GET /cleanup-policies/stale": { json: STALE },
+        "GET /repositories": failure(403, "forbidden", "You do not have permission to do this."),
+      },
+      holding("admin:cleanup:read"),
+    );
+
+    expect(await screen.findByText(/permission/i)).toBeVisible();
+  });
+
   test("whoever may only read sees the policy and its preview, and changes nothing", async () => {
     render(
       <PolicyScreen />,
