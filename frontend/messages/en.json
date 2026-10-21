@@ -20,6 +20,7 @@
       "upload": "Upload",
       "users": "Users",
       "roles": "Roles",
+      "contentSelectors": "Content selectors",
       "anonymousAccess": "Anonymous access",
       "authentication": "Authentication",
       "certificates": "Certificates",
@@ -629,6 +630,53 @@
     "deleted": "Deleted the role {name}.",
     "mayNotCreate": "You may not create roles.",
     "nameDots": "A role cannot be called . or .. : its page would have no address."
+  },
+  "selectors": {
+    "title": "Content selectors",
+    "newTitle": "New content selector",
+    "oneTitle": "Content selector",
+    "intro": "Some of what repositories hold, named by its format and its paths. A role's selector permission gives an action on what a selector matches.",
+    "path": "Path",
+    "new": "New content selector",
+    "none": "No content selector is made yet.",
+    "columns": {
+      "name": "Name",
+      "description": "Description",
+      "expression": "Expression"
+    },
+    "fields": {
+      "name": "Name",
+      "description": "Description",
+      "expression": "Expression",
+      "format": "In a repository of",
+      "paths": "Paths to try"
+    },
+    "hints": {
+      "name": "Letters, digits and . _ - , up to 64. It cannot be changed later.",
+      "expression": "As format == \"maven\" and path =^ \"/com/acme/\". == is equal to, =^ starts with, =~ matches a regular expression as a whole; and, or, not and parentheses combine them. A path starts with /.",
+      "paths": "One a line, as /com/acme/app/1.0/app-1.0.jar. At most 100."
+    },
+    "nameRule": "A selector's name is 1 to 64 letters, digits or . _ -",
+    "nameDots": "A selector cannot be called . or .. : its page would have no address.",
+    "expressionNeeded": "An expression is needed.",
+    "previewTitle": "Try it",
+    "previewIntro": "Which of these paths the expression matches, as it is now: nothing is saved.",
+    "preview": "Try the expression",
+    "previewed": "What the expression matches",
+    "matches": "Matches",
+    "doesNotMatch": "Does not match",
+    "tooManyPaths": "At most {most} paths at once.",
+    "create": "Create content selector",
+    "created": "Created the content selector {name}.",
+    "save": "Save",
+    "saved": "Saved the content selector {name}.",
+    "deleteTitle": "Delete this content selector",
+    "deleteIntro": "A selector that a role names cannot be deleted: take it out of the roles first.",
+    "delete": "Delete content selector",
+    "deleteAsk": "Delete the content selector {name}?",
+    "deleteBody": "It is gone for good. This cannot be undone.",
+    "deleted": "Deleted the content selector {name}.",
+    "mayNotCreate": "You may not create content selectors."
   },
   "anonymous": {
     "title": "Anonymous access",

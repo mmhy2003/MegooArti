@@ -29,6 +29,13 @@ export type PasswordReset = Schemas["PasswordReset"];
 export type RoleOut = Schemas["RoleOut"];
 export type RoleCreate = Schemas["RoleCreate"];
 export type RoleContent = Schemas["RoleContent"];
+/** A content selector: an expression of a format and paths that selector permissions name. */
+export type SelectorOut = Schemas["SelectorOut"];
+export type SelectorCreate = Schemas["SelectorCreate"];
+export type SelectorContent = Schemas["SelectorContent"];
+/** An expression tried against paths, and what it matched. */
+export type Preview = Schemas["Preview"];
+export type PreviewOut = Schemas["PreviewOut"];
 export type SettingsOut = Schemas["SettingsOut"];
 /** The default role, and whether MegooArti's own users sign in (spec 4.1). */
 export type SignInSettings = Schemas["SignInSettings"];

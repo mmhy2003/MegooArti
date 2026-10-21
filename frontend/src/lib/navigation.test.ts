@@ -81,6 +81,7 @@ describe("the navigation as it is", () => {
     expect(administration(ADMIN)).toEqual([
       ["users", "/admin/users"],
       ["roles", "/admin/roles"],
+      ["contentSelectors", "/admin/content-selectors"],
       ["anonymousAccess", "/admin/anonymous-access"],
       ["authentication", "/admin/authentication"],
       ["certificates", "/admin/certificates"],
@@ -92,6 +93,10 @@ describe("the navigation as it is", () => {
     // How people sign in is security's, not a setting's (spec 4.3).
     expect(administration({ ...ADMIN, permissions: ["admin:security:read"] })).toEqual([
       ["authentication", "/admin/authentication"],
+    ]);
+    // The content selectors are an area of their own (spec 10).
+    expect(administration({ ...ADMIN, permissions: ["admin:selectors:read"] })).toEqual([
+      ["contentSelectors", "/admin/content-selectors"],
     ]);
     // The audit log is an area of its own (spec 9).
     expect(administration({ ...ADMIN, permissions: ["admin:audit:read"] })).toEqual([

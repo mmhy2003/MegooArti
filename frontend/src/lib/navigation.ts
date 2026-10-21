@@ -5,6 +5,7 @@
 import {
   BadgeCheck,
   Boxes,
+  Filter,
   HardDrive,
   KeyRound,
   ScrollText,
@@ -26,6 +27,7 @@ import {
   AUTHENTICATION,
   BLOB_STORES,
   CERTIFICATES,
+  CONTENT_SELECTORS,
   MANAGE_REPOSITORIES,
   ROLES,
   SYSTEM,
@@ -40,6 +42,7 @@ export type ItemKey =
   | "upload"
   | "users"
   | "roles"
+  | "contentSelectors"
   | "anonymousAccess"
   | "authentication"
   | "certificates"
@@ -91,6 +94,12 @@ export const NAVIGATION: readonly NavArea[] = [
     items: [
       { key: "users", href: USERS, icon: Users, permission: "admin:users:read" },
       { key: "roles", href: ROLES, icon: ShieldCheck, permission: "admin:roles:read" },
+      {
+        key: "contentSelectors",
+        href: CONTENT_SELECTORS,
+        icon: Filter,
+        permission: "admin:selectors:read",
+      },
       {
         key: "anonymousAccess",
         href: ANONYMOUS_ACCESS,
