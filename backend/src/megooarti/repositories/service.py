@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,6 +11,8 @@ import httpx
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from megooarti.cleanup.criteria import ANY_FORMAT
+from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
 from megooarti.clock import utcnow
 from megooarti.errors import ApiError
 from megooarti.repositories.formats import Format, format_names, get_format
@@ -43,6 +45,8 @@ class RepositoryView:
     proxy: dict[str, Any] | None = None
     group: dict[str, Any] | None = None
     status: dict[str, Any] | None = None
+    # The cleanup policies attached to it, by name (cleanup spec 4.3).
+    cleanup_policies: list[str] = field(default_factory=list)
 
 
 def _invalid(field: str, message: str) -> ApiError:
@@ -273,7 +277,43 @@ async def describe(db: AsyncSession, repository: Repository) -> RepositoryView:
         proxy=None if proxy is None else _shown_proxy(proxy),
         group=group,
         status=status,
+        cleanup_policies=await policy_names(db, repository),
     )
+
+
+async def policy_names(db: AsyncSession, repository: Repository) -> list[str]:
+    """The cleanup policies attached to a repository, by name, in name order."""
+    return list(
+        await db.scalars(
+            select(CleanupPolicy.name)
+            .join(RepositoryCleanupPolicy, RepositoryCleanupPolicy.policy_id == CleanupPolicy.id)
+            .where(RepositoryCleanupPolicy.repository_id == repository.id)
+            .order_by(CleanupPolicy.name_key)
+        )
+    )
+
+
+async def _set_policies(db: AsyncSession, repository: Repository, names: list[str]) -> None:
+    """Attach exactly these cleanup policies: of the repository's format, or of every
+    format. A group holds nothing to clean up."""
+    if names and repository.type == "group":
+        raise _invalid("cleanup_policies", "A group holds nothing to clean up.")
+    chosen = []
+    for name in dict.fromkeys(names):
+        policy = await db.scalar(select(CleanupPolicy).where(CleanupPolicy.name == name))
+        if policy is None:
+            raise _invalid("cleanup_policies", f"No such cleanup policy: {name}.")
+        if policy.format not in (repository.format, ANY_FORMAT):
+            raise _invalid("cleanup_policies", f"{name} is a policy of {policy.format}.")
+        chosen.append(policy)
+    await db.execute(
+        delete(RepositoryCleanupPolicy).where(
+            RepositoryCleanupPolicy.repository_id == repository.id
+        )
+    )
+    for policy in chosen:
+        db.add(RepositoryCleanupPolicy(repository_id=repository.id, policy_id=policy.id))
+    await db.flush()
 
 
 async def list_repositories(
@@ -327,6 +367,7 @@ async def create_repository(
     proxy: dict[str, Any] | None = None,
     group: dict[str, Any] | None = None,
     format_config: dict[str, Any] | None = None,
+    cleanup_policies: list[str] | None = None,
 ) -> Repository:
     handler = get_format(format)
     if handler is None:
@@ -358,6 +399,8 @@ async def create_repository(
     await db.flush()
     if type == "group":
         await _set_members(db, repository, list((group or {}).get("members", [])))
+    if cleanup_policies:
+        await _set_policies(db, repository, cleanup_policies)
     return repository
 
 
@@ -370,8 +413,10 @@ async def update_repository(
     proxy: dict[str, Any] | None = None,
     group: dict[str, Any] | None = None,
     format_config: dict[str, Any] | None = None,
+    cleanup_policies: list[str] | None = None,
 ) -> None:
-    """Replace what can change. Name, format, type and blob store never do."""
+    """Replace what can change. Name, format, type and blob store never do. Cleanup
+    policies left out (None) are kept: a client that predates them does not detach them."""
     handler = get_format(repository.format)
     if repository.type == "group" and group is None:
         # Leaving the members out must not quietly empty the group.
@@ -384,6 +429,8 @@ async def update_repository(
     await db.flush()
     if repository.type == "group":
         await _set_members(db, repository, list(group.get("members", [])))
+    if cleanup_policies is not None:
+        await _set_policies(db, repository, cleanup_policies)
     if repository.type == "proxy":
         # Saving a proxy is how an administrator says "try again": lift any block.
         await db.execute(delete(ProxyState).where(ProxyState.repository_id == repository.id))

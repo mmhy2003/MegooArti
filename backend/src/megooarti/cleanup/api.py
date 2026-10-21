@@ -18,6 +18,8 @@ from megooarti.db.session import get_session
 from megooarti.errors import ApiError
 from megooarti.names import NewName
 from megooarti.pagination import Page, PageParams, page
+from megooarti.repositories import api as repositories_api
+from megooarti.repositories import service
 from megooarti.repositories.models import Repository
 from megooarti.security.authentication import Principal, require
 from megooarti.system import audit
@@ -205,9 +207,30 @@ async def delete_policy(
     principal: Principal = Depends(require("admin:cleanup:write")),
     db: AsyncSession = Depends(get_session),
 ) -> None:
+    """Delete a policy, detaching it from every repository it is attached to (E10)."""
     policy = await _load(db, name)
+    holding = list(
+        await db.scalars(
+            select(Repository)
+            .join(RepositoryCleanupPolicy, RepositoryCleanupPolicy.repository_id == Repository.id)
+            .where(RepositoryCleanupPolicy.policy_id == policy.id)
+            .order_by(Repository.name_key)
+        )
+    )
+    was = {repository.id: await service.describe(db, repository) for repository in holding}
     before = _told(policy)
     await db.delete(policy)
+    await db.flush()
+    for repository in holding:
+        audit.record(
+            db,
+            "repository.updated",
+            ("repository", repository.name),
+            audit.diff(
+                repositories_api.told(was[repository.id]),
+                repositories_api.told(await service.describe(db, repository)),
+            ),
+        )
     audit.record(db, "cleanup_policy.deleted", ("cleanup_policy", name), audit.diff(before, None))
     await db.commit()
     log.info("cleanup_policy_deleted", policy=name, by=principal.user.username)
