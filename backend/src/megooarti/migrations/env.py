@@ -46,6 +46,9 @@ if context.is_offline_mode():
     raise SystemExit("Offline (--sql) mode is not supported; migrate a live database.")
 
 if not logging.getLogger().handlers:  # the alembic CLI; tests and the app configure their own
-    configure_logging(os.environ.get("MEGOOARTI_LOG_LEVEL", "INFO"))
+    configure_logging(
+        os.environ.get("MEGOOARTI_LOG_LEVEL", "INFO"),
+        os.environ.get("MEGOOARTI_LOG_FORMAT", "console").lower(),
+    )
 
 asyncio.run(_run_online())

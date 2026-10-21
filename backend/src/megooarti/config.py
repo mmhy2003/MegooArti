@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # a meaning to some characters (@ / # ? %); apart, a password may hold any.
     database_password: str | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["json", "console"] = "console"
     host: str = "0.0.0.0"
     port: int = 8000
     forwarded_allow_ips: str = "127.0.0.1"
@@ -75,6 +76,11 @@ class Settings(BaseSettings):
     @classmethod
     def _upper_case_the_level(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value
+
+    @field_validator("log_format", mode="before")
+    @classmethod
+    def _lower_case_the_format(cls, value: object) -> object:
+        return value.lower() if isinstance(value, str) else value
 
 
 def load_settings() -> Settings:

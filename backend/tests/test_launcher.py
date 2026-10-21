@@ -8,16 +8,17 @@ def test_launcher_serves_the_app_factory_with_values_from_settings(monkeypatch, 
     monkeypatch.setenv("MEGOOARTI_PORT", "9001")
     monkeypatch.setenv("MEGOOARTI_SHUTDOWN_GRACE_SECONDS", "7")
     monkeypatch.setenv("MEGOOARTI_LOG_LEVEL", "warning")
+    monkeypatch.setenv("MEGOOARTI_LOG_FORMAT", "console")
     monkeypatch.chdir(tmp_path)
     calls, levels = [], []
     monkeypatch.setattr(
         launcher.uvicorn, "run", lambda *args, **kwargs: calls.append((args, kwargs))
     )
-    monkeypatch.setattr(launcher, "configure_logging", levels.append)
+    monkeypatch.setattr(launcher, "configure_logging", lambda *args: levels.append(args))
 
     launcher.main()
 
-    assert levels == ["WARNING"]
+    assert levels == [("WARNING", "console")]
     ((args, kwargs),) = calls
     assert args == ("megooarti.main:create_app",)
     assert kwargs == {

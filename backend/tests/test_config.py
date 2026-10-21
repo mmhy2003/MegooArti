@@ -31,6 +31,7 @@ def test_non_postgres_url_is_rejected_without_echoing_it(given):
 def test_defaults():
     settings = Settings(_env_file=None, database_url=VALID_URL)
     assert settings.log_level == "INFO"
+    assert settings.log_format == "console"
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
     assert settings.forwarded_allow_ips == "127.0.0.1"
@@ -50,6 +51,16 @@ def test_values_come_from_prefixed_environment_variables(monkeypatch):
 def test_unknown_log_level_is_rejected():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, database_url=VALID_URL, log_level="chatty")
+
+
+def test_log_format_is_read_in_any_case():
+    settings = Settings(_env_file=None, database_url=VALID_URL, log_format="JSON")
+    assert settings.log_format == "json"
+
+
+def test_unknown_log_format_is_rejected():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, database_url=VALID_URL, log_format="xml")
 
 
 def test_load_settings_names_the_missing_environment_variable(monkeypatch, tmp_path):

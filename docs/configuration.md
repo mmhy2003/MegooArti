@@ -11,6 +11,7 @@ All configuration of a deployment is by environment variable.
 | `MEGOOARTI_RUN_MIGRATIONS` | `true` | When `true`, the container waits for the database and applies migrations before starting. Any other value skips both |
 | `MEGOOARTI_DB_WAIT_TIMEOUT_SECONDS` | `60` | How long the container waits for the database before exiting with an error |
 | `MEGOOARTI_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` or `CRITICAL` |
+| `MEGOOARTI_LOG_FORMAT` | `console` | `console`, aligned lines for a person to read, or `json`, one object a line for a log collector. `NO_COLOR` set to anything takes the colours out of `console`. Either way a readiness check that passes is not logged |
 | `MEGOOARTI_HOST` | `0.0.0.0` | Address the HTTP server binds to |
 | `MEGOOARTI_PORT` | `8000` | Port the HTTP server listens on |
 | `MEGOOARTI_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Comma-separated addresses (or networks, or `*` for any) that reach the backend directly and whose `X-Forwarded-*` headers are believed: the gateway's. Proxies further out are trusted at runtime, under Administration, Authentication |
@@ -64,6 +65,7 @@ it. `.env.example` has each with what it is for.
 | `MEGOOARTI_DB_PORT` | `5432` | The port the database is published on, on `127.0.0.1` only |
 | `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Passed on to the backend |
 | `MEGOOARTI_SECRET_KEY` | unset | Passed on to the backend if it is set |
+| `MEGOOARTI_LOG_FORMAT` | unset | Passed on to the backend if it is set: `json` for a log collector |
 | `MEGOOARTI_VERSION` | this version | The tag the images are built and run under |
 
 In `.env`, a value with a `$`, a `#` or a space in it is put in single quotes, and a

@@ -40,6 +40,8 @@ services:
       # gateway, which says who is calling and overwrites what a client says of itself.
       MEGOOARTI_FORWARDED_ALLOW_IPS: "*"
       MEGOOARTI_SESSION_COOKIE_SECURE: ${MEGOOARTI_SESSION_COOKIE_SECURE:-true}
+      # Passed on if it is set: json, to collect the logs rather than read them.
+      MEGOOARTI_LOG_FORMAT:
     depends_on:
       db:
         condition: service_healthy

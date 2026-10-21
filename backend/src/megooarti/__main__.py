@@ -14,7 +14,7 @@ def main() -> None:
     except ConfigurationError as error:
         sys.exit(f"megooarti: {error}")
 
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_format)
     uvicorn.run(
         "megooarti.main:create_app",
         factory=True,
@@ -24,7 +24,7 @@ def main() -> None:
         # believes proxies an administrator trusts, past the gateway, as uvicorn cannot.
         proxy_headers=False,
         timeout_graceful_shutdown=settings.shutdown_grace_seconds,
-        log_config=None,  # keep the JSON logging configured above
+        log_config=None,  # keep the logging configured above
     )
 
 

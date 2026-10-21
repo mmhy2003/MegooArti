@@ -1,8 +1,10 @@
-"""JSON logging on standard output for structlog and the standard library."""
+"""Logs on standard output, as JSON or as lines to read, from structlog and the stdlib."""
 
 import logging
+import os
 import re
 import sys
+from typing import Literal
 
 import structlog
 
@@ -29,8 +31,36 @@ class _RedactAddresses(logging.Filter):
 
 _redact_addresses = _RedactAddresses()
 
+# The container's health check asks this every few seconds.
+_READINESS = "/api/v1/status/ready"
 
-def configure_logging(level: str = "INFO") -> None:
+
+class _QuietReadiness(logging.Filter):
+    """Leaves out the request line of a readiness check that passed."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) == 5:
+            _client, _method, address, _version, status = args
+            if isinstance(address, str) and address.partition("?")[0] == _READINESS:
+                return not (isinstance(status, int) and status < 400)
+        return True
+
+
+_quiet_readiness = _QuietReadiness()
+
+
+def _renderer(log_format: Literal["json", "console"]):
+    if log_format == "console":
+        # Colours on Windows need colorama, which is not installed.
+        colors = sys.platform != "win32" and not os.environ.get("NO_COLOR")
+        return structlog.dev.ConsoleRenderer(colors=colors)
+    return structlog.processors.JSONRenderer()
+
+
+def configure_logging(
+    level: str = "INFO", log_format: Literal["json", "console"] = "console"
+) -> None:
     shared = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -50,8 +80,9 @@ def configure_logging(level: str = "INFO") -> None:
             foreign_pre_chain=shared,
             processors=[
                 structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.processors.format_exc_info,
-                structlog.processors.JSONRenderer(),
+                # The console renderer lays out the traceback itself.
+                *([structlog.processors.format_exc_info] if log_format == "json" else []),
+                _renderer(log_format),
             ],
         )
     )
@@ -63,5 +94,6 @@ def configure_logging(level: str = "INFO") -> None:
     for noisy in ("httpx", "httpcore"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     access = logging.getLogger("uvicorn.access")
-    if _redact_addresses not in access.filters:
-        access.addFilter(_redact_addresses)
+    for access_filter in (_redact_addresses, _quiet_readiness):
+        if access_filter not in access.filters:
+            access.addFilter(access_filter)

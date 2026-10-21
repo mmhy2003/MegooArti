@@ -312,7 +312,7 @@ For every format, "supported" means the format's standard clients can resolve, d
 | NFR-11 | Reliability | An asset becomes visible only after its blob is fully written and its checksum verified. An interrupted upload leaves no partial asset. | P1 | Must |
 | NFR-12 | Reliability | A documented procedure exists for backing up and restoring the database and blob stores to a consistent state. | P1 | Must |
 | NFR-13 | Reliability | The application shuts down gracefully, letting in-flight requests finish within a configurable period. | P1 | Should |
-| NFR-14 | Observability | Logs are structured (JSON) on standard output, and each request carries a correlation ID. | P1 | Must |
+| NFR-14 | Observability | Logs are structured on standard output: lines to read by default, JSON for a log collector. Each request carries a correlation ID. | P1 | Must |
 | NFR-15 | Operability | All deployment configuration is supplied through environment variables, each one documented. | P1 | Must |
 | NFR-16 | Scalability | Several application containers can serve requests against one database and one shared blob store. (This is horizontal scaling for throughput, not the HA clustering excluded in 4.2.) | P2 | Should |
 | NFR-17 | Maintainability | Backend and frontend code have automated unit and integration tests that run in CI on every change. | P1 | Must |
