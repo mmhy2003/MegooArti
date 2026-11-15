@@ -25,6 +25,9 @@ export const NEW_ROLE = "/admin/roles/~new" as Route;
 export const CONTENT_SELECTORS = "/admin/content-selectors" as Route;
 // As for a role: a selector may be called "new", and has `~` in no name.
 export const NEW_SELECTOR = "/admin/content-selectors/~new" as Route;
+export const CLEANUP_POLICIES = "/admin/cleanup-policies" as Route;
+// As for a selector: a policy may be called "new", and has `~` in no name.
+export const NEW_CLEANUP_POLICY = "/admin/cleanup-policies/~new" as Route;
 export const ANONYMOUS_ACCESS = "/admin/anonymous-access" as Route;
 export const AUTHENTICATION = "/admin/authentication" as Route;
 // As for a role: a source may be called "new", and has `~` in no id.
@@ -115,6 +118,10 @@ export function selectorHref(name: string): Route {
   return `${CONTENT_SELECTORS}/${encodeURIComponent(name)}` as Route;
 }
 
+export function cleanupPolicyHref(name: string): Route {
+  return `${CLEANUP_POLICIES}/${encodeURIComponent(name)}` as Route;
+}
+
 /**
  * An address the API gave, if a link may lead to it: one of `http` or `https`. A file's
  * download address is built from the installation's base URL, which is a setting, and
@@ -203,6 +210,12 @@ export function parseRole(pathname: string): { name: string } | null {
 export function parseSelector(pathname: string): { name: string } | null {
   const name = one(pathname, CONTENT_SELECTORS);
   return name === null ? null : { name };
+}
+
+/** The cleanup policy an address is about; none for the page of a new one. */
+export function parseCleanupPolicy(pathname: string): { name: string } | null {
+  const name = one(pathname, CLEANUP_POLICIES);
+  return name === null || name.startsWith("~") ? null : { name };
 }
 
 /** The repository whose settings an address is about. */

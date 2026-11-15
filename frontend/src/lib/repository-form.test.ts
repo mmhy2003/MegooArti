@@ -46,6 +46,8 @@ const stored = (change: Partial<RepositoryOut>): RepositoryOut => ({
   proxy: null,
   group: null,
   status: null,
+  cleanup_policies: [],
+  cleanup: null,
   ...change,
 });
 
@@ -95,6 +97,7 @@ describe("what is sent to make a repository", () => {
       proxy: null,
       group: null,
       format_config: { version_policy: "mixed", layout_policy: "strict" },
+      cleanup_policies: [],
     });
   });
 
@@ -521,23 +524,49 @@ describe("the remote a proxy is made with", () => {
   const making = (change: Partial<Draft>): Draft => ({ ...EMPTY, ...change });
   // As the server gives them (GET /formats).
   const REMOTES = publicRemotesOf([
-    { name: "maven", types: [], public_remotes: { "": "https://repo1.maven.org/maven2" } },
-    { name: "npm", types: [], public_remotes: { "": "https://registry.npmjs.org" } },
-    { name: "pypi", types: [], public_remotes: { "": "https://pypi.org" } },
-    { name: "docker", types: [], public_remotes: { "": "https://registry-1.docker.io" } },
-    { name: "apt", types: [], public_remotes: { "": "http://deb.debian.org/debian" } },
-    { name: "apk", types: [], public_remotes: { "": "https://dl-cdn.alpinelinux.org/alpine" } },
+    {
+      name: "maven",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://repo1.maven.org/maven2" },
+    },
+    {
+      name: "npm",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://registry.npmjs.org" },
+    },
+    { name: "pypi", types: [], has_prereleases: false, public_remotes: { "": "https://pypi.org" } },
+    {
+      name: "docker",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://registry-1.docker.io" },
+    },
+    {
+      name: "apt",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "http://deb.debian.org/debian" },
+    },
+    {
+      name: "apk",
+      types: [],
+      has_prereleases: false,
+      public_remotes: { "": "https://dl-cdn.alpinelinux.org/alpine" },
+    },
     {
       name: "nuget",
       types: [],
+      has_prereleases: false,
       public_remotes: {
         "": "https://api.nuget.org/v3/index.json",
         v3: "https://api.nuget.org/v3/index.json",
         v2: "https://community.chocolatey.org/api/v2/",
       },
     },
-    { name: "yum", types: [], public_remotes: {} },
-    { name: "raw", types: [], public_remotes: {} },
+    { name: "yum", types: [], has_prereleases: false, public_remotes: {} },
+    { name: "raw", types: [], has_prereleases: false, public_remotes: {} },
   ]);
 
   test.each([
@@ -588,5 +617,27 @@ describe("the remote a proxy is made with", () => {
 
   test("is none while the server has not said what its formats' are", () => {
     expect(defaultRemoteOf(making({ format: "maven", type: "proxy" }), {})).toBe("");
+  });
+});
+
+describe("a repository's cleanup policies (cleanup spec 6, W4)", () => {
+  test("are part of its form, and sent only by whoever may read them", () => {
+    const held = draftOf(stored({ cleanup_policies: ["stale"] }));
+
+    expect(held.cleanupPolicies).toEqual(["stale"]);
+    expect(updateBody(held, true).cleanup_policies).toEqual(["stale"]);
+    // Left out, the server keeps them: whoever may not read them does not empty them.
+    expect("cleanup_policies" in updateBody(held, false)).toBe(false);
+    expect(createBody(draft({ cleanupPolicies: ["stale"] }), true).cleanup_policies).toEqual([
+      "stale",
+    ]);
+    expect(createBody(draft({ cleanupPolicies: ["stale"] })).cleanup_policies).toEqual([]);
+  });
+
+  test("are none of a group's", () => {
+    const group = draft({ type: "group", cleanupPolicies: ["stale"] });
+
+    expect(createBody(group, true).cleanup_policies).toEqual([]);
+    expect("cleanup_policies" in updateBody(group, true)).toBe(false);
   });
 });

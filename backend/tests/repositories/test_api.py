@@ -18,6 +18,8 @@ EXPECTED = {
     "proxy": None,
     "group": None,
     "status": None,
+    "cleanup_policies": [],
+    "cleanup": None,
 }
 
 

@@ -370,6 +370,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cleanup-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policies */
+        get: operations["list_policies_api_v1_cleanup_policies_get"];
+        put?: never;
+        /** Create Policy */
+        post: operations["create_policy_api_v1_cleanup_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cleanup-policies/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Policy
+         * @description What a policy, kept or not, would remove from a repository now: of what the caller
+         *     may browse there, newest first. Nothing is removed.
+         */
+        post: operations["preview_policy_api_v1_cleanup_policies_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cleanup-policies/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy */
+        get: operations["get_policy_api_v1_cleanup_policies__name__get"];
+        /**
+         * Update Policy
+         * @description Change what a policy selects: from the next run, for every repository it is
+         *     attached to.
+         */
+        put: operations["update_policy_api_v1_cleanup_policies__name__put"];
+        post?: never;
+        /**
+         * Delete Policy
+         * @description Delete a policy, detaching it from every repository it is attached to (E10).
+         */
+        delete: operations["delete_policy_api_v1_cleanup_policies__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/content": {
         parameters: {
             query?: never;
@@ -773,6 +838,48 @@ export interface paths {
         post?: never;
         /** Delete Repository */
         delete: operations["delete_repository_api_v1_repositories__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{name}/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clean Up Now
+         * @description Run the repository's cleanup policies now. It answers at once; the run goes on in
+         *     the server, and the repository's `cleanup` says how it went.
+         */
+        post: operations["clean_up_now_api_v1_repositories__name__cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{name}/cleanup/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Count Cleanup
+         * @description How many components the repository's policies would remove now: each once, of the
+         *     whole repository. Nothing is removed.
+         */
+        post: operations["count_cleanup_api_v1_repositories__name__cleanup_preview_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1411,6 +1518,32 @@ export interface components {
             /** Subject */
             subject: string;
         };
+        /** CleanupCount */
+        CleanupCount: {
+            /** Total */
+            total: number;
+        };
+        /**
+         * CleanupRunOut
+         * @description A repository's last cleanup run (cleanup spec 5.1).
+         */
+        CleanupRunOut: {
+            /** By */
+            by: string | null;
+            /** Error */
+            error: string | null;
+            /** Failed */
+            failed: number;
+            /** Finished At */
+            finished_at: string | null;
+            /** Removed */
+            removed: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
         /** ComponentDetail */
         ComponentDetail: {
             /**
@@ -1591,6 +1724,8 @@ export interface components {
         };
         /** FormatOut */
         FormatOut: {
+            /** Has Prereleases */
+            has_prereleases: boolean;
             /** Name */
             name: string;
             /** Public Remotes */
@@ -1754,6 +1889,17 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** Page[PolicyOut] */
+        Page_PolicyOut_: {
+            /** Items */
+            items: components["schemas"]["PolicyOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /** Page[RepositoryOut] */
         Page_RepositoryOut_: {
             /** Items */
@@ -1791,6 +1937,17 @@ export interface components {
         Page_RoleOut_: {
             /** Items */
             items: components["schemas"]["RoleOut"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** Page[Selected] */
+        Page_Selected_: {
+            /** Items */
+            items: components["schemas"]["Selected"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -1870,6 +2027,78 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** PolicyContent */
+        PolicyContent: {
+            /** Asset Pattern */
+            asset_pattern?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Downloaded Days */
+            downloaded_days?: number | null;
+            /** Format */
+            format?: string | null;
+            /** Release Type */
+            release_type?: ("release" | "prerelease") | null;
+            /** Updated Days */
+            updated_days?: number | null;
+        };
+        /** PolicyCreate */
+        PolicyCreate: {
+            /** Asset Pattern */
+            asset_pattern?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Downloaded Days */
+            downloaded_days?: number | null;
+            /** Format */
+            format: string;
+            /** Name */
+            name: string;
+            /** Release Type */
+            release_type?: ("release" | "prerelease") | null;
+            /** Updated Days */
+            updated_days?: number | null;
+        };
+        /** PolicyOut */
+        PolicyOut: {
+            /** Asset Pattern */
+            asset_pattern: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string;
+            /** Downloaded Days */
+            downloaded_days: number | null;
+            /** Format */
+            format: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Release Type */
+            release_type: string | null;
+            /** Repositories */
+            repositories: string[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated Days */
+            updated_days: number | null;
+        };
         /** Preview */
         Preview: {
             /** Expression */
@@ -1896,6 +2125,26 @@ export interface components {
             matches: boolean;
             /** Path */
             path: string;
+        };
+        /** Previewing */
+        Previewing: {
+            /** Asset Pattern */
+            asset_pattern?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Downloaded Days */
+            downloaded_days?: number | null;
+            /** Format */
+            format: string;
+            /** Release Type */
+            release_type?: ("release" | "prerelease") | null;
+            /** Repository */
+            repository: string;
+            /** Updated Days */
+            updated_days?: number | null;
         };
         /** ProxyIn */
         ProxyIn: {
@@ -1996,6 +2245,11 @@ export interface components {
         RepositoryCreate: {
             /** Blob Store */
             blob_store?: string | null;
+            /**
+             * Cleanup Policies
+             * @default []
+             */
+            cleanup_policies: string[];
             /** Format */
             format: string;
             /**
@@ -2025,6 +2279,9 @@ export interface components {
         RepositoryOut: {
             /** Blob Store */
             blob_store: string | null;
+            cleanup: components["schemas"]["CleanupRunOut"] | null;
+            /** Cleanup Policies */
+            cleanup_policies: string[];
             /** Format */
             format: string;
             /** Format Config */
@@ -2048,6 +2305,8 @@ export interface components {
         RepositoryUpdate: {
             /** Blob Store */
             blob_store?: string | null;
+            /** Cleanup Policies */
+            cleanup_policies?: string[] | null;
             /** Format */
             format?: string | null;
             /**
@@ -2192,6 +2451,30 @@ export interface components {
             expected: string;
             /** Revision */
             revision: string | null;
+        };
+        /**
+         * Selected
+         * @description A component a policy would remove.
+         */
+        Selected: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Downloaded */
+            last_downloaded: string | null;
+            /**
+             * Modified
+             * Format: date-time
+             */
+            modified: string;
+            /** Name */
+            name: string;
+            /** Namespace */
+            namespace: string;
+            /** Version */
+            version: string;
         };
         /** SelectorContent */
         SelectorContent: {
@@ -3401,6 +3684,202 @@ export interface operations {
             };
         };
     };
+    list_policies_api_v1_cleanup_policies_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PolicyOut_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_policy_api_v1_cleanup_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_policy_api_v1_cleanup_policies_preview_post: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Previewing"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_Selected_"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_policy_api_v1_cleanup_policies__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_policy_api_v1_cleanup_policies__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyContent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_policy_api_v1_cleanup_policies__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_repositories_api_v1_content_get: {
         parameters: {
             query?: {
@@ -4392,6 +4871,68 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    clean_up_now_api_v1_repositories__name__cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Any error. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    count_cleanup_api_v1_repositories__name__cleanup_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupCount"];
+                };
             };
             /** @description Any error. */
             default: {

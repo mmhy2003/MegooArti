@@ -382,6 +382,7 @@ area's name alone gives both.
 | `admin:certificates` | The certificates outbound TLS trusts besides the usual authorities; to write, also fetching what a host presents |
 | `admin:audit` | The audit log: to read, its records and their export; to write, how many days they are kept |
 | `admin:selectors` | The content selectors: the expressions that selector permissions name |
+| `admin:cleanup` | The cleanup policies, and what they would remove from a repository. Attaching them to a repository is `admin:repositories:write` |
 
 What a repository holds is not given by these, but by `repository:` permissions:
 see [Repositories](repositories.md). Whoever may change roles, or the roles a user
@@ -418,3 +419,9 @@ curl -u admin http://localhost:8000/api/v1/system/information
 `schema.current` is false when the database is at another revision than this version
 was written for, which is also when `/api/v1/status/ready` answers `503`. Nothing of the
 configuration is in it.
+
+Beside what it serves, the backend works on its own: every hour it checks LDAP users,
+removes audit records older than the days kept, and runs the cleanup policies of the
+repositories that are due ([Repositories](repositories.md#cleanup-policies)); and it
+compacts the blob stores every `MEGOOARTI_COMPACTION_INTERVAL_SECONDS`. A repository's
+last cleanup run is in its `cleanup`.

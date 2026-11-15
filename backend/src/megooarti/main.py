@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from megooarti import __version__
 from megooarti.api_docs import docs_router
+from megooarti.cleanup import api as cleanup_api
+from megooarti.cleanup import run as cleanup_run
 from megooarti.clock import utcnow
 from megooarti.config import Settings, get_settings
 from megooarti.db.schema import head_revision
@@ -151,7 +153,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
             )
         )
+    # Repositories cleaned by their policies, each a day after its last run (cleanup E5).
+    if settings.cleanup_interval_seconds > 0:
+        background.append(
+            asyncio.create_task(
+                run_periodically(
+                    "cleanup", cleanup_run.CHECK_SECONDS, lambda: cleanup_run.daily(app)
+                )
+            )
+        )
     yield
+    # Runs an administrator started stop between two components, as the daily one does.
+    background.extend(app.state.cleanups)
     for task in background:
         task.cancel()
     for task in background:
@@ -193,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The proxies an administrator trusts in front of the gateway (spec 8): read at start,
     # and changed with the setting.
     app.state.trusted_proxies = []
+    app.state.cleanups = set()  # the cleanup runs an administrator started, under way
     register_error_handlers(app)
     app.include_router(docs_router(f"{API_PREFIX}/openapi.json", "MegooArti API"))
     app.include_router(status_router, prefix=API_PREFIX)
@@ -202,6 +216,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_api.router, prefix=API_PREFIX)
     app.include_router(roles_api.router, prefix=API_PREFIX)
     app.include_router(selectors_api.router, prefix=API_PREFIX)
+    app.include_router(cleanup_api.router, prefix=API_PREFIX)
+    app.include_router(cleanup_api.repository_router, prefix=API_PREFIX)
     app.include_router(sources_api.router, prefix=API_PREFIX)
     app.include_router(settings_router, prefix=API_PREFIX)
     app.include_router(information_router, prefix=API_PREFIX)

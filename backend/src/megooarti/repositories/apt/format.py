@@ -288,6 +288,7 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
 
 class AptFormat(Format):
     name = "apt"
+    has_prereleases = True
     public_remotes = MappingProxyType({"": "http://deb.debian.org/debian"})
     types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True

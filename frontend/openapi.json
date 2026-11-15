@@ -466,6 +466,81 @@
         "title": "CertificateView",
         "type": "object"
       },
+      "CleanupCount": {
+        "properties": {
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "title": "CleanupCount",
+        "type": "object"
+      },
+      "CleanupRunOut": {
+        "description": "A repository's last cleanup run (cleanup spec 5.1).",
+        "properties": {
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "finished_at",
+          "removed",
+          "failed",
+          "error",
+          "by"
+        ],
+        "title": "CleanupRunOut",
+        "type": "object"
+      },
       "ComponentDetail": {
         "properties": {
           "created": {
@@ -911,6 +986,10 @@
       },
       "FormatOut": {
         "properties": {
+          "has_prereleases": {
+            "title": "Has Prereleases",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -933,7 +1012,8 @@
         "required": [
           "name",
           "types",
-          "public_remotes"
+          "public_remotes",
+          "has_prereleases"
         ],
         "title": "FormatOut",
         "type": "object"
@@ -1352,6 +1432,37 @@
         "title": "Page[FormatOut]",
         "type": "object"
       },
+      "Page_PolicyOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PolicyOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[PolicyOut]",
+        "type": "object"
+      },
       "Page_RepositoryOut_": {
         "properties": {
           "items": {
@@ -1474,6 +1585,37 @@
           "offset"
         ],
         "title": "Page[RoleOut]",
+        "type": "object"
+      },
+      "Page_Selected_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Selected"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[Selected]",
         "type": "object"
       },
       "Page_SelectorOut_": {
@@ -1670,6 +1812,251 @@
         "title": "PasswordReset",
         "type": "object"
       },
+      "PolicyContent": {
+        "properties": {
+          "asset_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Pattern"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "downloaded_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded Days"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "release",
+                  "prerelease"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "updated_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Days"
+          }
+        },
+        "title": "PolicyContent",
+        "type": "object"
+      },
+      "PolicyCreate": {
+        "properties": {
+          "asset_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Pattern"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "downloaded_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded Days"
+          },
+          "format": {
+            "maxLength": 32,
+            "title": "Format",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "release",
+                  "prerelease"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "updated_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Days"
+          }
+        },
+        "required": [
+          "format",
+          "name"
+        ],
+        "title": "PolicyCreate",
+        "type": "object"
+      },
+      "PolicyOut": {
+        "properties": {
+          "asset_pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Pattern"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "downloaded_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded Days"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "repositories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Repositories",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Days"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "format",
+          "updated_days",
+          "downloaded_days",
+          "release_type",
+          "asset_pattern",
+          "repositories",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PolicyOut",
+        "type": "object"
+      },
       "Preview": {
         "properties": {
           "expression": {
@@ -1733,6 +2120,81 @@
           "matches"
         ],
         "title": "Previewed",
+        "type": "object"
+      },
+      "Previewing": {
+        "properties": {
+          "asset_pattern": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Pattern"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "downloaded_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded Days"
+          },
+          "format": {
+            "maxLength": 32,
+            "title": "Format",
+            "type": "string"
+          },
+          "release_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "release",
+                  "prerelease"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Type"
+          },
+          "repository": {
+            "maxLength": 64,
+            "title": "Repository",
+            "type": "string"
+          },
+          "updated_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Days"
+          }
+        },
+        "required": [
+          "format",
+          "repository"
+        ],
+        "title": "Previewing",
         "type": "object"
       },
       "ProxyIn": {
@@ -1954,6 +2416,14 @@
             ],
             "title": "Blob Store"
           },
+          "cleanup_policies": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Cleanup Policies",
+            "type": "array"
+          },
           "format": {
             "title": "Format",
             "type": "string"
@@ -2035,6 +2505,23 @@
             ],
             "title": "Blob Store"
           },
+          "cleanup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CleanupRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleanup_policies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cleanup Policies",
+            "type": "array"
+          },
           "format": {
             "title": "Format",
             "type": "string"
@@ -2112,7 +2599,9 @@
           "format_config",
           "proxy",
           "group",
-          "status"
+          "status",
+          "cleanup_policies",
+          "cleanup"
         ],
         "title": "RepositoryOut",
         "type": "object"
@@ -2129,6 +2618,20 @@
               }
             ],
             "title": "Blob Store"
+          },
+          "cleanup_policies": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleanup Policies"
           },
           "format": {
             "anyOf": [
@@ -2473,6 +2976,55 @@
           "current"
         ],
         "title": "SchemaState",
+        "type": "object"
+      },
+      "Selected": {
+        "description": "A component a policy would remove.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_downloaded": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Downloaded"
+          },
+          "modified": {
+            "format": "date-time",
+            "title": "Modified",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "namespace": {
+            "title": "Namespace",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "namespace",
+          "name",
+          "version",
+          "modified",
+          "last_downloaded"
+        ],
+        "title": "Selected",
         "type": "object"
       },
       "SelectorContent": {
@@ -4888,6 +5440,295 @@
         ]
       }
     },
+    "/api/v1/cleanup-policies": {
+      "get": {
+        "operationId": "list_policies_api_v1_cleanup_policies_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PolicyOut_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "List Policies",
+        "tags": [
+          "cleanup policies"
+        ]
+      },
+      "post": {
+        "operationId": "create_policy_api_v1_cleanup_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Create Policy",
+        "tags": [
+          "cleanup policies"
+        ]
+      }
+    },
+    "/api/v1/cleanup-policies/preview": {
+      "post": {
+        "description": "What a policy, kept or not, would remove from a repository now: of what the caller\nmay browse there, newest first. Nothing is removed.",
+        "operationId": "preview_policy_api_v1_cleanup_policies_preview_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Previewing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Selected_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Preview Policy",
+        "tags": [
+          "cleanup policies"
+        ]
+      }
+    },
+    "/api/v1/cleanup-policies/{name}": {
+      "delete": {
+        "description": "Delete a policy, detaching it from every repository it is attached to (E10).",
+        "operationId": "delete_policy_api_v1_cleanup_policies__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Delete Policy",
+        "tags": [
+          "cleanup policies"
+        ]
+      },
+      "get": {
+        "operationId": "get_policy_api_v1_cleanup_policies__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Get Policy",
+        "tags": [
+          "cleanup policies"
+        ]
+      },
+      "put": {
+        "description": "Change what a policy selects: from the next run, for every repository it is\nattached to.",
+        "operationId": "update_policy_api_v1_cleanup_policies__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyContent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Update Policy",
+        "tags": [
+          "cleanup policies"
+        ]
+      }
+    },
     "/api/v1/content": {
       "get": {
         "description": "The repositories the caller may browse.",
@@ -6394,6 +7235,90 @@
           }
         },
         "summary": "Update Repository",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/cleanup": {
+      "post": {
+        "description": "Run the repository's cleanup policies now. It answers at once; the run goes on in\nthe server, and the repository's `cleanup` says how it went.",
+        "operationId": "clean_up_now_api_v1_repositories__name__cleanup_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Clean Up Now",
+        "tags": [
+          "repositories"
+        ]
+      }
+    },
+    "/api/v1/repositories/{name}/cleanup/preview": {
+      "post": {
+        "description": "How many components the repository's policies would remove now: each once, of the\nwhole repository. Nothing is removed.",
+        "operationId": "count_cleanup_api_v1_repositories__name__cleanup_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CleanupCount"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Any error."
+          }
+        },
+        "summary": "Count Cleanup",
         "tags": [
           "repositories"
         ]

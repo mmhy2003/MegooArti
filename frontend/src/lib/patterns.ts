@@ -22,6 +22,7 @@ export const ADMIN_AREAS = [
   "certificates",
   "audit",
   "selectors",
+  "cleanup",
 ] as const;
 export const ADMIN_ACTIONS = ["read", "write"] as const;
 /** What a token that may only read is limited to. */

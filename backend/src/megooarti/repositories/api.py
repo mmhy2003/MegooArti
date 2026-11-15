@@ -92,6 +92,17 @@ class ProxyStatus(BaseModel):
     last_error: str | None
 
 
+class CleanupRunOut(BaseModel):
+    """A repository's last cleanup run (cleanup spec 5.1)."""
+
+    started_at: datetime
+    finished_at: datetime | None  # none while it is under way, or when it was cut short
+    removed: int
+    failed: int
+    error: str | None
+    by: str | None  # who asked for it; none for the daily run
+
+
 class RepositoryOut(BaseModel):
     name: str
     format: str
@@ -104,6 +115,8 @@ class RepositoryOut(BaseModel):
     proxy: ProxyOut | None
     group: GroupSettings | None
     status: ProxyStatus | None
+    cleanup_policies: list[str]  # by name
+    cleanup: CleanupRunOut | None
 
 
 class RepositoryCreate(BaseModel):
@@ -116,6 +129,7 @@ class RepositoryCreate(BaseModel):
     proxy: ProxyIn | None = None
     group: GroupSettings | None = None
     format_config: dict[str, Any] = {}
+    cleanup_policies: list[str] = []
 
 
 class RepositoryUpdate(BaseModel):
@@ -124,6 +138,8 @@ class RepositoryUpdate(BaseModel):
     proxy: ProxyIn | None = None
     group: GroupSettings | None = None
     format_config: dict[str, Any] = {}
+    # Left out, the repository keeps the policies it has.
+    cleanup_policies: list[str] | None = None
     # Accepted so a client can send back what it read, but they cannot change.
     format: str | None = None
     type: str | None = None
@@ -134,9 +150,12 @@ def _plain(model: BaseModel | None) -> dict[str, Any] | None:
     return None if model is None else model.model_dump()
 
 
-def _told(view: RepositoryView) -> dict[str, Any]:
-    """A repository as its records tell it: its settings, not how its remote is doing."""
-    return {name: value for name, value in asdict(view).items() if name != "status"}
+def told(view: RepositoryView) -> dict[str, Any]:
+    """A repository as its records tell it: its settings, not how its remote is doing nor
+    how its last cleanup went."""
+    return {
+        name: value for name, value in asdict(view).items() if name not in ("status", "cleanup")
+    }
 
 
 def _given(proxy: ProxyIn | None) -> list[str]:
@@ -201,13 +220,14 @@ async def create_repository(
         proxy=_proxy(request.app.state.settings, body.proxy),
         group=_plain(body.group),
         format_config=body.format_config,
+        cleanup_policies=body.cleanup_policies,
     )
     view = await service.describe(db, repository)
     audit.record(
         db,
         "repository.created",
         ("repository", repository.name),
-        audit.diff(None, _told(view), secrets=_given(body.proxy)),
+        audit.diff(None, told(view), secrets=_given(body.proxy)),
     )
     await db.commit()
     log.info("repository_created", repository=repository.name, by=principal.user.username)
@@ -246,13 +266,14 @@ async def update_repository(
         proxy=_proxy(request.app.state.settings, body.proxy),
         group=_plain(body.group),
         format_config=body.format_config,
+        cleanup_policies=body.cleanup_policies,
     )
     view = await service.describe(db, repository)
     audit.record(
         db,
         "repository.updated",
         ("repository", repository.name),
-        audit.diff(_told(current), _told(view), secrets=_given(body.proxy)),
+        audit.diff(told(current), told(view), secrets=_given(body.proxy)),
     )
     await db.commit()
     log.info("repository_updated", repository=repository.name, by=principal.user.username)
@@ -268,7 +289,7 @@ async def delete_repository(
     repository = await _load(db, name)
     before = await service.describe(db, repository)
     await service.delete_repository(db, repository, utcnow())
-    audit.record(db, "repository.deleted", ("repository", name), audit.diff(_told(before), None))
+    audit.record(db, "repository.deleted", ("repository", name), audit.diff(told(before), None))
     await db.commit()
     log.info("repository_deleted", repository=name, by=principal.user.username)
 

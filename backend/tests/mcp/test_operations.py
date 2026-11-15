@@ -5,6 +5,7 @@ change repositories."""
 import pytest
 import structlog
 
+from megooarti.cleanup.models import CleanupPolicy, RepositoryCleanupPolicy
 from tests.accounts import PASSWORD, basic
 from tests.mcp.conftest import refusal, structured
 
@@ -296,3 +297,20 @@ async def test_the_server_tells_an_agent_what_the_tools_that_change_things_are_f
 
     assert "administer users, their tokens and roles" in instructions
     assert "asks you before" in instructions
+
+
+async def test_a_change_keeps_the_cleanup_policies(agent, token, files, db):
+    # A client that predates cleanup policies (cleanup spec 4.3) does not detach them.
+    policy = CleanupPolicy(name="old", name_key="old", format="raw", updated_days=30)
+    db.add(policy)
+    await db.flush()
+    db.add(RepositoryCleanupPolicy(repository_id=files.id, policy_id=policy.id))
+    await db.commit()
+
+    async with agent(token) as client:
+        changed = structured(
+            await client.call_tool("update_repository", {"name": "files", "online": False})
+        )
+
+    assert changed["online"] is False
+    assert changed["cleanup_policies"] == ["old"]

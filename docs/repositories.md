@@ -130,3 +130,87 @@ them could not ask its remote: a build that names several repositories then goes
 to the next. The proxy's own page, and `GET /api/v1/repositories/<name>`, say what it
 last met at its remote. (A Docker group answers `502` in that case: see
 [Docker](formats/docker.md).)
+
+## Cleanup policies
+
+A cleanup policy says which components to remove from the repositories it is attached
+to: a Maven version with all its files, an npm version, a Docker tag. A file that
+belongs to no component (npm's dist-tags, Maven's metadata) is never chosen.
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "name": "stale-snapshots", "format": "maven",
+  "updated_days": 14, "release_type": "prerelease"
+}' http://localhost:8000/api/v1/cleanup-policies
+```
+
+A policy has a format, or `*` for every format, which cannot be changed later, and at
+least one criterion. A component is chosen only when every criterion the policy has
+is met:
+
+| Criterion | Chosen when |
+| --- | --- |
+| `updated_days` | its newest file was last written more than that many days ago |
+| `downloaded_days` | none of its files was downloaded in that many days; a component never downloaded counts from when it was stored |
+| `release_type` | it is a `release`, or a `prerelease` (a Maven `-SNAPSHOT` is one) |
+| `asset_pattern` | one of its files' paths, with a `/` before it, matches the whole regular expression |
+
+- Days are 1 to 36500. Downloads are noted at most once an hour, so "not downloaded" is
+  to the hour.
+- `release_type` is for Maven, npm, PyPI, NuGet, APT, YUM and apk; not for Raw, Docker,
+  or a policy of every format. `GET /api/v1/formats` says `has_prereleases` for each.
+- A pattern is at most 1,000 characters. One that repeats a repetition, such as
+  `(a+)+`, is refused: matched against a path made to defeat it, it can take very long.
+
+**Attaching.** A hosted or proxy repository holds any number of policies, of its
+format or of every format, in `cleanup_policies` (by name) when it is made or changed.
+A component is removed when any of its repository's policies chooses it. A `PUT` of a
+repository that leaves `cleanup_policies` out keeps the ones it has. Deleting a policy
+detaches it from every repository, and the audit log records each.
+
+**Seeing what a policy would remove.** Before you attach a policy, or save it, ask what
+it would remove from a repository now:
+
+```bash
+curl -u admin -H 'Content-Type: application/json' -d '{
+  "format": "maven", "updated_days": 14, "release_type": "prerelease",
+  "repository": "maven-snapshots"
+}' 'http://localhost:8000/api/v1/cleanup-policies/preview?limit=50'
+```
+
+It answers the components, the most recently written first, a page at a time, with
+`total`. It lists what you may browse in the repository, and removes nothing.
+
+Policies are kept with `admin:cleanup:read` and `admin:cleanup:write`; attaching them
+is a repository's setting, with `admin:repositories:write`.
+
+**When they run.** Every hour MegooArti looks for repositories with policies attached
+whose last run finished more than `MEGOOARTI_CLEANUP_INTERVAL_SECONDS` (a day) ago, and
+cleans them one after another. A restart does not put the next run off. A repository is
+cleaned by one run at a time, whatever the number of containers. To clean one now:
+
+```bash
+curl -u admin -X POST http://localhost:8000/api/v1/repositories/maven-snapshots/cleanup/preview
+curl -u admin -X POST http://localhost:8000/api/v1/repositories/maven-snapshots/cleanup
+```
+
+The first says how many components its policies would remove now (`{"total": 12}`).
+The second answers `202` at once, or `409 cleanup_running` while a run of it is under
+way, or `409 cleanup_busy` while the server already runs two that were started this way
+(each holds database connections for as long as it lasts); `GET /api/v1/repositories/maven-snapshots` then says how the last run went, in
+`cleanup`: when it started and finished, how many it removed, how many could not be
+removed, and who asked. The audit log records each run once, as
+`repository.cleaned_up`.
+
+**What a run does.** Each component is checked again against the policies as they are
+when it is reached, so one downloaded meanwhile is kept, and is removed as deleting it
+through the API would: npm's dist-tags move off the version, a NuGet version takes its
+symbols, APT, YUM and apk indexes no longer list the package. A read-only repository is
+cleaned too: attaching the policy is the permission. In a proxy, the files cached beside
+a removed file go with it (`x.whl.metadata`); what is removed is fetched again when it
+is next asked for. A component that cannot be removed is logged and counted, and the run
+goes on. A run stopped by a restart is taken up again at the next check.
+
+**The space.** A removed file's content is deleted by the compaction that runs every
+`MEGOOARTI_COMPACTION_INTERVAL_SECONDS`, once nothing has used it for
+`MEGOOARTI_BLOB_GRACE_SECONDS` (a day): the disk is given back a day or so after a run.

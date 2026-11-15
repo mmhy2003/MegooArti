@@ -90,6 +90,18 @@ Each is optional; a policy has at least one (E3).
 - A policy's answer includes the repositories it is attached to, by name.
 - Each change is recorded: `cleanup_policy.created`, `updated`, `deleted`; a delete records each repository it is detached from as `repository.updated` (E10).
 
+### Settled while building plan 16a
+
+| # | What | Why |
+| --- | --- | --- |
+| P1 | Policies are `megooarti/cleanup/`'s: `models.py` (`CleanupPolicy`, `RepositoryCleanupPolicy`), `criteria.py`, `selection.py`, `api.py`. A policy's name is a `NewName`, unique whatever its case (`name_key`, as a repository's). | Section 4.1; one place for what 16b and 16c build on. |
+| P2 | The database narrows by the days alone; the pattern and the release type are checked in Python (`Criteria.selects`), on a page of components and their files at a time. | A database's regular expressions are not Python's: the pattern G14 checks must be the one that matches. |
+| P3 | A component's `modified` is the latest `updated_at` of its files; its `downloaded` is the latest `last_downloaded_at` of its files, else its `created_at`; and, where a format says it was used later (`Format.last_used`: Docker's manifest pulled by digest), that. | Section 4.2; 7.3's first point. |
+| P4 | The preview orders what is selected newest first by `modified`, keeping only the page asked for while it counts them all. Its `last_downloaded` is a download, never the time a component was made. | Section 4.4: a page and the total, without holding the repository. |
+| P5 | A pattern is checked by `selectors.checked_pattern`, the very check a selector's `=~` has. Its refusal is said at `asset_pattern`. | Section 4.2: as a selector's is. |
+| P6 | `GET /api/v1/formats` says `has_prereleases` for each format. | Section 4.2 and 16c: the form offers release type by it. |
+| P7 | A `PUT` of a policy may send its format back unchanged; another is `409 immutable`. The preview refuses a policy's own problems at their fields first, then a repository that is not there (`404`), then one of another format or a group (`422` at `repository`). | E9; 4.4. |
+
 ## 5. The run (plan 16b)
 
 ### 5.1 When
@@ -101,7 +113,7 @@ Each is optional; a policy has at least one (E3).
 
 ### 5.2 How
 
-- The components a repository's policies select are found in the database, a page at a time, by the criteria the database can test (the days and the pattern), and the release type checked in Python on what they give. A repository's components are never all held in memory.
+- The components a repository's policies select are found in the database, a page at a time, by the criteria the database can test (the days), and the pattern and the release type checked in Python on what they give (P2). A repository's components are never all held in memory.
 - Each selected component is checked again and deleted in a transaction of its own (E6), through the format (E4), under the locks a delete through the API takes. A component that went in the meantime is passed over.
 - One component that cannot be deleted (a format refusing it, an error) is logged with why, and the run goes on; a run that ends with failures says how many.
 - Shutdown stops a run between two components; what was removed stays removed, and the next run goes on from what is left.
@@ -111,12 +123,39 @@ Each is optional; a policy has at least one (E3).
 
 Today a delete that runs the format's own effects needs a caller with the `delete` permission; only `sweep` works without one, and it skips the format's effects. The run needs a way of its own to delete a component through the format with no caller, having the effects E4 names. Whether that is a context for maintenance, a format hook `delete_component`, or both, is the builder's, held to this: the effects of a component's delete by the run are those of its delete through `DELETE /api/v1/content/{repository}/components/{id}` (in a proxy too, where that is the cached files' removal), with Docker's one addition (7.3), and no route of a request can reach that way.
 
+### Settled while building plan 16b
+
+| # | What | Why |
+| --- | --- | --- |
+| R1 | `RepositoryContext.unattended` (keyword-only, False unless given): `delete` and `maintain(removing=True)` then check no principal and no deployment policy. Only `cleanup/run.py` passes it; a test reads the source for any other. | 5.3: every format's effects, and no route of a request can reach that way. |
+| R2 | Deleting a file as the content API does is `repositories/removal.delete_file(context, path)`, used by the API and the run alike. | 5.3: the run's effects are the API's. |
+| R3 | A proxy's companions are its files of no component whose path is a removed file's path followed by `.` and more (`x.whl.metadata`). A Maven proxy keeps none: it answers checksums from the cached file. | 7.2: one rule for every format. |
+| R4 | `Format.cleaned_up(context, files)` follows a component's removal by a run, given its files' paths and SHA-256s as they were; the generic format does nothing. Docker drops a removed tag's manifest by its digest when no tag and no manifest names it any more. | 7.3. |
+| R5 | A repository's last run is a row of `cleanup_runs` (started, finished, removed, failed, error, by): `by` the user who asked, None for the daily run. `GET /repositories/{name}` shows it as `cleanup`; a repository's audit records do not (it is not configuration). | 5.1. |
+| R6 | A repository's lock is `pg_try_advisory_lock(19779, hashtext(<repository id>))`, held on a connection of its own for the run. "Clean up now" takes it in the request, and hands it to the run it starts. | E12; a 409 must be answered before the 202. |
+| R7 | "Clean up now" with no policy attached, or of a group, is `409 no_cleanup_policies`. Its record names whoever asked: the run is started from the request, and keeps its context. | 5.1; E11. |
+| R8 | `POST /repositories/{name}/cleanup/preview` answers `{"total": n}`, with `admin:repositories:write`. | 5.1. |
+| R9 | A run gathers the ids of what its policies select (the ids alone), then removes each in a transaction of its own. Its record's `changes` are `removed` and `policies`, and `failed` where some could not be removed. | 5.2; E11. |
+| R10 | Shutdown cancels runs an administrator started with the other background work: a run stops between two components, its record unfinished, and the next hourly check takes it up. A repository is due when its last run never finished or finished more than the interval ago; the daily check reads that again once it holds the repository's claim, and passes over one cleaned meanwhile. | 5.2; the final review. |
+| R11 | One server runs at most two runs started now at once (`MOST_AT_ONCE`), beside the daily one; another is `409 cleanup_busy`. Each holds two of the database's connections for as long as it lasts. | The final review: runs on many large repositories at once would take every connection. |
+| R12 | A component with no file (an index's rebuild cut short) is no candidate: it is left out in the database, so a page never looks like the last one before it is. | The final review: the walk stopped there, silently. |
+
 ## 6. The web UI (plan 16c)
 
 - Administration, Cleanup policies, after Content selectors, with `admin:cleanup:read`: the list (name, format, criteria in words, the repositories attached), a new one at `/admin/cleanup-policies/~new`, one at `/admin/cleanup-policies/<name>`, deleted after a question that names the repositories it will be detached from.
 - The form: name, description, format (chosen once), and each criterion turned on with its value; release type only for a format that has one. Beside it, the preview: a repository of the format chosen, and the components the policy would remove from it, a page at a time, with the total, refreshed as the form changes.
 - A repository's settings: a Cleanup section with the policies attached, the last run (when, how many removed, or the error), and "Clean up now", which asks first, saying how many components it would remove (5.1's count). The policies of its format are offered to attach to whoever holds `admin:cleanup:read`; to others, the section shows those attached, and keeps them, as a role's row shows a selector to whoever may not read selectors (U3 of the identity spec).
 - The role editor's administration areas gain `cleanup`.
+
+### Settled while building plan 16c
+
+| # | What | Why |
+| --- | --- | --- |
+| W1 | The screens are Administration, Cleanup policies, after Content selectors, with `admin:cleanup:read`: `/admin/cleanup-policies`, `/admin/cleanup-policies/~new`, `/admin/cleanup-policies/<name>`. Whoever may only read sees each, and its preview. | Section 6; as selectors' screens (U1). |
+| W2 | A criterion is a checkbox with its value beside it: days as a number, release type as a choice of two, the pattern as text. Each is said in words in the list ("Not updated in 14 days, pre-releases"). | Section 6; 4.2. |
+| W3 | The preview asks again half a second after the form last changed, with what the form holds, while its criteria have no problem (a name not yet right does not stop it); the first 50, a pager, and the total. Its repository is chosen among the hosted and proxy repositories of the policy's format, the first by name unless chosen. | Section 6: refreshed as the form changes; API-5. |
+| W4 | A hosted or proxy repository's settings have a Cleanup section: checkboxes of the policies of its format and of every format, to whoever holds `admin:cleanup:read`; to others, the names attached, as text, which saving keeps (the `PUT` leaves them out). A new repository is made with none: they are attached on its settings. | Section 6; U3 of the identity spec. |
+| W5 | "Clean up now" goes by the policies the server holds, asks first with the count `cleanup/preview` gives, starts the run, and asks the repository again every 2 seconds until its `cleanup` is a run that started other than the one it had before and has finished (the server's times, never the browser's clock), then says what was removed. While the formats are not known, a policy keeps the release type it has. `409 cleanup_running` is said as "A cleanup of this repository is already running." The API client takes a `202` as done, with nothing more said. | Section 6; 5.1. |
 
 ## 7. Formats
 

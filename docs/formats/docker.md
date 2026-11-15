@@ -150,3 +150,16 @@ docker pull repo.example.com/docker-all/alpine:3
 
 Reading through a group needs `read` on the group only, for example
 `repository:docker:docker-all:read`.
+
+## Cleanup policies
+
+A Docker component is a tag. A tag a cleanup policy removes takes the image it named
+with it, unless another tag names that image or a multi-platform image lists it: its
+manifest goes as deleting it by its digest would, with the layers no other image uses.
+A tag deleted through the API or the registry still goes alone, for whoever pins the
+image by its digest.
+
+"Not downloaded" counts a pull by the digest as well as by the tag: an image pulled by
+its digest every day is not "not downloaded". A policy of "not updated" alone removes
+a tag however often its image is pulled. Release type is not offered for Docker: a tag
+is a name, not a version.

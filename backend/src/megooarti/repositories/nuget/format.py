@@ -488,6 +488,7 @@ async def describe_fetched(
 
 class NuGetFormat(Format):
     name = "nuget"
+    has_prereleases = True
     # nuget.org's V3 feed (a proxy's protocol is V3 unless it is said), and for V2
     # Chocolatey's community feed.
     public_remotes = MappingProxyType(

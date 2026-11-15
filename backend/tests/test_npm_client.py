@@ -8,6 +8,7 @@ that the last test installs through. Everything a client asks for comes from Meg
 import base64
 import json
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -334,6 +335,46 @@ def test_npm_pnpm_and_yarn_install_through_a_group(group_token, tmp_path):
     assert status == 200
     cached = {entry["package"]["name"]: entry["package"]["version"] for entry in found["objects"]}
     assert cached.get(PUBLIC) == "7.0.0"
+
+
+def test_a_cleaned_proxy_is_fetched_again(group_token, administrator, tmp_path):
+    """A cleanup policy empties the proxy of what it cached, and npm installs again."""
+    policy = {"name": "npm-cached", "format": "npm", "asset_pattern": f"/{PUBLIC}/.*"}
+    status, _, answer = call("POST", "/cleanup-policies", policy, administrator)
+    assert status == 201, answer
+    settings = {
+        "proxy": {"remote_url": "https://registry.npmjs.org", "auto_block": False},
+        "cleanup_policies": ["npm-cached"],
+    }
+    status, _, answer = call("PUT", f"/repositories/{PROXY}", settings, administrator)
+    assert status == 200, answer
+
+    status, _, answer = call("POST", f"/repositories/{PROXY}/cleanup", None, administrator)
+    assert status == 202, answer
+    for _ in range(120):
+        status, _, shown = call("GET", f"/repositories/{PROXY}", None, administrator)
+        if (shown.get("cleanup") or {}).get("finished_at"):
+            break
+        time.sleep(0.5)
+    assert shown["cleanup"]["removed"] >= 1, shown
+    status, found = request("GET", f"-/v1/search?text={PUBLIC}", group_token, repository=PROXY)
+    assert PUBLIC not in {entry["package"]["name"] for entry in found["objects"]}
+
+    consumer = {
+        "package.json": json.dumps(
+            {
+                "name": "consumer",
+                "version": "1.0.0",
+                "private": True,
+                "dependencies": {PUBLIC: "7.0.0"},
+            }
+        ),
+        "main.js": f'console.log(require("{PUBLIC}")(5));\n',
+    }
+    work = write(tmp_path / "again", {"consumer": consumer}, group_token, GROUP)
+    installed = npm(work, "cd consumer && npm install && node main.js")
+    assert installed.returncode == 0, said(installed)
+    assert "true" in installed.stdout, said(installed)
 
 
 def test_a_tarball_uploaded_through_the_api_installs_like_a_published_one(token, tmp_path):

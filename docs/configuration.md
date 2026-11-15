@@ -24,6 +24,7 @@ All configuration of a deployment is by environment variable.
 | `MEGOOARTI_LOGIN_FAILURE_WINDOW_SECONDS` | `900` | Length of that window |
 | `MEGOOARTI_COMPACTION_INTERVAL_SECONDS` | `3600` | How often unused blob content is removed; `0` disables it |
 | `MEGOOARTI_BLOB_GRACE_SECONDS` | `86400` | How long content is kept after nothing uses it |
+| `MEGOOARTI_CLEANUP_INTERVAL_SECONDS` | `86400` | How long after its last cleanup run a repository with cleanup policies is cleaned again; asked every hour. `0` turns the daily run off; cleaning up now still works |
 | `MEGOOARTI_SECRET_KEY` | generated | Key that seals stored secrets such as remote passwords; use a long random value. If unset or empty, a key is generated into `secret.key` in the data directory on first use |
 | `MEGOOARTI_NPM_MAX_PUBLISH_BYTES` | `104857600` | Largest `npm publish` request accepted. A publish is read into memory, so this bounds what one costs |
 

@@ -185,8 +185,13 @@ class RepositoryContext:
         backend: BlobBackend | None,
         outbound: Callable[[], Any] | None = None,
         asked: Repository | None = None,
+        unattended: bool = False,
     ) -> None:
         self.db = db
+        # Maintenance that deletes as the format does, with nobody calling (cleanup spec
+        # 5.3): no principal is asked, and the deployment policy does not stop it. Only
+        # the cleanup run makes such a context; never a request.
+        self.unattended = unattended
         self.settings = settings
         self.repository = repository
         # The repository the request was addressed to: a group, for its members. What is
@@ -1050,8 +1055,9 @@ class RepositoryContext:
         """
         path = normalise_path(path)
         if removing:
-            access.require(self.principal, self.repository, path, "delete")
-            self._check_policy(replacing=False)
+            if not self.unattended:
+                access.require(self.principal, self.repository, path, "delete")
+                self._check_policy(replacing=False)
         else:
             self.require_write()
             # The document is the caller's change at its own path (npm's dist-tags):
@@ -1121,8 +1127,9 @@ class RepositoryContext:
     async def delete(self, path: str) -> bool:
         """Remove what is at a path. False if there was nothing. The caller commits."""
         path = normalise_path(path)
-        access.require(self.principal, self.repository, path, "delete")
-        self._check_policy(replacing=False)
+        if not self.unattended:
+            access.require(self.principal, self.repository, path, "delete")
+            self._check_policy(replacing=False)
         return await self._remove(path)
 
     async def sweep(self, path: str) -> bool:
@@ -1385,6 +1392,8 @@ async def build_context(
     principal: Principal | None,
     outbound: Callable[[], Any] | None = None,
     asked: Repository | None = None,
+    *,
+    unattended: bool = False,
 ) -> RepositoryContext:
     backend = None
     if repository.blob_store_id is not None:
@@ -1399,4 +1408,5 @@ async def build_context(
         backend=backend,
         outbound=outbound,
         asked=asked,
+        unattended=unattended,
     )

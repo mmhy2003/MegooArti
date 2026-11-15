@@ -79,6 +79,8 @@ export type Draft = {
   protocol: string;
   /** The symbol server a NuGet proxy passes symbol requests on to; empty for none. */
   symbolUrl: string;
+  /** The cleanup policies attached to it, by name (cleanup spec 4.3). */
+  cleanupPolicies: string[];
 };
 
 /** A form for a repository that is not there yet: the server's own defaults. */
@@ -108,6 +110,7 @@ export const EMPTY: Draft = {
   remoteKeys: "",
   protocol: "v3",
   symbolUrl: "",
+  cleanupPolicies: [],
 };
 
 const text = (value: unknown, otherwise: string): string =>
@@ -146,6 +149,7 @@ export function draftOf(repository: RepositoryOut): Draft {
     remoteKeys: text(config.remote_keys, EMPTY.remoteKeys),
     protocol: text(config.protocol, EMPTY.protocol),
     symbolUrl: text(config.symbol_url, EMPTY.symbolUrl),
+    cleanupPolicies: repository.cleanup_policies,
   };
 }
 
@@ -359,20 +363,32 @@ function formatConfig(draft: Draft): Record<string, unknown> {
   return {};
 }
 
-/** What is sent to make a repository. A group stores nothing, and so names no blob store. */
-export function createBody(draft: Draft): RepositoryCreate {
+/** Whether the form holds a repository's cleanup policies: a group cleans nothing (W4). */
+const cleans = (draft: Draft) => draft.type !== "group";
+
+/**
+ * What is sent to make a repository. A group stores nothing, and so names no blob store.
+ * Its cleanup policies are sent by whoever may read them, who chose them.
+ */
+export function createBody(draft: Draft, mayReadPolicies = false): RepositoryCreate {
   return {
     name: draft.name,
     format: draft.format,
     type: draft.type,
     blob_store: draft.type === "group" ? null : draft.blobStore || DEFAULT_BLOB_STORE,
+    cleanup_policies: mayReadPolicies && cleans(draft) ? draft.cleanupPolicies : [],
     ...parts(draft),
   };
 }
 
-/** What is sent to change one. What cannot change is not sent. */
-export function updateBody(draft: Draft): RepositoryUpdate {
-  return parts(draft);
+/**
+ * What is sent to change one. What cannot change is not sent; nor are its cleanup
+ * policies by whoever may not read them, so that the server keeps them (W4).
+ */
+export function updateBody(draft: Draft, mayReadPolicies = false): RepositoryUpdate {
+  return mayReadPolicies && cleans(draft)
+    ? { ...parts(draft), cleanup_policies: draft.cleanupPolicies }
+    : parts(draft);
 }
 
 /** A member, moved one place up (-1) or down (1). The list as it was if that is nowhere. */

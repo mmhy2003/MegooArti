@@ -21,6 +21,7 @@ from megooarti.repositories.paths import normalise_path
 from megooarti.repositories.versions import natural_key
 
 if TYPE_CHECKING:
+    from megooarti.cleanup.criteria import Held
     from megooarti.repositories.content import RepositoryContext
     from megooarti.repositories.forms import UploadForm
     from megooarti.repositories.models import Repository
@@ -132,6 +133,9 @@ class Format:
     # by the protocol of its `format_config` ("" for a format without one). None where
     # there is no one public repository of the format.
     public_remotes: Mapping[str, str] = MappingProxyType({})
+    # Whether some of this format's versions are pre-releases (`is_prerelease`): a cleanup
+    # policy of the format may then choose by release type.
+    has_prereleases: bool = False
 
     def public_remote(self, format_config: Mapping[str, Any]) -> str | None:
         """The public repository a proxy with these settings is made with, if there is one."""
@@ -309,6 +313,18 @@ class Format:
         the principal, and must check the credentials through the context.
         """
         return False
+
+    async def last_used(self, context: "RepositoryContext", held: "Held") -> datetime | None:
+        """When else a component was last used than by a download of its files, for a
+        cleanup policy's "not downloaded"; None if by nothing else. The generic format:
+        None."""
+        return None
+
+    async def cleaned_up(
+        self, context: "RepositoryContext", files: Sequence[tuple[str, str]]
+    ) -> None:
+        """Finish a component's removal by a cleanup run, given its files' paths and
+        SHA-256s, as they were. The generic format: nothing more."""
 
     async def maintain(self, context: "RepositoryContext", now: datetime) -> None:
         """Do what one repository needs done from time to time. The generic format: nothing.

@@ -282,6 +282,7 @@ def setup_of(address: str, repository: Repository) -> list[Usage]:
 
 class ApkFormat(Format):
     name = "apk"
+    has_prereleases = True
     public_remotes = MappingProxyType({"": "https://dl-cdn.alpinelinux.org/alpine"})
     types = frozenset({"hosted", "proxy", "group"})
     derives_indexes = True

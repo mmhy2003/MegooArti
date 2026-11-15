@@ -59,11 +59,11 @@ async def test_sign_in_blocks_are_lifted(client, db, sessionmaker, settings):
 async def test_the_administrators_sessions_end(client, sessionmaker, settings):
     first = password_file(settings).read_text(encoding="utf-8").strip()
     await sign_in(client, "admin", first)
-    assert (await client.get("/api/v1/me")).status_code == 200
+    assert (await client.get("/api/v1/auth/session")).json()["authenticated"] is True
 
     await reset(sessionmaker, settings)
 
-    assert (await client.get("/api/v1/me")).status_code == 401
+    assert (await client.get("/api/v1/auth/session")).json()["authenticated"] is False
 
 
 async def test_the_reset_is_recorded_as_the_systems(client, sessionmaker, settings):

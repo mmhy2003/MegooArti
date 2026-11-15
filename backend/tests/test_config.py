@@ -37,6 +37,7 @@ def test_defaults():
     assert settings.forwarded_allow_ips == "127.0.0.1"
     assert settings.shutdown_grace_seconds == 30
     assert settings.db_wait_timeout_seconds == 60
+    assert settings.cleanup_interval_seconds == 86400
 
 
 def test_values_come_from_prefixed_environment_variables(monkeypatch):

@@ -307,18 +307,27 @@ class _Parser:
             raise SelectorError("Expected a string in double quotes", value.at)
         if operator.text != "=~":
             return _Compare(token.text, operator.text, value.text)
-        if len(value.text) > MAX_PATTERN:
-            raise SelectorError(f"A pattern is at most {MAX_PATTERN} characters", value.at)
         try:
-            compiled = re.compile(value.text)
-        except re.error as error:
-            raise SelectorError(f"Not a pattern: {error.msg}", value.at) from None
-        if _repeats_a_repetition(_patterns.parse(value.text)):
-            raise SelectorError(
-                "A pattern that repeats a repetition can take very long: write it another way",
-                value.at,
-            )
+            compiled = checked_pattern(value.text)
+        except SelectorError as error:
+            raise SelectorError(error.message, value.at) from None
         return _Compare(token.text, operator.text, value.text, compiled)
+
+
+def checked_pattern(text: str) -> re.Pattern[str]:
+    """A pattern compiled, if it may be matched against paths anyone sends: at most
+    `MAX_PATTERN` characters, and none that repeats a repetition. Raises `SelectorError`."""
+    if len(text) > MAX_PATTERN:
+        raise SelectorError(f"A pattern is at most {MAX_PATTERN} characters", 1)
+    try:
+        compiled = re.compile(text)
+    except re.error as error:
+        raise SelectorError(f"Not a pattern: {error.msg}", 1) from None
+    if _repeats_a_repetition(_patterns.parse(text)):
+        raise SelectorError(
+            "A pattern that repeats a repetition can take very long: write it another way", 1
+        )
+    return compiled
 
 
 @functools.lru_cache(maxsize=1024)
