@@ -6,6 +6,9 @@ name: megooarti
 services:
   db:
     image: postgres:17-alpine
+    # Started again after a crash, and when Docker starts after a reboot; not once it
+    # was stopped on purpose, as `always` would.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: megooarti
       POSTGRES_PASSWORD: ${MEGOOARTI_DB_PASSWORD:?Set MEGOOARTI_DB_PASSWORD. Copy .env.example to .env and choose one}
@@ -30,6 +33,7 @@ services:
       context: ./backend
       args:
         VERSION: ${MEGOOARTI_VERSION:-0.1.0}
+    restart: unless-stopped
     environment:
       MEGOOARTI_DATABASE_URL: postgresql://megooarti@db:5432/megooarti
       # Apart from the address, so that it may hold any character.
@@ -69,6 +73,7 @@ services:
       context: ./frontend
       args:
         VERSION: ${MEGOOARTI_VERSION:-0.1.0}
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
@@ -85,6 +90,7 @@ services:
   # place, as docs/installation.md says.
   gateway:
     image: nginx:stable-alpine
+    restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy

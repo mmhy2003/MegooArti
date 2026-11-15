@@ -63,6 +63,11 @@ A new installation has one blob store, `default`, and no repository:
 `docker compose down` stops and removes the containers and keeps what they hold.
 `docker compose down --volumes` destroys that too.
 
+The containers start again by themselves after a crash, and after a reboot of the host
+once the Docker service starts, which it must be set to do at boot. A container stopped
+with `docker compose stop` stays stopped, a reboot included, until `docker compose
+start` or `up`.
+
 ## First sign-in
 
 On first start MegooArti creates the `admin` account with a random password, writes it

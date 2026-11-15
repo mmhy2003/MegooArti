@@ -54,7 +54,16 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"image", "build", "healthcheck"}
+    assert set(frontend) == {"image", "build", "restart", "healthcheck"}
+
+
+def test_every_service_comes_back_unless_it_was_stopped():
+    # After a crash, and when the Docker daemon starts again after a reboot. A
+    # container stopped on purpose stays stopped: `always` would start it again.
+    assert {name: service.get("restart") for name, service in services().items()} == {
+        name: "unless-stopped" for name in services()
+    }
+    assert set(services()) == {"db", "backend", "frontend", "gateway"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
