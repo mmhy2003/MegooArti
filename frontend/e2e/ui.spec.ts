@@ -375,6 +375,32 @@ test("the skip link is the first stop of the keyboard, and leads past the naviga
   await expect(page.locator("main")).toBeFocused();
 });
 
+test("the sidebar collapses to a rail, which is kept, and shown by the page's head before any of the UI's code has run", async () => {
+  const main = page.getByRole("navigation", { name: "Main" });
+  const wide = (await main.boundingBox())?.width ?? 0;
+  await page.getByRole("button", { name: "Collapse the navigation" }).click();
+  const expand = page.getByRole("button", { name: "Expand the navigation" });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  expect(await page.evaluate(() => localStorage.getItem("megooarti-sidebar"))).toBe("rail");
+  await expect.poll(async () => (await main.boundingBox())?.width ?? 0).toBeLessThan(wide / 2);
+  // In the rail a link keeps its name, and shows it beside it.
+  await main.getByRole("link", { name: "Search" }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Search");
+
+  // With every script file refused, only what is written into the page can run.
+  const fresh = await context.newPage();
+  await fresh.route("**/*.js", (route) => route.abort());
+  await fresh.goto("/", { waitUntil: "domcontentloaded" });
+  expect(await fresh.evaluate(() => document.documentElement.dataset.sidebar)).toBe("rail");
+  await fresh.close();
+
+  await page.reload();
+  await expect(expand).toBeVisible();
+  await expectAccessible();
+  await expand.click();
+  expect(await page.evaluate(() => localStorage.getItem("megooarti-sidebar"))).toBeNull();
+});
+
 test("on a narrow screen the navigation is behind a button, and nothing overflows", async () => {
   await page.setViewportSize({ width: 375, height: 700 });
   const open = page.getByRole("button", { name: "Open the navigation" });
@@ -382,12 +408,18 @@ test("on a narrow screen the navigation is behind a button, and nothing overflow
   await expect(open).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main" })).toHaveCount(0);
   await open.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
   await expect(
     page
       .getByRole("navigation", { name: "Main" })
       .getByRole("link", { name: "Repositories", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close the navigation" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await open.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // The table scrolls inside its panel: the page itself is never wider than the screen.
   const overflow = await page.evaluate(
@@ -689,7 +721,7 @@ test("on a narrow screen a file's details come under its folder, and nothing ove
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
-  // The search box is in the navigation, where there is room for it.
+  // The search box is in the drawer, where there is room for it.
   await expect(page.getByRole("searchbox", { name: "Search components" })).toHaveCount(0);
   await page.getByRole("button", { name: "Open the navigation" }).click();
   await expect(page.getByRole("searchbox", { name: "Search components" })).toBeVisible();
@@ -906,7 +938,7 @@ test("in a narrow window the / key is taken only when the search box is there to
     page.evaluate(() => (window as unknown as { takenKeys: boolean[] }).takenKeys);
   const box = page.getByRole("searchbox", { name: "Search components" });
 
-  // The box is in the navigation, which is closed: the key would lead nowhere, and is left alone.
+  // The box is in the drawer, which is closed: the key would lead nowhere, and is left alone.
   await page.keyboard.press("/");
   await expect(box).toHaveCount(0);
   await expect.poll(taken).toEqual([false]);
@@ -1046,17 +1078,22 @@ test("an agent signing in with OAuth is approved on the consent page, connected,
   await asAdministrator("put", "/api/v1/settings/base-url", { base_url: null });
 });
 
-test("the administration is in the navigation, in a row that nothing lies over", async () => {
+test("the administration is in the sidebar, beside the header's search box, and nothing overflows", async () => {
   const main = page.getByRole("navigation", { name: "Main" });
   const overlaps = async () => {
-    const [row, box] = await Promise.all([
+    const [a, b] = await Promise.all([
       main.boundingBox(),
       page.getByRole("search", { name: "Search components" }).boundingBox(),
     ]);
-    if (row === null || box === null) return true;
-    return !(box.y + box.height <= row.y || row.y + row.height <= box.y);
+    if (a === null || b === null) return true;
+    return !(
+      a.x + a.width <= b.x ||
+      b.x + b.width <= a.x ||
+      a.y + a.height <= b.y ||
+      b.y + b.height <= a.y
+    );
   };
-  // At the narrowest width that shows the navigation at all, and at a usual one.
+  // At the narrowest width that shows the sidebar at all, and at a usual one.
   for (const width of [1024, 1280]) {
     await page.setViewportSize({ width, height: 720 });
     await expect(main.getByRole("link", { name: "Anonymous access" })).toBeVisible();
@@ -1066,6 +1103,12 @@ test("the administration is in the navigation, in a row that nothing lies over",
     );
     expect(overflow).toBeLessThanOrEqual(0);
   }
+  // On a short screen the list scrolls by itself, and its last link can still be reached.
+  await page.setViewportSize({ width: 1280, height: 400 });
+  const last = main.getByRole("link", { name: "Audit log" });
+  await last.scrollIntoViewIfNeeded();
+  await expect(last).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await main.getByRole("link", { name: "Roles" }).click();
   await expect(page).toHaveURL(/\/admin\/roles$/);
