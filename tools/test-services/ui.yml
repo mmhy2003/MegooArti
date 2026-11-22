@@ -1,0 +1,7 @@
+# Added to docker-compose.yml for the checks (megoocolab.toml, set "ui"): the images
+# are built from this working tree each time, never pulled.
+services:
+  backend:
+    pull_policy: build
+  frontend:
+    pull_policy: build

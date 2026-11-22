@@ -1,0 +1,15 @@
+# PostgreSQL alone, for the backend's tests (megoocolab.toml, set "db").
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: megooarti
+      POSTGRES_PASSWORD: megooarti
+      POSTGRES_DB: megooarti
+    ports:
+      - "127.0.0.1:${DB_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U megooarti -d megooarti"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

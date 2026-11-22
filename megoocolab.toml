@@ -1,0 +1,23 @@
+# The containers the checks need, for megoocolab-runner: each run gets its own, on
+# free ports, and they are removed when the check ends.
+#   megoocolab-runner services run ui -- sh scripts/ui-e2e.sh
+#   megoocolab-runner services run db -- sh -c 'cd backend && uv run pytest'
+
+[services.ui]
+description = "The whole installation, built from this tree, fresh for the web UI's browser tests"
+compose = ["docker-compose.yml", "tools/test-services/ui.yml"]
+ports = ["MEGOOARTI_HTTP_PORT", "MEGOOARTI_DB_PORT"]
+
+[services.ui.env]
+MEGOOARTI_DB_PASSWORD = "only-for-the-browser-tests"
+# The tag the images are built under: one of this run's own, never a release's.
+MEGOOARTI_VERSION = "${MEGOO_SERVICES_PROJECT}"
+MEGOOARTI_UI_URL = "http://localhost:${MEGOOARTI_HTTP_PORT}"
+
+[services.db]
+description = "PostgreSQL for the backend's tests"
+compose = ["tools/test-services/db.yml"]
+ports = ["DB_PORT"]
+
+[services.db.env]
+MEGOOARTI_TEST_DATABASE_URL = "postgresql+asyncpg://megooarti:megooarti@localhost:${DB_PORT}/megooarti_test"

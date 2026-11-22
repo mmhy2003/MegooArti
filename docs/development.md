@@ -38,6 +38,13 @@ Tests create and use the databases `megooarti_test` and `megooarti_test_migratio
 Set `MEGOOARTI_TEST_DATABASE_URL` to use a different server. The tests empty the
 database they are given, and refuse one whose name does not end in `_test`.
 
+With [megoocolab-runner](../megoocolab.toml), the database comes from the `db` set
+instead: a PostgreSQL of the run's own, on a free port, removed when the tests end.
+
+```bash
+megoocolab-runner services run db -- sh -c 'cd backend && uv run pytest'
+```
+
 A test whose setup fails leaves what it said in `backend/.test-failures/`, one file
 for each, and the end of the run says so. A test of the running stack that fails
 leaves the stack's logs there too. The newest fifty are kept; Git does not see the
@@ -124,6 +131,15 @@ at port 3000, without an API beside it.
   keyboard is after a screen changed, check each screen against WCAG 2.1 AA in both
   modes, and fail if the browser asked anything of another host or reported a
   violation of the content security policy.
+
+  They can also be run against a fresh stack of their own, built from the working
+  tree, through megoocolab-runner and the `ui` set of `megoocolab.toml`. It needs
+  Chromium installed as above. `uv run pytest -m docker` still runs them as before.
+
+  ```bash
+  megoocolab-runner services run ui -- sh scripts/ui-e2e.sh
+  ```
+
 - **A unit test fails on a text that is missing** from `messages/en.json`: in the
   browser it would be shown as its own key.
 - **A colour is written in one file**, `src/styles/tokens.css`, once for each mode. A
