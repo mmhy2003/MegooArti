@@ -160,7 +160,7 @@ describe("the shell", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Search");
   });
 
-  test("has the search box in its header, and in the navigation of a narrow window", async () => {
+  test("has the search box in its header, and in the drawer of a narrow window", async () => {
     const user = userEvent.setup();
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
     const boxes = within(screen.getByRole("banner")).getAllByRole("search", {
@@ -168,10 +168,15 @@ describe("the shell", () => {
       hidden: true,
     });
 
-    expect(boxes).toHaveLength(2); // one is shown, by the width of the window
+    expect(boxes).toHaveLength(1); // the drawer's is there only while it is open
     expect(boxes[0]).toHaveClass("hidden", "md:block");
-    expect(boxes[1]).toHaveClass("md:hidden");
-    expect(boxes[1]?.closest("#narrow-navigation")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Open the navigation" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("search", { name: "Search components" })).toHaveClass(
+      "md:hidden",
+    );
+    await user.keyboard("{Escape}");
 
     await user.type(within(boxes[0] as HTMLElement).getByRole("searchbox"), "guava{Enter}");
     expect(navigation.router.push).toHaveBeenCalledWith("/search?q=guava");
@@ -185,26 +190,68 @@ describe("the shell", () => {
     expect(screen.getAllByText("Browse")[0]).toBeVisible();
   });
 
-  test("opens its navigation from a button where the window is narrow (UI-3)", async () => {
+  test("opens its navigation in a drawer from a button where the window is narrow (UI-3)", async () => {
     const user = userEvent.setup();
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
     const button = screen.getByRole("button", { name: "Open the navigation" });
-    const narrow = document.getElementById("narrow-navigation");
 
     expect(button).toHaveAttribute("aria-expanded", "false");
-    expect(narrow).not.toBeVisible();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(button);
 
-    expect(screen.getByRole("button", { name: "Close the navigation" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(narrow).toBeVisible();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const dialog = screen.getByRole("dialog");
+    const nav = within(dialog).getByRole("navigation", { name: "Main" });
+    expect(within(dialog).getByRole("button", { name: "Close the navigation" })).toBeVisible();
+    await expectAccessible();
 
-    await user.click(within(narrow as HTMLElement).getByRole("link", { name: "Repositories" }));
+    await user.click(within(nav).getByRole("link", { name: "Repositories" }));
 
-    expect(narrow).not.toBeVisible(); // following a link closes it
+    expect(screen.queryByRole("dialog")).toBeNull(); // following a link closes it
+  });
+
+  test("closes the drawer by its button, by Escape and by a click outside", async () => {
+    const user = userEvent.setup();
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const open = screen.getByRole("button", { name: "Open the navigation" });
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Close the navigation" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.click(document.querySelector("[data-drawer-scrim]") as HTMLElement);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("closes the drawer when the window grows wide enough for the sidebar", async () => {
+    const user = userEvent.setup();
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: (_: string, callback: (event: MediaQueryListEvent) => void) => {
+          if (query.includes("1024")) listener = callback;
+        },
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+
+    await user.click(screen.getByRole("button", { name: "Open the navigation" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+
+    act(() => listener?.({ matches: true } as MediaQueryListEvent));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   test("has no navigation for whoever must change their password first", () => {

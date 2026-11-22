@@ -3,8 +3,8 @@
 import { Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
-import { Tooltip } from "radix-ui";
-import { useState, type ReactNode } from "react";
+import { Dialog, Tooltip } from "radix-ui";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { SearchBox } from "@/components/search-box";
 import { ThemeSwitch } from "@/components/theme-switch";
@@ -16,6 +16,8 @@ import { isCurrent, NAVIGATION, visible, type NavArea } from "@/lib/navigation";
 import { useSidebarRail } from "@/lib/use-sidebar";
 
 const MAIN = "main";
+/** Wide enough for the sidebar: Tailwind's `lg`. */
+const WIDE = "(min-width: 1024px)";
 
 /**
  * The wordmark: the name, in the display face, with a neon bar before it. With
@@ -115,7 +117,8 @@ function Navigation({
  *
  * In a wide window the sidebar can be collapsed to a rail of icons, a choice kept in
  * the browser (lib/sidebar.ts). Its list scrolls by itself, so an administrator's many
- * items never run under the header.
+ * items never run under the header. Below that width the navigation is a drawer, a
+ * modal dialog opened from the header's menu button.
  */
 export function AppShell({
   session,
@@ -130,6 +133,15 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [rail, setRail] = useSidebarRail();
   const areas = bare ? [] : visible(NAVIGATION, session);
+  // Where the sidebar is shown, the drawer has no reason to stay open.
+  useEffect(() => {
+    const wide = window.matchMedia(WIDE);
+    const close = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    };
+    wide.addEventListener("change", close);
+    return () => wide.removeEventListener("change", close);
+  }, []);
   return (
     <Tooltip.Provider delayDuration={300}>
       <div className="flex min-h-dvh">
@@ -184,34 +196,49 @@ export function AppShell({
                 <ThemeSwitch bare={bare} />
                 <UserMenu session={session} />
                 {areas.length > 0 ? (
-                  <button
-                    type="button"
-                    aria-expanded={open}
-                    aria-controls="narrow-navigation"
-                    aria-label={open ? t("closeNavigation") : t("openNavigation")}
-                    onClick={() => setOpen((was) => !was)}
-                    className="inline-flex size-10 items-center justify-center rounded-sm border border-line-strong text-fg lg:hidden"
-                  >
-                    {open ? (
-                      <X aria-hidden="true" className="size-5" />
-                    ) : (
-                      <MenuIcon aria-hidden="true" className="size-5" />
-                    )}
-                  </button>
+                  <Dialog.Root open={open} onOpenChange={setOpen}>
+                    <Dialog.Trigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("openNavigation")}
+                        className="inline-flex size-10 items-center justify-center rounded-sm border border-line-strong text-fg lg:hidden"
+                      >
+                        <MenuIcon aria-hidden="true" className="size-5" />
+                      </button>
+                    </Dialog.Trigger>
+                    <Dialog.Portal>
+                      <Dialog.Overlay
+                        data-drawer-scrim=""
+                        className="fixed inset-0 z-40 bg-page/80 lg:hidden"
+                      />
+                      <Dialog.Content
+                        id="narrow-navigation"
+                        aria-describedby={undefined}
+                        className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] flex-col gap-4 overflow-y-auto border-r border-line-strong bg-panel p-4 shadow-lift lg:hidden"
+                      >
+                        <Dialog.Title className="sr-only">{t("mainNavigation")}</Dialog.Title>
+                        <div className="flex items-center justify-between gap-2">
+                          <Wordmark />
+                          <Dialog.Close asChild>
+                            <button
+                              type="button"
+                              aria-label={t("closeNavigation")}
+                              className="inline-flex size-10 items-center justify-center rounded-sm border border-line-strong text-fg"
+                            >
+                              <X aria-hidden="true" className="size-5" />
+                            </button>
+                          </Dialog.Close>
+                        </div>
+                        <SearchBox className="md:hidden" />
+                        <nav aria-label={t("mainNavigation")}>
+                          <Navigation areas={areas} onNavigate={() => setOpen(false)} />
+                        </nav>
+                      </Dialog.Content>
+                    </Dialog.Portal>
+                  </Dialog.Root>
                 ) : null}
               </div>
             </div>
-            {areas.length > 0 ? (
-              <nav
-                id="narrow-navigation"
-                aria-label={t("mainNavigation")}
-                hidden={!open}
-                className="flex flex-col gap-4 border-t border-line px-4 py-4 lg:hidden"
-              >
-                <SearchBox className="md:hidden" />
-                <Navigation areas={areas} onNavigate={() => setOpen(false)} />
-              </nav>
-            ) : null}
           </header>
           <main
             id={MAIN}
