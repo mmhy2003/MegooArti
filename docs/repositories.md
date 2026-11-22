@@ -23,10 +23,10 @@ Create a repository, then use it with any HTTP client:
 ```bash
 curl -u admin -H 'Content-Type: application/json' \
   -d '{"name":"files","format":"raw","type":"hosted"}' \
-  http://localhost:8000/api/v1/repositories
+  http://localhost/api/v1/repositories
 
-curl -u admin -T ./build/app.tar.gz http://localhost:8000/repository/files/releases/app.tar.gz
-curl -u admin -O http://localhost:8000/repository/files/releases/app.tar.gz
+curl -u admin -T ./build/app.tar.gz http://localhost/repository/files/releases/app.tar.gz
+curl -u admin -O http://localhost/repository/files/releases/app.tar.gz
 ```
 
 In place of a password, use an API token as the password, or send it as
@@ -75,7 +75,7 @@ curl -u admin -H 'Content-Type: application/json' -d '{
     "remote_url": "https://files.example.org/releases",
     "remote_auth": {"type": "basic", "username": "robot", "secret": "the-password"}
   }
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 - A file that is not cached is downloaded from the remote completely, checked, stored
@@ -115,7 +115,7 @@ be read and must be entered again.
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "all-files", "format": "raw", "type": "group",
   "group": {"members": ["files", "upstream-files"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 - Members are tried in order and the first that has the path answers. Offline members,

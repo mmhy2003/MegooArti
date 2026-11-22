@@ -17,7 +17,7 @@ Requires Docker with Compose.
 ```bash
 cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD in it
 docker compose up --build --detach --wait
-curl http://localhost:8000/api/v1/status/ready
+curl http://localhost/api/v1/status/ready
 ```
 
 Nothing starts until the database has a password of your choosing: `.env.example`
@@ -27,8 +27,8 @@ tagged with the version. They are named for the project's own place in GitHub's
 registry; nothing is published there yet, so they are built here.
 
 The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
-The web UI is at <http://localhost:8000>, and interactive API documentation at
-<http://localhost:8000/api/docs>.
+The web UI is at <http://localhost>, and interactive API documentation at
+<http://localhost/api/docs>.
 
 The first start makes an administrator, and writes its password to a file:
 
@@ -37,7 +37,7 @@ docker compose exec backend cat /var/lib/megooarti/admin.password
 ```
 
 (In Git Bash on Windows, with two slashes: `//var/lib/megooarti/admin.password`.)
-Sign in with it, as `admin`, at <http://localhost:8000>, and choose a password of
+Sign in with it, as `admin`, at <http://localhost>, and choose a password of
 your own. [Installation](docs/installation.md) says the rest, and what to do when
 `admin` cannot sign in.
 

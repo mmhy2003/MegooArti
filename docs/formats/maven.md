@@ -13,22 +13,22 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "releases", "format": "maven", "type": "hosted",
   "hosted": {"deployment_policy": "disable_redeploy"},
   "format_config": {"version_policy": "release"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "snapshots", "format": "maven", "type": "hosted",
   "format_config": {"version_policy": "snapshot"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "central", "format": "maven", "type": "proxy",
   "proxy": {"remote_url": "https://repo1.maven.org/maven2"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "maven-public", "format": "maven", "type": "group",
   "group": {"members": ["releases", "snapshots", "central"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 ## Maven

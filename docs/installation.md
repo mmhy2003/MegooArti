@@ -45,12 +45,12 @@ and choose, in `.env`:
 
 ```bash
 docker compose up --build --detach --wait
-curl http://localhost:8000/api/v1/status/ready
+curl http://localhost/api/v1/status/ready
 ```
 
 The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
-The web UI is at <http://localhost:8000>, and the API's documentation at
-<http://localhost:8000/api/docs>.
+The web UI is at <http://localhost>, and the API's documentation at
+<http://localhost/api/docs>.
 
 On Windows, run Compose from the repository's path with its drive letter as a capital
 (`cd C:\path\to\MegooArti`). From `c:\...`, which is where a VS Code terminal may
@@ -79,18 +79,18 @@ In Git Bash on Windows, write the path with two slashes at its start
 The password is also in the line of `docker compose logs backend` that says
 `initial_admin_password`.
 
-Sign in with it, as `admin`, at <http://localhost:8000>. You must then choose a new
+Sign in with it, as `admin`, at <http://localhost>. You must then choose a new
 password, after which the file is deleted. The same with `curl`:
 
 ```bash
 curl -c cookies.txt -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<the generated password>"}' \
-  http://localhost:8000/api/v1/auth/login
+  http://localhost/api/v1/auth/login
 
 curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   -H 'X-CSRF-Token: <the csrf_token of the first answer>' \
   -d '{"current_password":"<the generated password>","new_password":"<one of your own>"}' \
-  http://localhost:8000/api/v1/me/password
+  http://localhost/api/v1/me/password
 ```
 
 The first answer contains a `csrf_token`. Requests that use the session cookie and
@@ -129,7 +129,7 @@ of the web UI, or:
 ```bash
 curl -u admin -X PUT -H 'Content-Type: application/json' \
   -d '{"base_url":"https://repo.example.com"}' \
-  http://localhost:8000/api/v1/settings/base-url
+  http://localhost/api/v1/settings/base-url
 ```
 
 It is an `http` or `https` address without a user name, a password, a query or a

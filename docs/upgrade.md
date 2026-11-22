@@ -12,7 +12,7 @@ starts.
 
    ```bash
    docker compose up --build --detach --wait
-   curl http://localhost:8000/api/v1/status/ready
+   curl http://localhost/api/v1/status/ready
    ```
 
 Both images have one version, which `docker compose build` tags them with

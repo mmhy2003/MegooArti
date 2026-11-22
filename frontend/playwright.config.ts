@@ -7,7 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
  * starts a fresh stack and passes its address and the generated administrator password.
  * To run them by hand against a stack of your own:
  *
- *   MEGOOARTI_UI_URL=http://localhost:8000 MEGOOARTI_INITIAL_PASSWORD=... pnpm e2e
+ *   MEGOOARTI_UI_URL=http://localhost MEGOOARTI_INITIAL_PASSWORD=... pnpm e2e
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -22,7 +22,7 @@ export default defineConfig({
   use: {
     // `localhost`: a browser keeps a Secure cookie over plain HTTP only at a loopback
     // address, and every browser agrees on this one.
-    baseURL: process.env.MEGOOARTI_UI_URL ?? "http://localhost:8000",
+    baseURL: process.env.MEGOOARTI_UI_URL ?? "http://localhost",
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

@@ -12,7 +12,7 @@ lower-case letters and digits, with single `.`, `_` or `-` between them.
 ```bash
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "docker-hosted", "format": "docker", "type": "hosted"
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 docker login repo.example.com
 docker tag my-app:1.0 repo.example.com/docker-hosted/team/my-app:1.0
@@ -83,7 +83,7 @@ A proxy is a pull-through cache of another registry:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "docker-hub", "format": "docker", "type": "proxy",
   "proxy": {"remote_url": "https://registry-1.docker.io"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 docker pull repo.example.com/docker-hub/alpine:3
 docker pull repo.example.com/docker-hub/grafana/grafana:latest
@@ -122,7 +122,7 @@ A group puts your own images and the public ones behind one address:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "docker-all", "format": "docker", "type": "group",
   "group": {"members": ["docker-hosted", "docker-hub"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 docker pull repo.example.com/docker-all/team/my-app:1.0
 docker pull repo.example.com/docker-all/alpine:3

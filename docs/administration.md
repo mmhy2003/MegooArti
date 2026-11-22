@@ -399,7 +399,7 @@ you would give `*`.
 What is running is told to whoever may read the settings (`admin:settings:read`):
 
 ```bash
-curl -u admin http://localhost:8000/api/v1/system/information
+curl -u admin http://localhost/api/v1/system/information
 ```
 
 ```json

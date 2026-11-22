@@ -120,7 +120,7 @@ pnpm exec playwright install chromium   # once: the browser for the tests below
 ```
 
 To work on a screen, start the stack (`docker compose up --build --detach --wait`),
-which serves the built UI at <http://localhost:8000>. `pnpm dev` serves the UI alone
+which serves the built UI at <http://localhost>. `pnpm dev` serves the UI alone
 at port 3000, without an API beside it.
 
 - **Tests in a real browser** are in `frontend/e2e/`. They are run by

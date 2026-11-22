@@ -14,7 +14,7 @@ directory for each release and architecture:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "yum-hosted", "format": "yum", "type": "hosted",
   "format_config": {"repodata_depth": 2}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u ci --upload-file megooarti-hello-1.0-1.noarch.rpm \
   https://repo.example.com/repository/yum-hosted/el10/x86_64/
@@ -53,7 +53,7 @@ of its packages, with the keys it already has:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "yum-rocky", "format": "yum", "type": "proxy",
   "proxy": {"remote_url": "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 cat > /etc/yum.repos.d/rocky-baseos.repo <<EOF
 [baseos]
@@ -135,12 +135,12 @@ jq -n --arg keys "$keys" '{
   proxy: {remote_url: "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os"},
   format_config: {remote_keys: $keys}
 }' | curl -u admin -H 'Content-Type: application/json' -d @- \
-  http://localhost:8000/api/v1/repositories
+  http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "yum-public", "format": "yum", "type": "group",
   "group": {"members": ["yum-flat", "yum-rocky"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 Here `yum-flat` is a hosted repository at depth 0, whose packages are signed with
