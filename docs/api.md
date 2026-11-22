@@ -64,7 +64,7 @@ Every error the API answers with has one shape:
   server's.
 - **An answer that is not the API's** does not have this shape. When the backend is
   not running, or does not answer in time, what stands in front of it answers in its
-  own way: the gateway of the Compose file with `502` or `504` and a page of HTML.
+  own way: the gateway of the Compose file with `502` or `504` and an empty body.
   Where the body is not JSON, go by the status.
 - Under `/v2/`, errors have the registry API's own shape, which container clients
   show.

@@ -42,7 +42,7 @@ your own. [Installation](docs/installation.md) says the rest, and what to do whe
 `admin` cannot sign in.
 
 Compose starts four containers: the database, the backend, the frontend, and a
-gateway (nginx) that is the one published address and sends each request to the
+gateway (Caddy) that is the one published address and sends each request to the
 backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
 development and testing. In production, put
 [your own reverse proxy](docs/installation.md#behind-your-own-reverse-proxy), with

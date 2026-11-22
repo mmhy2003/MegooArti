@@ -19,6 +19,7 @@
 *.txt text eol=lf
 Dockerfile text eol=lf
 Makefile text eol=lf
+Caddyfile text eol=lf
 .dockerignore text eol=lf
 *.woff2 binary
 *.png binary

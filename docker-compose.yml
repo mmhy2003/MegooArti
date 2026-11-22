@@ -80,20 +80,23 @@ services:
       retries: 12
       start_period: 10s
 
-  # The one published address, over plain HTTP. For development and testing: in
-  # production your own reverse proxy, with TLS, stands in front of it or takes its
-  # place, as docs/installation.md says.
+  # The one published address: Caddy, over plain HTTP on port 80. TLS is your own
+  # reverse proxy's, in front of it or in its place, as docs/installation.md says.
   gateway:
-    image: nginx:stable-alpine
+    image: caddy:2
     depends_on:
       backend:
         condition: service_healthy
       frontend:
         condition: service_healthy
     ports:
-      - "${MEGOOARTI_HTTP_PORT:-8000}:80"
+      - "${MEGOOARTI_HTTP_PORT:-80}:80"
     volumes:
-      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    # Caddy keeps nothing here that matters: it asks for no certificate.
+    tmpfs:
+      - /data
+      - /config
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1/healthz"]
       interval: 5s

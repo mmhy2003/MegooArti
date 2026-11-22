@@ -29,7 +29,7 @@ All configuration of a deployment is by environment variable.
 
 Docker Compose reads `MEGOOARTI_DB_PASSWORD`, which it gives to the database and, as
 `MEGOOARTI_DATABASE_PASSWORD`, to the backend: nothing starts without it. It also
-reads `MEGOOARTI_HTTP_PORT` (default `8000`) and
+reads `MEGOOARTI_HTTP_PORT` (default `80`) and
 `MEGOOARTI_DB_PORT` (default `5432`) to choose the ports published on the host. Set
 `MEGOOARTI_DB_PORT` if another PostgreSQL already uses 5432. The database port is
 published on `127.0.0.1` only. `MEGOOARTI_HTTP_PORT` is the gateway's: the backend and
@@ -61,7 +61,7 @@ it. `.env.example` has each with what it is for.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MEGOOARTI_DB_PASSWORD` | required | The database's password. Given to the database when it is first made, and to the backend as `MEGOOARTI_DATABASE_PASSWORD` |
-| `MEGOOARTI_HTTP_PORT` | `8000` | The port the gateway is published on. With an address before it (`127.0.0.1:8000`), on that address only |
+| `MEGOOARTI_HTTP_PORT` | `80` | The port the gateway is published on, over plain HTTP. With an address before it (`127.0.0.1:8080`), on that address only |
 | `MEGOOARTI_DB_PORT` | `5432` | The port the database is published on, on `127.0.0.1` only |
 | `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Passed on to the backend |
 | `MEGOOARTI_SECRET_KEY` | unset | Passed on to the backend if it is set |

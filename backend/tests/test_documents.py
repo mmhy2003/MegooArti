@@ -340,20 +340,15 @@ def test_the_guide_says_how_long_a_page_of_a_list_may_be():
 
 
 def test_the_guide_sends_each_kind_of_address_where_the_gateway_sends_it():
-    gateway = (ROOT / "gateway" / "nginx.conf").read_text(encoding="utf-8")
-    services = {
-        name: f"{name}, port {port}"
-        for name, port in re.findall(r"set \$(\w+) http://\w+:(\d+);", gateway)
-    }
-    routes = {
-        path: services[name]
-        for path, name in re.findall(r"location (\S+) \{\s*proxy_pass \$(\w+);\s*\}", gateway)
-    }
+    gateway = re.sub(r"#.*", "", read("gateway/Caddyfile"))
+    matchers = {name: paths.split() for name, paths in re.findall(r"@(\w+) path (.+)", gateway)}
+    routes = {}
+    for matcher, host, port in re.findall(r"reverse_proxy (?:@(\w+) )?(\w+):(\d+)", gateway):
+        for path in matchers[matcher] if matcher else ["everything else"]:
+            routes[path.rstrip("*")] = f"{host}, port {port}"
     table = rows(read("docs/installation.md"), "## Behind your own reverse proxy")
-    said = {row[0].strip("`"): row[1] for row in table}
 
-    assert said.pop("everything else") == routes.pop("/")
-    assert said == routes
+    assert {row[0].strip("`"): row[1] for row in table} == routes
 
 
 # --- who may do what -------------------------------------------------------------------

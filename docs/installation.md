@@ -8,9 +8,9 @@ containers.
 ## What runs
 
 Compose starts four containers: the database (PostgreSQL), the backend, the frontend,
-and a gateway (nginx) that is the one published address and sends each request to the
-backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
-development and testing. In production, put
+and a gateway (Caddy) that is the one published address, on port 80, and sends each
+request to the backend or the frontend. The gateway speaks plain HTTP: as it is, it is
+for development and testing. In production, put
 [your own reverse proxy](#behind-your-own-reverse-proxy), with TLS, in front of it or
 in its place.
 
@@ -30,7 +30,9 @@ and choose, in `.env`:
 - **`MEGOOARTI_DB_PASSWORD`**, the database's password. Nothing starts without it. It
   is set when the database is first made: changing it later changes nothing in a
   database that exists.
-- **`MEGOOARTI_HTTP_PORT`**, if the gateway is not to be at port 8000.
+- **`MEGOOARTI_HTTP_PORT`**, if the gateway is not to be at port 80: where something
+  on this machine has port 80 already, or under rootless Docker, which may not
+  publish a port below 1024. `MEGOOARTI_HTTP_PORT=8080` puts it at port 8080.
 - **`MEGOOARTI_DB_PORT`**, if something on this machine has port 5432 already: the
   database is published there, on `127.0.0.1` only, and nothing starts while the port
   is taken.
@@ -148,7 +150,7 @@ One address serves everything, and each request goes to the right service:
 | `/oauth/` | backend, port 8000 | Where they register, and trade a code for tokens |
 | everything else | frontend, port 3000 | The web UI |
 
-[gateway/nginx.conf](../gateway/nginx.conf) does that: it is what Compose runs, and
+[gateway/Caddyfile](../gateway/Caddyfile) does that: it is what Compose runs, and
 the real-client tests of this project (Maven, npm, pip, Docker and a browser) pass
 through it. It speaks plain HTTP, so something of yours terminates TLS, in one of two
 places.
@@ -157,7 +159,7 @@ places.
 in it changes. Your proxy sends every request to the gateway's port, and:
 
 1. The gateway is published where only your proxy reaches it. For a proxy on the
-   same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8000` in `.env` publishes it on that
+   same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8080` in `.env` publishes it on that
    machine alone.
 2. Your proxy is trusted: add its address (or its network) under Administration,
    Authentication, Trusted proxies, or at `PUT /api/v1/settings/trusted-proxies`. The
@@ -167,14 +169,15 @@ in it changes. Your proxy sends every request to the gateway's port, and:
    all of them share one limit of failed sign-ins, and the log names the proxy for
    each. What a client writes in `X-Forwarded-For` itself is never believed.
 3. For the backend to know that clients came by HTTPS, the gateway passes on what your
-   proxy says, in `gateway/nginx.conf`:
+   proxy says: remove this line from `gateway/Caddyfile`,
 
-   ```nginx
-   proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+   ```caddy
+   header_up X-Forwarded-Proto {scheme}
    ```
 
-   and then `docker compose up --detach --force-recreate gateway`. Or set the
-   [base URL](#the-base-url), from which the backend writes its addresses.
+   and Caddy sends on the `X-Forwarded-Proto` your proxy sets (it trusts every peer
+   with it). Then run `docker compose up --detach --force-recreate gateway`. Or set
+   the [base URL](#the-base-url), from which the backend writes its addresses.
 
 **In the gateway's place.** Your proxy does what the gateway does, by the table
 above. The Compose file has to be changed for that: it publishes neither the backend
@@ -186,25 +189,35 @@ proxy's requests come from.
 Either way, your proxy must do what the gateway does towards the backend:
 
 - **Pass the path on exactly as it was sent.** An npm scope arrives as an encoded
-  slash (`@scope%2fname`) and must stay one. In nginx that means `proxy_pass` with no
-  path after the address.
-- **Put no limit on the size of a body** (`client_max_body_size 0`), and do not buffer
-  it: an artifact can be gigabytes, and goes to the backend as it arrives
-  (`proxy_request_buffering off`). Do not buffer answers either
-  (`proxy_buffering off`).
+  slash (`@scope%2fname`) and must stay one. In Caddy that means no `rewrite`, `uri`
+  or `handle_path` (in nginx, `proxy_pass` with no path after the address).
+- **Put no limit on the size of a body**, and do not buffer it: an artifact can be
+  gigabytes, and goes to the backend as it arrives. Caddy does both by default: set
+  no `max_size` and no `request_buffers` (in nginx, `client_max_body_size 0` and
+  `proxy_request_buffering off`). Do not buffer answers either: `flush_interval -1`
+  (in nginx, `proxy_buffering off`).
 - **Wait long enough.** A proxy repository may take minutes to fetch a large file
-  from its remote before the first byte comes back (`proxy_read_timeout 600s`).
-- **Speak HTTP/1.1 to the backend** (`proxy_http_version 1.1`), so that a body of
-  unknown length can be passed on as it arrives.
+  from its remote before the first byte comes back: `response_header_timeout`,
+  `read_timeout` and `write_timeout` of `600s` in the `http` transport (in nginx,
+  `proxy_read_timeout 600s` and `proxy_send_timeout 600s`).
+- **Speak HTTP/1.1 to the backend**, so that a body of unknown length can be passed
+  on as it arrives. Caddy does by default (in nginx, `proxy_http_version 1.1`).
 - **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`.** The backend writes
   the addresses it gives to clients (tarball links, the registry's token address)
   from them, unless the base URL is set in the system settings. It believes them
-  only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
-- **Add the address you see to `X-Forwarded-For`** (`$proxy_add_x_forwarded_for` in
-  nginx), as the gateway does. The backend reads it from the right, past the trusted
-  proxies only: the address before the first one it does not trust is the client's, by
-  which it counts failed sign-ins and which it logs. Trust the proxies in front of
-  yours under Administration, Authentication, Trusted proxies.
+  only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`. Caddy sends all three,
+  `Host` as the client sent it; the gateway sets `X-Forwarded-Proto` to its own
+  scheme (`header_up X-Forwarded-Proto {scheme}`). In nginx that is
+  `proxy_set_header` for each, with `$http_host`, `$proxy_add_x_forwarded_for` and
+  `$scheme`.
+- **Add the address you see to `X-Forwarded-For`**, as the gateway does. Without
+  `trusted_proxies`, Caddy replaces the header with the address it sees: the gateway
+  trusts every peer with it (`trusted_proxies static 0.0.0.0/0 ::/0`) so that it is
+  added to instead (in nginx, `$proxy_add_x_forwarded_for`). The backend reads it from
+  the right, past the trusted proxies only: the address before the first one it does
+  not trust is the client's, by which it counts failed sign-ins and which it logs.
+  Trust the proxies in front of yours under Administration, Authentication, Trusted
+  proxies.
 - **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
   leaves compression to you as well.
 
