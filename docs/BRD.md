@@ -285,8 +285,8 @@ For every format, "supported" means the format's standard clients can resolve, d
 
 | ID | Requirement | Phase | Priority |
 | --- | --- | --- | --- |
-| UI-7 | The visual identity is cyberpunk: a neon accent palette (cyan, magenta and an acid yellow or green), glow and outline effects on interactive elements, and angular, technical shapes. | P1 | Must |
-| UI-8 | Typography uses a futuristic display typeface for headings and navigation, a monospace typeface for coordinates, paths, checksums and code, and a highly legible typeface for body text and tables. | P1 | Must |
+| UI-7 | The visual identity is cyberpunk: a neon accent palette (cyan, pink, green, amber and violet) on lavender surfaces in light mode and graphite in dark mode, glow effects in dark mode and soft shadows in light mode, and angular, technical shapes. | P1 | Must |
+| UI-8 | Typography uses a display typeface for the wordmark only, a monospace typeface for coordinates, paths, checksums and code, and a highly legible typeface for headings, navigation, body text and tables. | P1 | Must |
 | UI-9 | The UI has a dark mode (neon accents on near-black surfaces) and a light mode (deepened, saturated accents on pale surfaces). Both are complete; neither is a fallback. | P1 | Must |
 | UI-10 | The user can choose light, dark or "follow system". The choice persists across sessions, and the page never flashes the wrong mode while loading. | P1 | Must |
 | UI-11 | Text and interactive elements meet WCAG 2.1 AA contrast in both modes. Where a neon accent fails contrast as text, it is used for borders, glows and icons only, and a compliant tone is used for the text. | P1 | Must |
