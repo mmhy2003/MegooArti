@@ -41,6 +41,7 @@ GUIDES = [
     "docs/mcp.md",
     "docs/development.md",
     "docs/adding-a-format.md",
+    "docs/releasing.md",
 ]
 DOCUMENTS = ["README.md", *GUIDES]
 # The release notes: each is also the text of its release on GitHub.

@@ -65,6 +65,7 @@ TLS, in front of it or in its place.
 | [AI agents (MCP)](docs/mcp.md) | Connecting an AI agent with an API token, and the tools it is given |
 | [Development](docs/development.md) | Running from source, the tests, and the rules of the code |
 | [Adding a format](docs/adding-a-format.md) | The interface a format implements, and what is expected of one |
+| [Releasing](docs/releasing.md) | The branches, version numbers and the release routine |
 
 ## Licence
 
