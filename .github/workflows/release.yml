@@ -1,0 +1,175 @@
+name: Release
+
+# A push to main releases MegooArti when its version (VERSION) has no tag yet: both images on GHCR, as X.Y.Z and
+# latest, for amd64 and arm64, and the GitHub release vX.Y.Z with its note from docs/releases/. A push with no new
+# version releases nothing. docs/releasing.md has the routine.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/mmhy2003
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.plan.outputs.app }}
+      app_version: ${{ steps.plan.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # fails when the version's places disagree, a change was not given a new version, or the note is missing
+      - id: plan
+        run: python tools/release/versions.py plan >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: plan
+    if: needs.plan.outputs.app == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  # Builds and starts the images while the tests run. It publishes nothing: the images job below, which pushes,
+  # waits for both.
+  app:
+    needs: plan
+    if: needs.plan.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # for this machine only, to start the stack from exactly these images before publishing them
+      - name: Build for the start-up check
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.REGISTRY }}/megooarti-backend:smoke
+          build-args: VERSION=${{ env.VERSION }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+      - uses: docker/build-push-action@v7
+        with:
+          context: frontend
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.REGISTRY }}/megooarti-frontend:smoke
+          build-args: VERSION=${{ env.VERSION }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+      - name: Start the stack from the new images
+        run: |
+          cat > smoke.env <<EOF
+          MEGOOARTI_VERSION=smoke
+          MEGOOARTI_HTTP_PORT=8080
+          MEGOOARTI_DB_PASSWORD=$(openssl rand -hex 16)
+          EOF
+          docker compose -p smoke -f docker-compose.yml --env-file smoke.env up --detach --wait --wait-timeout 300 --pull missing
+          curl -fsS http://localhost:8080/api/v1/status/ready
+          curl -fsS --output /dev/null http://localhost:8080/healthz
+      - name: Stack logs (on failure)
+        if: failure()
+        run: docker compose -p smoke -f docker-compose.yml --env-file smoke.env logs --no-color
+      - name: Stop the stack
+        if: always()
+        run: docker compose -p smoke -f docker-compose.yml --env-file smoke.env down --volumes
+
+  # Each platform is built on a machine of its own architecture: under QEMU, MegooColab's arm64 Next.js build
+  # crashed or hung. Each build is pushed by digest; publish tags them together.
+  images:
+    needs: [plan, tests, app]
+    if: needs.plan.outputs.app == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.plan.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the backend (linux/${{ matrix.arch }})
+        id: backend
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ env.VERSION }}
+          outputs: type=image,name=${{ env.REGISTRY }}/megooarti-backend,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=backend-${{ matrix.arch }}
+          cache-to: type=gha,scope=backend-${{ matrix.arch }},mode=max
+      - name: Build and push the frontend (linux/${{ matrix.arch }})
+        id: frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: frontend
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ env.VERSION }}
+          outputs: type=image,name=${{ env.REGISTRY }}/megooarti-frontend,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=frontend-${{ matrix.arch }}
+          cache-to: type=gha,scope=frontend-${{ matrix.arch }},mode=max
+      - name: Keep the digests
+        run: |
+          mkdir -p digests
+          echo "${{ steps.backend.outputs.digest }}" > digests/backend
+          echo "${{ steps.frontend.outputs.digest }}" > digests/frontend
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/
+          retention-days: 1
+
+  publish:
+    needs: [plan, images]
+    if: needs.plan.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digests-*
+          path: digests
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag both platforms as one image
+        run: |
+          for image in backend frontend; do
+            name="$REGISTRY/megooarti-$image"
+            docker buildx imagetools create -t "$name:$VERSION" -t "$name:latest" \
+              "$name@$(cat "digests/digests-amd64/$image")" "$name@$(cat "digests/digests-arm64/$image")"
+            docker buildx imagetools inspect "$name:$VERSION"
+          done
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # a re-run of a failed job finds the release already made
+          gh release view "v$VERSION" > /dev/null 2>&1 || gh release create "v$VERSION" --target "$GITHUB_SHA" \
+            --title "MegooArti $VERSION" --notes-file "docs/releases/v$VERSION.md"
