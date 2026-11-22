@@ -45,6 +45,12 @@ def test_what_is_not_ours_keeps_its_own_licence():
     assert "Apache License" in (ASSETS / "LICENSE").read_text(encoding="utf-8")
 
 
+def test_the_version_file_says_the_version_first():
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert version == PROJECT["version"] == PACKAGE["version"] == __version__
+
+
 def test_one_version_is_said_everywhere():
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
