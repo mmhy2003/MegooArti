@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 
 import { geist, geistMono, orbitron } from "@/lib/fonts";
+import { SIDEBAR_SCRIPT } from "@/lib/sidebar";
 import { THEME_SCRIPT } from "@/lib/theme";
 import "@/styles/globals.css";
 
@@ -29,10 +30,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geist.variable} ${geistMono.variable} ${orbitron.variable} antialiased`}
     >
       <head>
+        {/* Both correct the markup before anything is painted: the mode, and the sidebar's rail. */}
         <script
           nonce={nonce}
           suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
+          dangerouslySetInnerHTML={{ __html: `${THEME_SCRIPT};${SIDEBAR_SCRIPT}` }}
         />
       </head>
       <body>

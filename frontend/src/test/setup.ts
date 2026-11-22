@@ -38,6 +38,7 @@ beforeEach(() => {
   systemIsDark = true;
   window.localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-sidebar");
   window.matchMedia = (query: string) =>
     ({
       matches: query.includes("dark") ? systemIsDark : false,

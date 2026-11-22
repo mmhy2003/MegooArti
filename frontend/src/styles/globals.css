@@ -2,6 +2,12 @@
 @import "./tokens.css";
 
 /*
+ * For the sidebar only: what it is when collapsed to a rail of icons. lib/sidebar.ts
+ * sets `data-sidebar="rail"` on <html> before anything is painted.
+ */
+@custom-variant rail (&:where([data-sidebar="rail"] *));
+
+/*
  * The utilities components may use. Tailwind's own palette, shadows and radii are
  * taken out, so a class that names one of its colours does not exist: what is left is
  * made from the tokens.
