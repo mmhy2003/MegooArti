@@ -17,15 +17,18 @@ Requires Docker with Compose.
 
 ```bash
 cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD in it
-docker compose up --build --detach --wait
+docker compose pull
+docker compose up --detach --wait
 curl http://localhost/api/v1/status/ready
 ```
 
 Nothing starts until the database has a password of your choosing: `.env.example`
-says what else an installation may choose. `docker compose build` makes the images
-`ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend`,
-tagged with the version. They are named for the project's own place in GitHub's
-registry; nothing is published there yet, so they are built here.
+says what else an installation may choose. `docker compose pull` fetches the images
+`ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend` from
+GitHub's registry: `latest`, the newest
+[release](https://github.com/mmhy2003/MegooArti/releases), unless
+`MEGOOARTI_VERSION` pins one. Building them from this checkout is in
+[Development](docs/development.md).
 
 The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
 The web UI is at <http://localhost>, and interactive API documentation at

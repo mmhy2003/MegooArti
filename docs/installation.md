@@ -1,8 +1,11 @@
 # Installation
 
-MegooArti is installed with Docker Compose, from this repository: the images are built
-on the machine that runs them. It needs Docker with Compose (`docker compose`, version
-2.1.1 or later, which has `up --wait`), and nothing else: the database is one of its
+MegooArti is installed with Docker Compose. Its images are pulled from GitHub's
+registry, `ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend`;
+an installation runs from this repository, or from just three of its files:
+`docker-compose.yml`, `gateway/Caddyfile` and `.env.example`, laid out as they are
+here. It needs Docker with Compose (`docker compose`, version 2.1.1 or
+later, which has `up --wait`), and nothing else: the database is one of its
 containers.
 
 ## What runs
@@ -41,23 +44,24 @@ and choose, in `.env`:
 
 [Configuration](configuration.md) has every variable.
 
+### Choosing a version
+
+Without `MEGOOARTI_VERSION`, an installation runs `latest`, the newest
+[release](https://github.com/mmhy2003/MegooArti/releases), and `docker compose pull`
+moves it to the next one. To upgrade only when you choose to, pin a release in `.env`
+(`MEGOOARTI_VERSION=0.1.0`): [Upgrading](upgrade.md) then means changing it.
+
 ## Starting
 
 ```bash
-docker compose up --build --detach --wait
+docker compose pull
+docker compose up --detach --wait
 curl http://localhost/api/v1/status/ready
 ```
 
-The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
+The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
 The web UI is at <http://localhost>, and the API's documentation at
 <http://localhost/api/docs>.
-
-On Windows, run Compose from the repository's path with its drive letter as a capital
-(`cd C:\path\to\MegooArti`). From `c:\...`, which is where a VS Code terminal may
-open, Docker Compose 5 stops the build with `additional privileges requested: pass
-"--allow=fs.read=backend\\Dockerfile"`: it writes the drive letter of the build's
-directory one way and of its Dockerfile the other, and Bake takes the Dockerfile
-for a file outside the build.
 
 A new installation has one blob store, `default`, and no repository:
 [Repositories](repositories.md) makes the first.

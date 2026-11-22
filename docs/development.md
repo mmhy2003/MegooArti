@@ -8,12 +8,32 @@ macOS and from PowerShell on Windows, where `winget install ezwinports.make` ins
 one.
 
 ```bash
-make up                       # build and start the stack
+make up                       # build the images from this checkout and start the stack
 make logs SERVICE=backend     # follow its logs, of one service or of all
 make reset-admin              # when admin cannot sign in: see Installation
 make test-backend ARGS="-k reset"   # starts the db service first
 make lint
 ```
+
+## Running from this checkout
+
+`docker-compose.yml` pulls the published images. `make up` builds them from this
+checkout instead, through the overlay `docker-compose.build.yml`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up --build --detach --wait
+```
+
+What it builds is tagged `dev` (`MEGOOARTI_VERSION` to choose another tag), never
+`latest`: a build of whatever is checked out does not replace a pulled release on the
+same machine. A plain `docker compose up` afterwards runs the pulled `latest` again.
+
+On Windows, run Compose from the repository's path with its drive letter as a capital
+(`cd C:\path\to\MegooArti`). From `c:\...`, which is where a VS Code terminal may
+open, Docker Compose 5 stops the build with `additional privileges requested: pass
+"--allow=fs.read=backend\\Dockerfile"`: it writes the drive letter of the build's
+directory one way and of its Dockerfile the other, and Bake takes the Dockerfile
+for a file outside the build.
 
 ## The backend
 
@@ -52,8 +72,9 @@ folder.
 
 The tests marked `docker` run the clients themselves against a stack built from the
 working tree: Maven, Gradle and sbt; npm, pnpm and yarn; pip, uv, poetry and twine;
-Docker and skopeo; a browser; and the backup and restore scripts. Their images are tagged
-`test`, and their stack has a project name and ports of its own.
+Docker and skopeo; a browser; and the backup and restore scripts. Their stack is built
+through the overlay, with images tagged `test`, and has a project name and ports of its
+own.
 
 Name the test files of one directory together on a `pytest` command line: pytest
 loses the fixtures of `tests/repositories` when a file from elsewhere is named
@@ -119,8 +140,7 @@ pnpm build
 pnpm exec playwright install chromium   # once: the browser for the tests below
 ```
 
-To work on a screen, start the stack (`docker compose up --build --detach --wait`),
-which serves the built UI at <http://localhost>. `pnpm dev` serves the UI alone
+To work on a screen, start the stack from this checkout (`make up`), which serves the built UI at <http://localhost>. `pnpm dev` serves the UI alone
 at port 3000, without an API beside it.
 
 - **Tests in a real browser** are in `frontend/e2e/`. They are run by
@@ -160,6 +180,24 @@ at port 3000, without an API beside it.
 - **Next.js 16 is not the Next.js of earlier years.** Its documentation is in
   `frontend/node_modules/next/dist/docs/`; read the page for what you are about to
   change. `frontend/AGENTS.md` says the same to coding agents.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request: in `backend/`,
+`uv run ruff check .`, `uv run ruff format --check .` and `uv run pytest` (the unit and
+integration tests, against a PostgreSQL of its own) and
+`python ../tools/release/versions.py check`; in `frontend/`, `pnpm test`, `pnpm lint`,
+`pnpm typecheck` and `pnpm build`. The release workflow runs the same checks before it
+publishes anything.
+
+It does not run the real-client suite (`uv run pytest -m docker`), which needs every
+client's toolchain and the internet, and takes long: that is run by hand before a
+release.
+
+## Releasing
+
+[Releasing](releasing.md) has the branches, the version numbers and the release
+routine.
 
 ## The API's documentation page
 
