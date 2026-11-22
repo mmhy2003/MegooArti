@@ -19,7 +19,7 @@ const MAIN = "main";
 export function Wordmark() {
   const t = useTranslations("app");
   return (
-    <span className="flex items-center gap-2 font-display text-lg font-bold tracking-[0.12em] text-fg uppercase sm:tracking-[0.2em]">
+    <span className="flex items-center gap-2 font-display text-lg font-bold tracking-[0.08em] text-fg uppercase">
       <span aria-hidden="true" className="h-5 w-1.5 bg-neon-cyan shadow-glow-sm" />
       {t("name")}
     </span>
@@ -44,7 +44,7 @@ function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () =
                     onClick={onNavigate}
                     aria-current={current ? "page" : undefined}
                     className={cn(
-                      "label-caps flex min-h-10 items-center gap-2 rounded-sm border px-3",
+                      "flex min-h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium",
                       current
                         ? "border-neon-cyan bg-raised text-ink-cyan"
                         : "border-transparent text-fg-muted hover:bg-raised hover:text-fg",

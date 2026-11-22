@@ -387,9 +387,9 @@ describe("the heading of a screen", () => {
     ).toBeVisible();
   });
 
-  test("is in capitals when it is the screen's own word, and as written when it is a name", () => {
+  test("is written as it is, whether it is the screen's own word or a name", () => {
     const { unmount } = renderUi(<PageHeader title="Search" intro="Components." />);
-    expect(screen.getByRole("heading", { level: 1, name: "Search" })).toHaveClass("uppercase");
+    expect(screen.getByRole("heading", { level: 1, name: "Search" })).not.toHaveClass("uppercase");
     expect(screen.getByText("Components.")).toBeVisible();
     unmount();
 

@@ -21,8 +21,8 @@ export function PageHeader({
   title: string;
   intro?: string;
   /**
-   * The title has a name in it that someone chose (a repository, a version). Names
-   * tell capitals from small letters, so it is shown as it is written.
+   * The title has a name in it that someone chose (a repository, a version). A name
+   * may be long, with no space to wrap at, so it must break.
    */
   named?: boolean;
   children?: ReactNode;
@@ -30,14 +30,7 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <h1
-          className={cn(
-            "text-2xl font-semibold text-fg",
-            named ? "break-words" : "tracking-wide uppercase",
-          )}
-        >
-          {title}
-        </h1>
+        <h1 className={cn("text-2xl font-semibold text-fg", named && "break-words")}>{title}</h1>
         {intro ? <p className="mt-1 text-fg-muted">{intro}</p> : null}
       </div>
       {children ? <div className="flex flex-wrap gap-2">{children}</div> : null}

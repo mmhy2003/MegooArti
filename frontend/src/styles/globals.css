@@ -43,9 +43,9 @@
   --radius-*: initial;
   --radius-sm: var(--mg-radius);
 
-  --font-display: var(--font-oxanium), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-display: var(--font-orbitron), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   --default-transition-duration: var(--mg-duration-fast);
 }
@@ -69,8 +69,8 @@
   h1,
   h2,
   h3 {
-    font-family: var(--font-display);
-    letter-spacing: 0.04em;
+    font-family: var(--font-sans);
+    letter-spacing: -0.01em;
   }
 
   :focus-visible {
@@ -93,9 +93,9 @@
   }
 }
 
-/* Navigation and small headings: the display face, in capitals, widely spaced. */
+/* Buttons, badges and small labels: in capitals, widely spaced. */
 @utility label-caps {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.14em;

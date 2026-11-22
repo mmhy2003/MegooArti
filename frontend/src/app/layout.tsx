@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 
-import { inter, jetbrainsMono, oxanium } from "@/lib/fonts";
+import { geist, geistMono, orbitron } from "@/lib/fonts";
 import { THEME_SCRIPT } from "@/lib/theme";
 import "@/styles/globals.css";
 
@@ -26,7 +26,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       // What the script below corrects before anything is painted.
       data-theme="dark"
       suppressHydrationWarning
-      className={`${oxanium.variable} ${inter.variable} ${jetbrainsMono.variable} antialiased`}
+      className={`${geist.variable} ${geistMono.variable} ${orbitron.variable} antialiased`}
     >
       <head>
         <script
