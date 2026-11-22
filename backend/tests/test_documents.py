@@ -42,7 +42,9 @@ GUIDES = [
     "docs/development.md",
     "docs/adding-a-format.md",
 ]
-DOCUMENTS = ["README.md", "CHANGELOG.md", *GUIDES]
+DOCUMENTS = ["README.md", *GUIDES]
+# The release notes: each is also the text of its release on GitHub.
+NOTES = sorted(p.relative_to(ROOT).as_posix() for p in (DOCS / "releases").glob("v*.md"))
 # Variables a guide may name that are neither a setting nor read by Compose.
 OTHER_VARIABLES = {
     "MEGOOARTI_RUN_MIGRATIONS",  # the entrypoint's
@@ -180,7 +182,7 @@ def test_everything_compose_reads_is_in_the_guide_with_the_default_compose_gives
     assert documented == expected
 
 
-@pytest.mark.parametrize("document", DOCUMENTS)
+@pytest.mark.parametrize("document", [*DOCUMENTS, *NOTES])
 def test_a_guide_names_no_variable_that_nothing_reads(document):
     settings = {f"MEGOOARTI_{name.upper()}" for name in Settings.model_fields}
     known = settings | compose_reads() | OTHER_VARIABLES
@@ -257,7 +259,7 @@ def method_of(command: str) -> str:
     return "head" if re.search(r" (?:-I|--head) ", command) else "get"
 
 
-@pytest.mark.parametrize("document", DOCUMENTS)
+@pytest.mark.parametrize("document", [*DOCUMENTS, *NOTES])
 def test_every_address_of_the_api_that_a_guide_names_is_one_the_api_has(document):
     paths = api_paths()
     mentioned = set(re.findall(ADDRESS, read(document)))
@@ -278,7 +280,7 @@ def test_the_check_of_addresses_knows_one_that_is_not_there():
     assert not is_described("/api/v1/setting", paths)
 
 
-@pytest.mark.parametrize("document", DOCUMENTS)
+@pytest.mark.parametrize("document", [*DOCUMENTS, *NOTES])
 def test_an_address_is_asked_with_a_method_and_a_query_that_it_has(document):
     paths = api_paths()
     text = read(document)
@@ -318,7 +320,9 @@ def sources() -> str:
 def test_every_code_of_an_error_that_a_guide_names_is_one_the_backend_answers_with():
     written = sources()
     named = {
-        code for document in DOCUMENTS for code in re.findall(r"`\d{3} ([a-z_]+)`", read(document))
+        code
+        for document in [*DOCUMENTS, *NOTES]
+        for code in re.findall(r"`\d{3} ([a-z_]+)`", read(document))
     }
 
     assert len(named) > 5
@@ -431,8 +435,15 @@ def test_every_file_of_the_repository_that_a_guide_names_is_there(document):
     assert sorted(missing) == []
 
 
-def test_the_changelog_begins_with_this_version():
-    versions = re.findall(r"^## (.+)$", read("CHANGELOG.md"), flags=re.MULTILINE)
+def test_this_version_has_its_release_note():
+    note = f"docs/releases/v{__version__}.md"
+    assert (ROOT / note).is_file()
+    text = read(note)
+    headings = re.findall(r"^## (.+)$", prose(text), flags=re.MULTILINE)
 
-    assert versions[0] == __version__
-    assert "### Known issues" in read("CHANGELOG.md")
+    assert not text.startswith("#")  # the release's title is GitHub's
+    assert headings[0] == "New" and headings[-1] == "Upgrading"
+    assert "For callers of the API" in headings and "Known issues" in headings
+    # The note is also the release's text on GitHub, where a link by path leads nowhere.
+    targets = re.findall(r"\]\(([^)\s]+)\)", prose(text))
+    assert [target for target in targets if not re.match(r"[a-z]+:", target)] == []

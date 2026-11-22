@@ -5,7 +5,8 @@ Docker, APT, YUM, apk, NuGet and Raw repositories, each of them hosted, a proxy 
 remote one, or a group of several behind one address, with a web UI and a REST API.
 See the
 [business requirements](docs/BRD.md) for scope and roadmap, and the
-[changelog](CHANGELOG.md) for what this version has and what is known of it.
+[release notes](docs/releases/) for what each version has and what is known of it,
+also on [GitHub](https://github.com/mmhy2003/MegooArti/releases).
 
 It is two services and a database: a backend (FastAPI) that is the REST API, the
 repositories and the Docker registry, and a web UI (Next.js) that uses that API.

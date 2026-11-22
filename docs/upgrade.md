@@ -4,7 +4,7 @@ An upgrade is a new build of the two images, started on the database and the dat
 directory that are there. The backend brings the database to its version when it
 starts.
 
-1. Read the [changelog](../CHANGELOG.md) for the version: it says what a caller of
+1. Read the version's [release note](releases/): it says what a caller of
    the API and an operator must know, and whether there is something to do afterwards.
 2. [Back up](backup.md). A backup made just before is the way back.
 3. Get the version's sources (`git pull`, or a checkout of the version you want),
@@ -66,7 +66,7 @@ backup is not in it.
   administrator) goes through a repository again: every file is given to the
   component its path says it belongs to, and every component's words are written
   again. It answers with how many files and components it looked at and changed.
-  Run it for a repository when the changelog of a version says that what was
+  Run it for a repository when a version's release note says that what was
   stored before is to be gone through again. The work is done in the request, a
   piece at a time, and takes minutes on a large
   repository. It is safe to repeat: if the request is cut off, for example by a
