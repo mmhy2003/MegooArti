@@ -15,98 +15,98 @@
   color-scheme: dark;
 
   /* Surfaces */
-  --mg-page: #07080d;
-  --mg-panel: #0d1018;
-  --mg-raised: #151a26;
-  --mg-field: #10141e;
+  --mg-page: #0e0f13;
+  --mg-panel: #17191f;
+  --mg-raised: #121318;
+  --mg-field: #0e0f13;
 
   /* Lines */
-  --mg-line: #2a3348;
-  --mg-line-strong: #5b6a8f;
+  --mg-line: #2a2d36;
+  --mg-line-strong: #8e94a3;
 
   /* Text */
-  --mg-fg: #e6ebf5;
-  --mg-fg-muted: #a3aec4;
-  --mg-fg-subtle: #8f9ab3;
+  --mg-fg: #eceef3;
+  --mg-fg-muted: #8e94a3;
 
   /* What is pressed to go on, and to destroy */
-  --mg-primary: #00e5ff;
-  --mg-on-primary: #031418;
-  --mg-danger: #ff5c7a;
-  --mg-on-danger: #1c0308;
+  --mg-primary: #22e4ff;
+  --mg-on-primary: #0e0f13;
+  --mg-danger: #ff3d81;
+  --mg-on-danger: #0e0f13;
 
   /* Accents */
-  --mg-neon-cyan: #00e5ff;
-  --mg-ink-cyan: #5cefff;
-  --mg-neon-magenta: #ff2bd6;
-  --mg-ink-magenta: #ff7ae5;
-  --mg-neon-acid: #c6ff00;
-  --mg-ink-acid: #d4ff4d;
+  --mg-neon-cyan: #22e4ff;
+  --mg-ink-cyan: #22e4ff;
+  --mg-neon-violet: #c084fc;
+  --mg-ink-violet: #c084fc;
 
   /* Status: always beside an icon and a word */
-  --mg-ok: #3dffa2;
-  --mg-ink-ok: #7dffc0;
-  --mg-warn: #ffb020;
-  --mg-ink-warn: #ffc65c;
-  --mg-bad: #ff5c7a;
-  --mg-ink-bad: #ff96a8;
+  --mg-ok: #5bff9a;
+  --mg-ink-ok: #5bff9a;
+  --mg-warn: #ffe14d;
+  --mg-ink-warn: #ffe14d;
+  --mg-bad: #ff3d81;
+  --mg-ink-bad: #ff3d81;
 
   /* Where the keyboard is: a colour nothing else in a control has */
-  --mg-focus: #c6ff00;
+  --mg-focus: #c084fc;
 
+  /* Depth: no shadows, neon glows. */
+  --mg-lift: none;
   --mg-glow-sm: 0 0 10px color-mix(in srgb, var(--mg-neon-cyan) 40%, transparent);
   --mg-glow-md:
     0 0 0 1px var(--mg-neon-cyan), 0 0 20px color-mix(in srgb, var(--mg-neon-cyan) 55%, transparent);
-  --mg-grid: color-mix(in srgb, var(--mg-line) 45%, transparent);
+  --mg-grid: rgba(255, 255, 255, 0.03);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
   /* Surfaces */
-  --mg-page: #f2f4f9;
+  --mg-page: #f6f3ff;
   --mg-panel: #ffffff;
-  --mg-raised: #e8ecf5;
+  --mg-raised: #ece6ff;
   --mg-field: #ffffff;
 
   /* Lines */
-  --mg-line: #c3cbde;
-  --mg-line-strong: #6f7b99;
+  --mg-line: #d6ccf5;
+  --mg-line-strong: #6b5f99;
 
   /* Text */
-  --mg-fg: #10131c;
-  --mg-fg-muted: #465069;
-  --mg-fg-subtle: #566280;
+  --mg-fg: #1a0b3d;
+  --mg-fg-muted: #6b5f99;
 
   /* What is pressed to go on, and to destroy */
-  --mg-primary: #00728f;
+  --mg-primary: #007a8f;
   --mg-on-primary: #ffffff;
-  --mg-danger: #c40030;
+  --mg-danger: #d4004f;
   --mg-on-danger: #ffffff;
 
   /* Accents */
-  --mg-neon-cyan: #0090ad;
-  --mg-ink-cyan: #00647d;
-  --mg-neon-magenta: #d400ab;
-  --mg-ink-magenta: #a30085;
-  --mg-neon-acid: #6c9100;
-  --mg-ink-acid: #4a6400;
+  --mg-neon-cyan: #0090a8;
+  --mg-ink-cyan: #007286;
+  --mg-neon-violet: #6d28d9;
+  --mg-ink-violet: #6d28d9;
 
   /* Status: always beside an icon and a word */
-  --mg-ok: #008a4e;
-  --mg-ink-ok: #006b3c;
-  --mg-warn: #a86a00;
-  --mg-ink-warn: #855400;
-  --mg-bad: #d6002f;
-  --mg-ink-bad: #b00027;
+  --mg-ok: #1f8f2c;
+  --mg-ink-ok: #197725;
+  --mg-warn: #a16207;
+  --mg-ink-warn: #965b06;
+  --mg-bad: #d4004f;
+  --mg-ink-bad: #cf004d;
 
   /* Where the keyboard is: a colour nothing else in a control has */
-  --mg-focus: #a30085;
+  --mg-focus: #6d28d9;
 
-  --mg-glow-sm: 0 0 8px color-mix(in srgb, var(--mg-neon-cyan) 30%, transparent);
+  /* Depth: soft shadows, no glows. */
+  --mg-lift:
+    0 1px 2px color-mix(in srgb, var(--mg-fg) 8%, transparent),
+    0 4px 12px color-mix(in srgb, var(--mg-fg) 8%, transparent);
+  --mg-glow-sm: 0 1px 3px color-mix(in srgb, var(--mg-fg) 14%, transparent);
   --mg-glow-md:
-    0 0 0 1px var(--mg-neon-cyan), 0 0 14px color-mix(in srgb, var(--mg-neon-cyan) 40%, transparent);
-  --mg-grid: color-mix(in srgb, var(--mg-line) 55%, transparent);
+    0 0 0 1px var(--mg-neon-cyan), 0 2px 8px color-mix(in srgb, var(--mg-fg) 16%, transparent);
+  --mg-grid: rgba(80, 40, 200, 0.06);
 }
 
 /* The same in both modes. */

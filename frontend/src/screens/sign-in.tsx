@@ -63,7 +63,7 @@ function Providers({ next }: { next: string }) {
   if (listed.length === 0) return null;
   return (
     <div className="flex flex-col gap-3">
-      <p className="label-caps text-center text-fg-subtle">{t("or")}</p>
+      <p className="label-caps text-center text-fg-muted">{t("or")}</p>
       {listed.map((source) => (
         <Button key={source.id} asChild>
           <a

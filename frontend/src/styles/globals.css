@@ -19,17 +19,14 @@
   --color-line-strong: var(--mg-line-strong);
   --color-fg: var(--mg-fg);
   --color-fg-muted: var(--mg-fg-muted);
-  --color-fg-subtle: var(--mg-fg-subtle);
   --color-primary: var(--mg-primary);
   --color-on-primary: var(--mg-on-primary);
   --color-danger: var(--mg-danger);
   --color-on-danger: var(--mg-on-danger);
   --color-neon-cyan: var(--mg-neon-cyan);
   --color-ink-cyan: var(--mg-ink-cyan);
-  --color-neon-magenta: var(--mg-neon-magenta);
-  --color-ink-magenta: var(--mg-ink-magenta);
-  --color-neon-acid: var(--mg-neon-acid);
-  --color-ink-acid: var(--mg-ink-acid);
+  --color-neon-violet: var(--mg-neon-violet);
+  --color-ink-violet: var(--mg-ink-violet);
   --color-ok: var(--mg-ok);
   --color-ink-ok: var(--mg-ink-ok);
   --color-warn: var(--mg-warn);
@@ -39,6 +36,7 @@
   --color-focus: var(--mg-focus);
 
   --shadow-*: initial;
+  --shadow-lift: var(--mg-lift);
   --shadow-glow-sm: var(--mg-glow-sm);
   --shadow-glow: var(--mg-glow-md);
 
@@ -81,7 +79,7 @@
   }
 
   ::selection {
-    background-color: var(--mg-ink-magenta);
+    background-color: var(--mg-ink-violet);
     color: var(--mg-page);
   }
 }

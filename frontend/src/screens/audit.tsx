@@ -65,7 +65,7 @@ function Changes({ entry }: { entry: AuditRecordOut }) {
     string,
     { before?: unknown; after?: unknown },
   ][];
-  if (changed.length === 0) return <span className="text-fg-subtle">{t("nothing")}</span>;
+  if (changed.length === 0) return <span className="text-fg-muted">{t("nothing")}</span>;
   return (
     <details>
       <summary className="cursor-pointer text-neon-cyan">
@@ -236,7 +236,7 @@ export function AuditScreen() {
                     <Td>
                       <span className="block">{entry.actor ?? t("nobody")}</span>
                       {entry.method ? (
-                        <span className="text-xs text-fg-subtle">
+                        <span className="text-xs text-fg-muted">
                           {t("method", { method: entry.method })}
                         </span>
                       ) : null}
@@ -247,7 +247,7 @@ export function AuditScreen() {
                         "—"
                       ) : (
                         <>
-                          <span className="block text-xs text-fg-subtle">{entry.target_kind}</span>
+                          <span className="block text-xs text-fg-muted">{entry.target_kind}</span>
                           {entry.target_name}
                         </>
                       )}

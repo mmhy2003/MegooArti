@@ -55,7 +55,7 @@ export function GroupMapping({
   return (
     <fieldset className="flex min-w-0 flex-col gap-3 border-0 p-0">
       <legend className="label-caps mb-2 text-fg-muted">{t("mapping")}</legend>
-      <p className="text-sm text-fg-subtle">{t("mappingHint")}</p>
+      <p className="text-sm text-fg-muted">{t("mappingHint")}</p>
       {grants.length === 0 ? <p className="text-fg-muted">{t("noMapping")}</p> : null}
       <ol className="flex flex-col gap-3">
         {grants.map((grant, index) => (

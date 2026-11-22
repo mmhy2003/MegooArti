@@ -226,7 +226,7 @@ function RepositoryForm({
               onChange={(event) => set({ blobStore: event.target.value })}
               choices={storeNames.map((name) => ({ value: name, label: name }))}
             />
-            <p className="text-sm text-fg-subtle">
+            <p className="text-sm text-fg-muted">
               {storesReadable ? t("hints.blobStore") : t("hints.blobStoreUnreadable")}
             </p>
             {stores.isError ? (
@@ -248,7 +248,7 @@ function RepositoryForm({
             />
             {draft.deploymentPolicy === null ? (
               // Not yet a choice: it would change with the version policy, below.
-              <p className="text-sm text-fg-subtle">{t("hints.policyFollows")}</p>
+              <p className="text-sm text-fg-muted">{t("hints.policyFollows")}</p>
             ) : null}
             {refused.at["hosted.deployment_policy"] ? (
               <Alert tone="danger">{refused.at["hosted.deployment_policy"]}</Alert>

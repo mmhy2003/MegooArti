@@ -20,7 +20,7 @@ export function Wordmark() {
   const t = useTranslations("app");
   return (
     <span className="flex items-center gap-2 font-display text-lg font-bold tracking-[0.12em] text-fg uppercase sm:tracking-[0.2em]">
-      <span aria-hidden="true" className="h-5 w-1.5 bg-neon-magenta shadow-glow-sm" />
+      <span aria-hidden="true" className="h-5 w-1.5 bg-neon-cyan shadow-glow-sm" />
       {t("name")}
     </span>
   );
@@ -33,7 +33,7 @@ function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () =
     <ul className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-8 lg:gap-y-1">
       {areas.map((area) => (
         <li key={area.key} className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
-          <span className="label-caps text-fg-subtle">{t(`areas.${area.key}`)}</span>
+          <span className="label-caps text-fg-muted">{t(`areas.${area.key}`)}</span>
           <ul className="flex flex-col gap-1 lg:flex-row lg:flex-wrap">
             {area.items.map((item) => {
               const current = isCurrent(item, pathname);

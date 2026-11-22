@@ -30,7 +30,7 @@ export function MenuContent({
         sideOffset={8}
         align="end"
         className={cn(
-          "bevel z-50 min-w-48 border border-line-strong bg-panel p-1 shadow-glow-sm",
+          "bevel z-50 min-w-48 border border-line-strong bg-panel p-1 shadow-lift",
           className,
         )}
         {...rest}
@@ -47,10 +47,7 @@ export function MenuItem({ className, ...rest }: ComponentProps<typeof DropdownM
 
 export function MenuLabel({ className, ...rest }: ComponentProps<typeof DropdownMenu.Label>) {
   return (
-    <DropdownMenu.Label
-      className={cn("label-caps px-3 py-2 text-fg-subtle", className)}
-      {...rest}
-    />
+    <DropdownMenu.Label className={cn("label-caps px-3 py-2 text-fg-muted", className)} {...rest} />
   );
 }
 

@@ -35,7 +35,7 @@ export function Fact({
 }) {
   return (
     <>
-      <dt className="label-caps pt-1 text-fg-subtle">{name}</dt>
+      <dt className="label-caps pt-1 text-fg-muted">{name}</dt>
       <dd className="flex min-w-0 items-start gap-1 text-fg">
         <span className={cn("min-w-0 flex-1 break-all", mono && "font-mono text-xs leading-6")}>
           {children}
@@ -60,7 +60,7 @@ const minute = () => Math.floor(Date.now() / 60_000);
 export function Time({ value }: { value: string | null | undefined }) {
   const t = useTranslations("time");
   const now = useSyncExternalStore(subscribe, minute, () => 0);
-  if (!value) return <span className="text-fg-subtle">{t("never")}</span>;
+  if (!value) return <span className="text-fg-muted">{t("never")}</span>;
   const moment = new Date(value);
   if (Number.isNaN(moment.getTime())) return <span>{value}</span>;
   const exact = exactTime(moment);
@@ -106,7 +106,7 @@ export function Pager({
   if (pages <= 1) return null;
   const link =
     "label-caps rounded-sm border border-line-strong px-3 py-1.5 text-fg hover:border-neon-cyan";
-  const idle = "label-caps rounded-sm border border-line px-3 py-1.5 text-fg-subtle";
+  const idle = "label-caps rounded-sm border border-line px-3 py-1.5 text-fg-muted";
   return (
     <nav aria-label={t("label")} className="flex items-center justify-between gap-3 px-4 py-3">
       {page > 1 ? (

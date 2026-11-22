@@ -28,7 +28,7 @@ export function Breadcrumbs({
           return (
             <li key={crumb.href} className="flex min-w-0 items-center gap-1">
               {index > 0 ? (
-                <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg-subtle" />
+                <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-fg-muted" />
               ) : null}
               <AppLink
                 ref={last ? current : undefined}

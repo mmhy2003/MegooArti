@@ -68,7 +68,7 @@ export function ConfirmDialog({
             event.preventDefault();
             (returnFocus?.() ?? opener.current)?.focus();
           }}
-          className="bevel fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-bad bg-panel p-6"
+          className="bevel fixed top-1/2 left-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 border border-bad bg-panel p-6 shadow-lift"
         >
           {/* Not in capitals: it names what goes, and a name is shown as it is written. */}
           <AlertDialog.Title className="text-lg font-semibold break-words text-fg">

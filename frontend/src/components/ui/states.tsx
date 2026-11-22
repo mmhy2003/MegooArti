@@ -54,7 +54,7 @@ export function EmptyState({
   const Heading = page ? "h1" : "h2";
   return (
     <div className="flex flex-col items-center gap-3 p-10 text-center">
-      <Inbox aria-hidden="true" className="size-10 text-neon-magenta" />
+      <Inbox aria-hidden="true" className="size-10 text-neon-violet" />
       <Heading className="text-lg font-semibold text-fg uppercase">{title}</Heading>
       {children ? <p className="max-w-prose text-fg-muted">{children}</p> : null}
       {action}

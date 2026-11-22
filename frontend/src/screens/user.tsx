@@ -233,7 +233,7 @@ function NewUserForm({
             empty={t("noRoles")}
           />
         ) : (
-          <p className="text-sm text-fg-subtle">{t("rolesNotReadable")}</p>
+          <p className="text-sm text-fg-muted">{t("rolesNotReadable")}</p>
         )}
         {refused.at.roles ? <Alert tone="danger">{refused.at.roles}</Alert> : null}
         {create.isError && taken === null && refused.elsewhere ? (
@@ -389,7 +389,7 @@ function Details({
           )}
           {refused.at.roles ? <Alert tone="danger">{refused.at.roles}</Alert> : null}
           {isSelf ? (
-            <p className="text-sm text-fg-subtle">{t("selfState")}</p>
+            <p className="text-sm text-fg-muted">{t("selfState")}</p>
           ) : (
             <ChoiceGroup
               legend={t("fields.state")}

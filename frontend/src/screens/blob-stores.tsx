@@ -73,7 +73,7 @@ export function BlobStoreTable({
               <Td className="text-right">
                 {store.name === DEFAULT_BLOB_STORE ? (
                   // A repository that names no blob store is put in it: the server keeps it (H7).
-                  <span className="text-xs text-fg-subtle">{t("alwaysKept")}</span>
+                  <span className="text-xs text-fg-muted">{t("alwaysKept")}</span>
                 ) : (
                   <Button
                     size="sm"

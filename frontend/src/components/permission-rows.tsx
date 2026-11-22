@@ -77,7 +77,7 @@ export function usePatternWords(): (pattern: string) => string | null {
 /** Patterns as they stand, for whoever may read them and not change them. */
 export function PermissionList({ patterns, empty }: { patterns: string[]; empty: string }) {
   const words = usePatternWords();
-  if (patterns.length === 0) return <p className="text-sm text-fg-subtle">{empty}</p>;
+  if (patterns.length === 0) return <p className="text-sm text-fg-muted">{empty}</p>;
   return (
     <ul className="flex flex-col gap-2">
       {patterns.map((pattern) => (
@@ -157,7 +157,7 @@ export function PermissionRows({
   return (
     <fieldset className="flex min-w-0 flex-col gap-3 border-0 p-0">
       <legend className="label-caps mb-1 p-0 text-fg-muted">{legend}</legend>
-      {rows.length === 0 ? <p className="text-sm text-fg-subtle">{t("none")}</p> : null}
+      {rows.length === 0 ? <p className="text-sm text-fg-muted">{t("none")}</p> : null}
       <ol ref={list} className="flex flex-col gap-3">
         {rows.map(({ id, row }, index) => {
           const number = index + 1;

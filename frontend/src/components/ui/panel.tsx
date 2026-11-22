@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 /** A surface that holds one thing: a form, a table, a state. */
 export function Panel({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("bevel border border-line bg-panel", className)} {...rest}>
+    <div className={cn("bevel border border-line bg-panel shadow-lift", className)} {...rest}>
       {children}
     </div>
   );

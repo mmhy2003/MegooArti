@@ -60,7 +60,7 @@ export function UserMenu({ session }: { session: SessionInfo }) {
           aria-label={t("menu", { name })}
           className="inline-flex min-h-10 max-w-48 items-center gap-2 rounded-sm border border-line-strong px-3 text-sm text-fg hover:border-neon-cyan"
         >
-          <UserRound aria-hidden="true" className="size-4 shrink-0 text-neon-magenta" />
+          <UserRound aria-hidden="true" className="size-4 shrink-0 text-neon-violet" />
           {/* On a narrow screen the icon stands for it: the button is still named. */}
           <span className="hidden truncate sm:inline">{name}</span>
         </MenuTrigger>

@@ -133,7 +133,10 @@ function Entries({
                 >
                   <Icon
                     aria-hidden="true"
-                    className={cn("size-4 shrink-0", isFolder ? "text-neon-acid" : "text-fg-muted")}
+                    className={cn(
+                      "size-4 shrink-0",
+                      isFolder ? "text-neon-violet" : "text-fg-muted",
+                    )}
                   />
                   {entry.name}
                 </AppLink>
