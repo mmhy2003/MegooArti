@@ -1,19 +1,20 @@
 """Checks of the Compose file that need no Docker daemon."""
 
+import os
 import re
 from pathlib import Path
 
 import pytest
 import yaml
 
-from megooarti import __version__
 from megooarti.config import Settings
 
 COMPOSE_FILE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+BUILD_FILE = COMPOSE_FILE.parent / "docker-compose.build.yml"
 
 
-def services() -> dict:
-    return yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]
+def services(file: Path = COMPOSE_FILE) -> dict:
+    return yaml.safe_load(file.read_text(encoding="utf-8"))["services"]
 
 
 def test_database_is_published_on_the_loopback_interface_only():
@@ -67,7 +68,7 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"image", "build", "healthcheck"}
+    assert set(frontend) == {"image", "healthcheck"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
@@ -154,19 +155,38 @@ def test_nothing_starts_with_a_password_everybody_knows():
 @pytest.mark.parametrize("name", ["backend", "frontend"])
 def test_the_images_are_named_as_a_registry_would_hold_them(name):
     service = services()[name]
-    tag = f"${{MEGOOARTI_VERSION:-{__version__}}}"
 
     # In the place of a registry that is this project's own, where only its owner puts
     # an image. A short name on the public registry is whoever's took it there, and
     # `docker compose pull` would have run what they put under it.
-    assert service["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:{tag}"
+    assert service["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:${{MEGOOARTI_VERSION:-latest}}"
     source = re.search(r'image\.source="https://github\.com/([^"]+)"', dockerfile(name))[1]
     assert service["image"].startswith(f"ghcr.io/{source.split('/')[0].lower()}/")
-    # The image is told the version it is built as, for its label.
-    assert service["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
-    # Not built again at every command: what `docker compose run` prints must be what
-    # was run, and a build writes into the same place.
+    # An installation runs the published images: docker-compose.build.yml builds them.
+    assert "build" not in service
     assert "pull_policy" not in service
+
+
+@pytest.mark.parametrize("name", ["backend", "frontend"])
+def test_the_build_overlay_builds_both_images_from_this_checkout_as_dev(name):
+    overlay = services(BUILD_FILE)
+    tag = "${MEGOOARTI_VERSION:-dev}"
+
+    assert set(overlay) == {"backend", "frontend"}
+    # Never latest, which is a release's: a build here must not stand in for one.
+    assert overlay[name]["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:{tag}"
+    # The image is told the version it is built as, for its label.
+    assert overlay[name]["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
+
+
+def test_the_tests_stack_is_built_from_this_checkout():
+    from tests.containers import ENVIRONMENT
+
+    root = COMPOSE_FILE.parent
+    assert ENVIRONMENT["COMPOSE_FILE"].split(os.pathsep) == [
+        str(root / "docker-compose.yml"),
+        str(root / "docker-compose.build.yml"),
+    ]
 
 
 def test_the_secret_key_is_passed_on_only_if_it_is_set():

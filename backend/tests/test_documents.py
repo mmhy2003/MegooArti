@@ -176,8 +176,7 @@ def test_everything_compose_reads_is_in_the_guide_with_the_default_compose_gives
     }
     expected = compose_defaults()
 
-    assert expected["MEGOOARTI_VERSION"] == f"`{__version__}`"
-    expected["MEGOOARTI_VERSION"] = "this version"
+    assert expected["MEGOOARTI_VERSION"] == "`latest`"
     assert documented == expected
 
 

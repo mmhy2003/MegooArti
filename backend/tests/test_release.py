@@ -49,4 +49,4 @@ def test_one_version_is_said_everywhere():
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert PROJECT["version"] == PACKAGE["version"] == __version__
-    assert f"#MEGOOARTI_VERSION={__version__}\n" in example
+    assert "#MEGOOARTI_VERSION=latest\n" in example

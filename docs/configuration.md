@@ -66,7 +66,7 @@ it. `.env.example` has each with what it is for.
 | `MEGOOARTI_SESSION_COOKIE_SECURE` | `true` | Passed on to the backend |
 | `MEGOOARTI_SECRET_KEY` | unset | Passed on to the backend if it is set |
 | `MEGOOARTI_LOG_FORMAT` | unset | Passed on to the backend if it is set: `json` for a log collector |
-| `MEGOOARTI_VERSION` | this version | The tag the images are built and run under |
+| `MEGOOARTI_VERSION` | `latest` | The tag of the images pulled and run. The build overlay builds them as `dev` unless it is set |
 
 In `.env`, a value with a `$`, a `#` or a space in it is put in single quotes, and a
 single quote in it is written `\'`.
