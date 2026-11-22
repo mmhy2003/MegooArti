@@ -7,7 +7,9 @@
     "loading": "Loading",
     "mainNavigation": "Main",
     "openNavigation": "Open the navigation",
-    "closeNavigation": "Close the navigation"
+    "closeNavigation": "Close the navigation",
+    "collapseNavigation": "Collapse the navigation",
+    "expandNavigation": "Expand the navigation"
   },
   "nav": {
     "areas": {

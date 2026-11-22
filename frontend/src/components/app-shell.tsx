@@ -1,8 +1,9 @@
 "use client";
 
-import { Menu as MenuIcon, X } from "lucide-react";
+import { Menu as MenuIcon, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { usePathname } from "next/navigation";
+import { Tooltip } from "radix-ui";
 import { useState, type ReactNode } from "react";
 
 import { SearchBox } from "@/components/search-box";
@@ -12,47 +13,91 @@ import { UserMenu } from "@/components/user-menu";
 import type { SessionInfo } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
 import { isCurrent, NAVIGATION, visible, type NavArea } from "@/lib/navigation";
+import { useSidebarRail } from "@/lib/use-sidebar";
 
 const MAIN = "main";
 
-/** The wordmark: the name, in the display face, with a neon bar before it. */
-export function Wordmark() {
+/**
+ * The wordmark: the name, in the display face, with a neon bar before it. With
+ * `collapsible`, the rail shows the bar alone, and the name is still read out.
+ */
+export function Wordmark({ collapsible = false }: { collapsible?: boolean }) {
   const t = useTranslations("app");
   return (
     <span className="flex items-center gap-2 font-display text-lg font-bold tracking-[0.08em] text-fg uppercase">
       <span aria-hidden="true" className="h-5 w-1.5 bg-neon-cyan shadow-glow-sm" />
-      {t("name")}
+      <span className={cn(collapsible && "rail:sr-only")}>{t("name")}</span>
     </span>
   );
 }
 
-function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () => void }) {
+/**
+ * The areas and their links. With `collapsible`, it is the sidebar's: in the rail only
+ * the icons are seen, each link keeps its name for a screen reader, and shows it beside
+ * it on hover or focus.
+ */
+function Navigation({
+  areas,
+  onNavigate,
+  collapsible = false,
+  rail = false,
+}: {
+  areas: NavArea[];
+  onNavigate?: () => void;
+  collapsible?: boolean;
+  rail?: boolean;
+}) {
   const t = useTranslations("nav");
   const pathname = usePathname();
   return (
-    <ul className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-8 lg:gap-y-1">
+    <ul className="flex flex-col gap-4">
       {areas.map((area) => (
-        <li key={area.key} className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
-          <span className="label-caps text-fg-muted">{t(`areas.${area.key}`)}</span>
-          <ul className="flex flex-col gap-1 lg:flex-row lg:flex-wrap">
+        <li key={area.key} className="flex flex-col gap-1">
+          <span className={cn("label-caps px-3 text-fg-muted", collapsible && "rail:sr-only")}>
+            {t(`areas.${area.key}`)}
+          </span>
+          {collapsible ? (
+            <span aria-hidden="true" className="mx-3 hidden h-px bg-line rail:block" />
+          ) : null}
+          <ul className="flex flex-col gap-1">
             {area.items.map((item) => {
               const current = isCurrent(item, pathname);
+              const name = t(`items.${item.key}`);
+              const link = (
+                <AppLink
+                  href={item.href}
+                  onClick={onNavigate}
+                  aria-current={current ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium",
+                    current
+                      ? "border-neon-cyan bg-raised text-ink-cyan"
+                      : "border-transparent text-fg-muted hover:bg-raised hover:text-fg",
+                  )}
+                >
+                  <item.icon aria-hidden="true" className="size-4 shrink-0" />
+                  <span className={cn(collapsible && "rail:sr-only")}>{name}</span>
+                </AppLink>
+              );
               return (
                 <li key={item.key}>
-                  <AppLink
-                    href={item.href}
-                    onClick={onNavigate}
-                    aria-current={current ? "page" : undefined}
-                    className={cn(
-                      "flex min-h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium",
-                      current
-                        ? "border-neon-cyan bg-raised text-ink-cyan"
-                        : "border-transparent text-fg-muted hover:bg-raised hover:text-fg",
-                    )}
-                  >
-                    <item.icon aria-hidden="true" className="size-4" />
-                    {t(`items.${item.key}`)}
-                  </AppLink>
+                  {collapsible ? (
+                    // The same tree open or a rail: only the rail lets the tip show.
+                    <Tooltip.Root open={rail ? undefined : false}>
+                      <Tooltip.Trigger asChild>{link}</Tooltip.Trigger>
+                      <Tooltip.Portal>
+                        <Tooltip.Content
+                          side="right"
+                          sideOffset={8}
+                          className="bevel z-50 border border-line-strong bg-panel px-2 py-1 text-sm text-fg shadow-lift"
+                        >
+                          {name}
+                        </Tooltip.Content>
+                      </Tooltip.Portal>
+                    </Tooltip.Root>
+                  ) : (
+                    link
+                  )}
                 </li>
               );
             })}
@@ -64,12 +109,13 @@ function Navigation({ areas, onNavigate }: { areas: NavArea[]; onNavigate?: () =
 }
 
 /**
- * What every screen is inside: the header with the navigation, and the content. With
- * `bare`, there is no navigation: for whoever must change their password first.
+ * What every screen is inside: the sidebar with the navigation, and beside it the
+ * header and the content. With `bare`, there is no navigation: for whoever must change
+ * their password first.
  *
- * In a wide window the navigation is a row of its own under the wordmark: an
- * administrator has more items than fit beside the search box, and the row wraps
- * where they do not fit in one.
+ * In a wide window the sidebar can be collapsed to a rail of icons, a choice kept in
+ * the browser (lib/sidebar.ts). Its list scrolls by itself, so an administrator's many
+ * items never run under the header.
  */
 export function AppShell({
   session,
@@ -82,68 +128,100 @@ export function AppShell({
 }) {
   const t = useTranslations("app");
   const [open, setOpen] = useState(false);
+  const [rail, setRail] = useSidebarRail();
   const areas = bare ? [] : visible(NAVIGATION, session);
   return (
-    <div className="flex min-h-dvh flex-col">
-      <a
-        href={`#${MAIN}`}
-        className="label-caps sr-only z-50 bg-panel px-4 py-3 text-ink-cyan focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
-      >
-        {t("skipToContent")}
-      </a>
-      <header className="relative border-b border-line-strong bg-panel">
-        <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-4 px-4">
-          <AppLink href="/" className="shrink-0 rounded-sm">
-            <Wordmark />
-          </AppLink>
-          <div className="ml-auto flex items-center gap-2">
-            {bare ? null : <SearchBox className="hidden w-56 md:block lg:w-80" />}
-            <ThemeSwitch bare={bare} />
-            <UserMenu session={session} />
-            {areas.length > 0 ? (
-              <button
-                type="button"
-                aria-expanded={open}
-                aria-controls="narrow-navigation"
-                aria-label={open ? t("closeNavigation") : t("openNavigation")}
-                onClick={() => setOpen((was) => !was)}
-                className="inline-flex size-10 items-center justify-center rounded-sm border border-line-strong text-fg lg:hidden"
-              >
-                {open ? (
-                  <X aria-hidden="true" className="size-5" />
-                ) : (
-                  <MenuIcon aria-hidden="true" className="size-5" />
-                )}
-              </button>
-            ) : null}
-          </div>
-        </div>
+    <Tooltip.Provider delayDuration={300}>
+      <div className="flex min-h-dvh">
+        <a
+          href={`#${MAIN}`}
+          className="label-caps sr-only z-50 bg-panel px-4 py-3 text-ink-cyan focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+        >
+          {t("skipToContent")}
+        </a>
         {areas.length > 0 ? (
-          <nav aria-label={t("mainNavigation")} className="hidden border-t border-line lg:block">
-            <div className="mx-auto max-w-7xl px-4 py-1.5">
-              <Navigation areas={areas} />
-            </div>
-          </nav>
-        ) : null}
-        {areas.length > 0 ? (
-          <nav
-            id="narrow-navigation"
-            aria-label={t("mainNavigation")}
-            hidden={!open}
-            className="flex flex-col gap-4 border-t border-line px-4 py-4 lg:hidden"
+          <div
+            id="sidebar"
+            className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-panel transition-[width] lg:flex rail:w-16"
           >
-            <SearchBox className="md:hidden" />
-            <Navigation areas={areas} onNavigate={() => setOpen(false)} />
-          </nav>
+            <AppLink href="/" className="flex min-h-16 items-center rounded-sm px-4">
+              <Wordmark collapsible />
+            </AppLink>
+            <nav
+              aria-label={t("mainNavigation")}
+              className="min-h-0 flex-1 overflow-y-auto px-2 py-4"
+            >
+              <Navigation areas={areas} collapsible rail={rail} />
+            </nav>
+            <button
+              type="button"
+              aria-controls="sidebar"
+              aria-expanded={!rail}
+              aria-label={rail ? t("expandNavigation") : t("collapseNavigation")}
+              onClick={() => setRail(!rail)}
+              className="m-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-sm border border-line-strong text-fg-muted hover:border-neon-cyan hover:text-fg"
+            >
+              {rail ? (
+                <PanelLeftOpen aria-hidden="true" className="size-4" />
+              ) : (
+                <PanelLeftClose aria-hidden="true" className="size-4" />
+              )}
+            </button>
+          </div>
         ) : null}
-      </header>
-      <main
-        id={MAIN}
-        tabIndex={-1}
-        className="mx-auto w-full max-w-7xl min-w-0 flex-1 px-4 py-8 outline-none"
-      >
-        {children}
-      </main>
-    </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Sticky is positioned too: the sign-out alert still sits under the header. */}
+          <header className="sticky top-0 z-30 border-b border-line-strong bg-panel">
+            <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-4 px-4">
+              <AppLink
+                href="/"
+                className={cn("shrink-0 rounded-sm", areas.length > 0 && "lg:hidden")}
+              >
+                <Wordmark />
+              </AppLink>
+              <div className="ml-auto flex items-center gap-2">
+                {bare ? null : <SearchBox className="hidden w-56 md:block lg:w-80" />}
+                <ThemeSwitch bare={bare} />
+                <UserMenu session={session} />
+                {areas.length > 0 ? (
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-controls="narrow-navigation"
+                    aria-label={open ? t("closeNavigation") : t("openNavigation")}
+                    onClick={() => setOpen((was) => !was)}
+                    className="inline-flex size-10 items-center justify-center rounded-sm border border-line-strong text-fg lg:hidden"
+                  >
+                    {open ? (
+                      <X aria-hidden="true" className="size-5" />
+                    ) : (
+                      <MenuIcon aria-hidden="true" className="size-5" />
+                    )}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {areas.length > 0 ? (
+              <nav
+                id="narrow-navigation"
+                aria-label={t("mainNavigation")}
+                hidden={!open}
+                className="flex flex-col gap-4 border-t border-line px-4 py-4 lg:hidden"
+              >
+                <SearchBox className="md:hidden" />
+                <Navigation areas={areas} onNavigate={() => setOpen(false)} />
+              </nav>
+            ) : null}
+          </header>
+          <main
+            id={MAIN}
+            tabIndex={-1}
+            className="mx-auto w-full max-w-7xl min-w-0 flex-1 px-4 py-8 outline-none"
+          >
+            {children}
+          </main>
+        </div>
+      </div>
+    </Tooltip.Provider>
   );
 }

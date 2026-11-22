@@ -58,6 +58,8 @@
 
 @layer base {
   html {
+    /* A focused element, scrolled to, does not go under the sticky header. */
+    scroll-padding-top: 5rem;
     background-color: var(--mg-page);
     color: var(--mg-fg);
     font-family: var(--font-sans);
