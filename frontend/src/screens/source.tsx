@@ -221,7 +221,7 @@ export function SourceScreen() {
               {found.redirect_uri}
             </Fact>
           </Facts>
-          <p className="mt-3 text-sm text-fg-subtle">{t("redirectUriHint")}</p>
+          <p className="mt-3 text-sm text-fg-muted">{t("redirectUriHint")}</p>
         </Panel>
       ) : null}
       {isKindName(found.kind) ? (

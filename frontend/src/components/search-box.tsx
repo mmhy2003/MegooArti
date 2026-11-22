@@ -58,7 +58,7 @@ export function SearchBox({ className }: { className?: string }) {
     >
       <Search
         aria-hidden="true"
-        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle"
+        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-muted"
       />
       <input
         ref={input}
@@ -69,7 +69,7 @@ export function SearchBox({ className }: { className?: string }) {
         placeholder={keyIsOn ? t("placeholder") : t("placeholderPlain")}
         value={text}
         onChange={(event) => setText(event.target.value)}
-        className="min-h-10 w-full rounded-sm border border-line-strong bg-field py-2 pr-3 pl-9 text-sm text-fg placeholder:text-fg-subtle hover:border-neon-cyan focus:shadow-glow-sm"
+        className="min-h-10 w-full rounded-sm border border-line-strong bg-field py-2 pr-3 pl-9 text-sm text-fg placeholder:text-fg-muted hover:border-neon-cyan focus:shadow-glow-sm"
       />
     </form>
   );

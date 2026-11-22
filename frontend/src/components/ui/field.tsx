@@ -37,13 +37,13 @@ function Under({ hint, error, hintId, errorId }: Said & { hintId: string; errorI
       <span>{error}</span>
     </p>
   ) : hint ? (
-    <p id={hintId} className="text-sm text-fg-subtle">
+    <p id={hintId} className="text-sm text-fg-muted">
       {hint}
     </p>
   ) : null;
 }
 
-const BOX = "rounded-sm border bg-field px-3 py-2 text-fg placeholder:text-fg-subtle";
+const BOX = "rounded-sm border bg-field px-3 py-2 text-fg placeholder:text-fg-muted";
 const FOCUS = "transition-[border-color,box-shadow] focus:shadow-glow-sm";
 const edge = (error: string | null | undefined) =>
   error ? "border-bad" : "border-line-strong hover:border-neon-cyan";

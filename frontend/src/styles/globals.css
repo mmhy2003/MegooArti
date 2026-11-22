@@ -2,6 +2,12 @@
 @import "./tokens.css";
 
 /*
+ * For the sidebar only: what it is when collapsed to a rail of icons. lib/sidebar.ts
+ * sets `data-sidebar="rail"` on <html> before anything is painted.
+ */
+@custom-variant rail (&:where([data-sidebar="rail"] *));
+
+/*
  * The utilities components may use. Tailwind's own palette, shadows and radii are
  * taken out, so a class that names one of its colours does not exist: what is left is
  * made from the tokens.
@@ -19,17 +25,14 @@
   --color-line-strong: var(--mg-line-strong);
   --color-fg: var(--mg-fg);
   --color-fg-muted: var(--mg-fg-muted);
-  --color-fg-subtle: var(--mg-fg-subtle);
   --color-primary: var(--mg-primary);
   --color-on-primary: var(--mg-on-primary);
   --color-danger: var(--mg-danger);
   --color-on-danger: var(--mg-on-danger);
   --color-neon-cyan: var(--mg-neon-cyan);
   --color-ink-cyan: var(--mg-ink-cyan);
-  --color-neon-magenta: var(--mg-neon-magenta);
-  --color-ink-magenta: var(--mg-ink-magenta);
-  --color-neon-acid: var(--mg-neon-acid);
-  --color-ink-acid: var(--mg-ink-acid);
+  --color-neon-violet: var(--mg-neon-violet);
+  --color-ink-violet: var(--mg-ink-violet);
   --color-ok: var(--mg-ok);
   --color-ink-ok: var(--mg-ink-ok);
   --color-warn: var(--mg-warn);
@@ -39,21 +42,24 @@
   --color-focus: var(--mg-focus);
 
   --shadow-*: initial;
+  --shadow-lift: var(--mg-lift);
   --shadow-glow-sm: var(--mg-glow-sm);
   --shadow-glow: var(--mg-glow-md);
 
   --radius-*: initial;
   --radius-sm: var(--mg-radius);
 
-  --font-display: var(--font-oxanium), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-display: var(--font-orbitron), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   --default-transition-duration: var(--mg-duration-fast);
 }
 
 @layer base {
   html {
+    /* A focused element, scrolled to, does not go under the sticky header. */
+    scroll-padding-top: 5rem;
     background-color: var(--mg-page);
     color: var(--mg-fg);
     font-family: var(--font-sans);
@@ -71,8 +77,8 @@
   h1,
   h2,
   h3 {
-    font-family: var(--font-display);
-    letter-spacing: 0.04em;
+    font-family: var(--font-sans);
+    letter-spacing: -0.01em;
   }
 
   :focus-visible {
@@ -81,7 +87,7 @@
   }
 
   ::selection {
-    background-color: var(--mg-ink-magenta);
+    background-color: var(--mg-ink-violet);
     color: var(--mg-page);
   }
 }
@@ -95,9 +101,9 @@
   }
 }
 
-/* Navigation and small headings: the display face, in capitals, widely spaced. */
+/* Buttons, badges and small labels: in capitals, widely spaced. */
 @utility label-caps {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.14em;

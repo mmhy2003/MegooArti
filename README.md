@@ -70,5 +70,5 @@ TLS, in front of it or in its place.
 MIT: see [LICENSE](LICENSE). Two things in the repository are other projects' and
 keep their own licences, each beside its files: Swagger UI, which draws the API's
 documentation page (Apache-2.0, in `backend/src/megooarti/static/swagger-ui/`), and
-the three typefaces of the web UI, Oxanium, Inter and JetBrains Mono (SIL Open Font
+the three typefaces of the web UI, Geist, Geist Mono and Orbitron (SIL Open Font
 License, in `frontend/src/fonts/`).

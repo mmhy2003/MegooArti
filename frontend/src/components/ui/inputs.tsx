@@ -69,7 +69,7 @@ export function CheckboxField({
           {label}
         </label>
         {hint ? (
-          <p id={hintId} className="text-sm text-fg-subtle">
+          <p id={hintId} className="text-sm text-fg-muted">
             {hint}
           </p>
         ) : null}
@@ -156,14 +156,14 @@ export function FilePicker({
           onChange={(event) => take(event.target.files)}
           className="min-w-0 flex-1 text-sm text-transparent file:mr-3 file:rounded-sm file:border file:border-line-strong file:bg-panel file:px-3 file:py-1.5 file:text-fg"
         />
-        <span className="text-sm text-fg-subtle">{t("orDrop")}</span>
+        <span className="text-sm text-fg-muted">{t("orDrop")}</span>
       </div>
       {error ? (
         <p id={`${id}-error`} className="text-sm text-ink-bad">
           {error}
         </p>
       ) : hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-subtle">
+        <p id={`${id}-hint`} className="text-sm text-fg-muted">
           {hint}
         </p>
       ) : null}
@@ -208,7 +208,7 @@ function OptionText({ id, option }: { id: string; option: Option }) {
         {option.label}
       </label>
       {option.hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-subtle">
+        <p id={`${id}-hint`} className="text-sm text-fg-muted">
           {option.hint}
         </p>
       ) : null}
@@ -283,7 +283,7 @@ export function CheckList({
   return (
     <fieldset className={cn(GROUP, className)} disabled={disabled}>
       <legend className={LEGEND}>{legend}</legend>
-      {options.length === 0 && empty ? <p className="text-sm text-fg-subtle">{empty}</p> : null}
+      {options.length === 0 && empty ? <p className="text-sm text-fg-muted">{empty}</p> : null}
       {options.map((option, index) => (
         <div key={option.value} className="flex items-start gap-3">
           <input

@@ -135,6 +135,11 @@ repositories, blob stores and the installation's own settings.
   you back to where you were going. If it does not, the screen says why.
 - **Anonymous access.** If it is on, a visitor who is not signed in sees what the
   anonymous user may browse, and a "Sign in" button. If it is off, the sign-in screen.
+- **The navigation** is a sidebar on the left: browsing first, then administration.
+  "Collapse the navigation" at its foot narrows it to a rail of icons, each named on
+  hover and on keyboard focus; the choice is kept in the browser. Below 1024 pixels
+  it is a drawer behind the menu button, which closes on Escape, on a click outside
+  and when a link is followed. Below 768 pixels the search box is in the drawer.
 - **Light and dark.** The mode switch in the header chooses light, dark, or as the
   system says. The choice is kept in the browser.
 - **Nothing is fetched from anywhere else.** Fonts, icons and scripts are served by

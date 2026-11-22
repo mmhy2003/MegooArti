@@ -94,7 +94,7 @@ function Allowed() {
         </ul>
       )}
       <PermissionList patterns={patternsOf(held, roles.data.items)} empty={t("grantsNothing")} />
-      <p className="text-sm text-fg-subtle">{t("onlyRepositories")}</p>
+      <p className="text-sm text-fg-muted">{t("onlyRepositories")}</p>
     </div>
   );
 }

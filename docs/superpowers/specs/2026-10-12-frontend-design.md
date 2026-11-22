@@ -44,7 +44,7 @@ One design, delivered as two plans.
 | D4 | A visitor who is not signed in sees the browsing area if anonymous access is on, with a "Sign in" action; otherwise the sign-in screen. A user who must change their password sees only that screen until they have. | SEC-6. The API refuses everything else for such a user anyway. |
 | D5 | Components are written in this repository, styled with Tailwind CSS from the design tokens, on Radix primitives for behaviour. | Chosen by the product owner. The look is ours; keyboard and screen-reader behaviour comes tested. |
 | D6 | Colours, type, spacing, radii, glows and motion are CSS custom properties, one set for each mode. Components use only the utilities made from them. A test fails on a literal colour in a component, and another computes the contrast of every text and surface pair in both modes. | UI-11, UI-12. A rule that is only written down is broken by the third screen. |
-| D7 | Typefaces: Oxanium for headings and navigation, Inter for text and tables, JetBrains Mono for coordinates, paths, checksums and code. Their files (variable fonts, Latin) are in the repository with their licences. | Chosen by the product owner. UI-8, UI-14: nothing is fetched at build time or at run time. |
+| D7 | Typefaces: Geist for headings, navigation, text and tables, Geist Mono for coordinates, paths, checksums and code, and Orbitron for the wordmark only. Their files (Latin) are in the repository with their licences. | Chosen by the product owner. UI-8, UI-14: nothing is fetched at build time or at run time. |
 | D8 | The mode is light, dark, or as the system says, chosen in the user menu and kept in the browser's local storage. A short script in the page's head sets it before anything is painted. | UI-9, UI-10. The server cannot know the system's mode, and a cookie would make every page depend on the request. |
 | D9 | A strict content security policy with a nonce for each request, set by the Next.js proxy file. Every page is therefore rendered for its request, and the framework's cached components are left off. | NFR-9. Next.js cannot put a nonce into a page it built ahead of time. The shell is small, so rendering it each time costs little. |
 | D10 | Text is in `messages/en.json`, read with `next-intl`. A lint rule refuses literal text in markup. | UI-4. |
@@ -81,34 +81,37 @@ Each token has a value for the dark mode and one for the light mode. Surfaces, l
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
-| `page` | `#07080d` | `#f2f4f9` | The page |
-| `panel` | `#0d1018` | `#ffffff` | Panels, the header |
-| `raised` | `#151a26` | `#e8ecf5` | Hover, selected rows, menus |
-| `field` | `#10141e` | `#ffffff` | Inputs |
-| `line` | `#2a3348` | `#c3cbde` | Borders that only divide |
-| `line-strong` | `#5b6a8f` | `#6f7b99` | Borders of inputs and of what can be pressed |
-| `fg` | `#e6ebf5` | `#10131c` | Text |
-| `fg-muted` | `#a3aec4` | `#465069` | Secondary text |
-| `fg-subtle` | `#8f9ab3` | `#566280` | Hints, placeholders |
+| `page` | `#0e0f13` | `#f6f3ff` | The page |
+| `panel` | `#17191f` | `#ffffff` | Panels, the header, the sidebar |
+| `raised` | `#121318` | `#ece6ff` | Hover, selected rows, menus |
+| `field` | `#0e0f13` | `#ffffff` | Inputs |
+| `line` | `#2a2d36` | `#d6ccf5` | Borders that only divide |
+| `line-strong` | `#8e94a3` | `#6b5f99` | Borders of inputs and of what can be pressed |
+| `fg` | `#eceef3` | `#1a0b3d` | Text |
+| `fg-muted` | `#8e94a3` | `#6b5f99` | Secondary text, hints, placeholders |
 
 Accents, each as a neon tone for borders, glows and icons, and an ink tone for text:
 
 | Accent | Neon, dark | Ink, dark | Neon, light | Ink, light |
 | --- | --- | --- | --- | --- |
-| Cyan (primary) | `#00e5ff` | `#5cefff` | `#0090ad` | `#00647d` |
-| Magenta | `#ff2bd6` | `#ff7ae5` | `#d400ab` | `#a30085` |
-| Acid | `#c6ff00` | `#d4ff4d` | `#6c9100` | `#4a6400` |
+| Cyan (primary) | `#22e4ff` | `#22e4ff` | `#0090a8` | `#007286` |
+| Violet | `#c084fc` | `#c084fc` | `#6d28d9` | `#6d28d9` |
+| Success | `#5bff9a` | `#5bff9a` | `#1f8f2c` | `#197725` |
+| Warning | `#ffe14d` | `#ffe14d` | `#a16207` | `#965b06` |
+| Danger | `#ff3d81` | `#ff3d81` | `#d4004f` | `#cf004d` |
 
-Status (success, warning, danger, information) follows the same pair of tones, and always comes with an icon and a word. A filled primary button is `primary` with `on-primary` text: cyan with near-black text in the dark mode, deep cyan with white text in the light mode. The focus ring is the acid tone in the dark mode and the ink magenta in the light mode: a colour nothing else in a control has.
+Status (success, warning, danger) always comes with an icon and a word. A filled primary button is `primary` with `on-primary` text: cyan with near-black text in the dark mode, deep cyan with white text in the light mode. The focus ring is violet in both modes: a colour nothing else in a control has.
 
-Type: a scale from 12 to 30 pixels in rem; Oxanium in capitals with wide tracking for navigation and small headings. Spacing is Tailwind's 4-pixel scale. Radii are 2 pixels where corners are square and an 8-pixel bevel on panels, buttons and tags. Glow has two strengths. Motion has two durations, both zero under reduced motion.
+Type: a scale from 12 to 30 pixels in rem; Geist for text and headings (headings at −0.01em), Geist Mono for code, Orbitron 700 for the wordmark only, and capitals with wide tracking for buttons, badges and small labels. Spacing is Tailwind's 4-pixel scale. Radii are 2 pixels where corners are square and an 8-pixel bevel on panels, buttons and tags. Depth is soft shadows (`lift`) in the light mode and neon glows in the dark mode; glow has two strengths. Motion has two durations, both zero under reduced motion.
 
 The values above are those of `frontend/src/styles/tokens.css`, which is the authority, with the contrast test (D6): a pair that fails it is changed there, and here.
 
 ## 6. The shell
 
-- **Header:** the wordmark, and at its end the search box, the mode switch and the user menu (or "Sign in"). From 1024 pixels the navigation is a row of its own under them, which wraps where its items do not fit in one line (plan 10b, A14).
-- **Navigation:** two areas, browsing and administration, each a list of items from the registry (D11). An area with no visible item is not shown. Below 1024 pixels the navigation is behind a menu button.
+- **Header:** sticky, above the content, with the search box, the mode switch and the user menu (or "Sign in"). Below 1024 pixels it also has the menu button and the wordmark.
+- **Sidebar:** from 1024 pixels, on the left: the wordmark, the navigation and a button that collapses it to a rail of icons, each named on hover and on keyboard focus. The choice is kept in `localStorage` and set by a script in the page's head before anything is painted.
+- **Drawer:** below 1024 pixels the navigation is a modal dialog behind the menu button. Below 768 pixels it also has the search box.
+- **Navigation:** two areas, browsing and administration, each a list of items from the registry (D11). An area with no visible item is not shown.
 - **A skip link** is the first thing focus reaches, and leads to the main content.
 - **The user menu:** the user's name, "Account" (plan 10b; it was "Change password"), and "Sign out".
 - **States:** a screen that is loading shows a skeleton of itself; one with nothing to show says so and what to do; one that failed shows the error (D15) and a way to try again.
@@ -313,7 +316,7 @@ A person's own account, and what an administrator does about people: users, role
 
 | # | What | Why |
 | --- | --- | --- |
-| A14 | In a wide window the navigation is a row of its own in the header, under the wordmark and the search box, and wraps where it does not fit. | With the administration's three items beside the browsing ones, the navigation ran under the search box, which then took the clicks meant for "Roles". Plan 10c adds more. A sidebar is the other way to do it, and is put to the product owner. |
+| A14 | In a wide window the navigation is a row of its own in the header, under the wordmark and the search box, and wraps where it does not fit. | With the administration's three items beside the browsing ones, the navigation ran under the search box, which then took the clicks meant for "Roles". Plan 10c adds more. A sidebar is the other way to do it, and is put to the product owner. Replaced by the sidebar of section 6 (MA-1). |
 | A15 | Whether an element is on the screen is asked of the browser in one place (`lib/browser.ts`), where a test can stand in for it. | A12 needs it, and the test environment lays nothing out. |
 | A16 | The rows of a role keep to themselves once they are shown: a pattern typed by hand stays a typed row, though it becomes one the lists could say. | Otherwise the field would turn into lists under the hands that are typing in it. |
 | A17 | A row that is added gets the keyboard. Where a thing that had the keyboard goes (a row removed, a token revoked, the panel of a token or a user that was just made), the keyboard is put at what is nearest to it: the button that adds, the list of tokens, the form's first field. | B11 of plan 10a, kept to. |

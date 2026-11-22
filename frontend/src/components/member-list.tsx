@@ -93,12 +93,12 @@ export function MemberList({
     >
       <legend className="label-caps mb-1 p-0 text-fg-muted">{legend}</legend>
       {hint ? (
-        <p id={`${id}-hint`} className="text-sm text-fg-subtle">
+        <p id={`${id}-hint`} className="text-sm text-fg-muted">
           {hint}
         </p>
       ) : null}
       <div className="flex flex-col gap-3">
-        {members.length === 0 ? <p className="text-sm text-fg-subtle">{t("none")}</p> : null}
+        {members.length === 0 ? <p className="text-sm text-fg-muted">{t("none")}</p> : null}
         <ol className="flex flex-col gap-2">
           {members.map((name, index) => (
             <li
@@ -106,7 +106,7 @@ export function MemberList({
               data-member={name}
               className="flex items-center gap-2 rounded-sm border border-line bg-field px-3 py-1.5"
             >
-              <span aria-hidden="true" className="w-6 shrink-0 font-mono text-sm text-fg-subtle">
+              <span aria-hidden="true" className="w-6 shrink-0 font-mono text-sm text-fg-muted">
                 {index + 1}
               </span>
               <span className="min-w-0 flex-1 font-mono text-sm break-all text-fg">{name}</span>
@@ -147,7 +147,7 @@ export function MemberList({
           ))}
         </ol>
         {candidates === null ? null : free.length === 0 ? (
-          <p className="text-sm text-fg-subtle">{t("nothingToAdd")}</p>
+          <p className="text-sm text-fg-muted">{t("nothingToAdd")}</p>
         ) : (
           <div className="flex flex-wrap items-end gap-3">
             <SelectField

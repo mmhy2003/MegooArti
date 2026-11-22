@@ -185,7 +185,7 @@ function Fetch() {
         <ol className="flex flex-col gap-4" aria-label={t("presented")}>
           {fetched.data.chain.map((certificate, index) => (
             <li key={certificate.fingerprint} className="rounded-sm border border-line p-4">
-              <p className="label-caps mb-3 text-fg-subtle">
+              <p className="label-caps mb-3 text-fg-muted">
                 {index === 0 ? t("own") : t("authority", { number: index })}
               </p>
               <Described certificate={certificate} />

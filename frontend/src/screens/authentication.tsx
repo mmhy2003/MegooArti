@@ -205,7 +205,7 @@ function Sources({ mayWrite }: { mayWrite: boolean }) {
       </Table>
       <div className="flex flex-col gap-3 p-4">
         {listed.length === 0 ? <p className="text-fg-muted">{t("noSources")}</p> : null}
-        <p className="text-sm text-fg-subtle">{t("order")}</p>
+        <p className="text-sm text-fg-muted">{t("order")}</p>
         {shownTest ? (
           <Alert tone={shownTest.ok ? "success" : "danger"} title={t("tested")}>
             {shownTest.message}

@@ -45,7 +45,7 @@ export function AccountNav() {
                 href={href}
                 aria-current={current ? "page" : undefined}
                 className={cn(
-                  "label-caps inline-flex min-h-10 items-center gap-2 rounded-sm border px-3",
+                  "inline-flex min-h-10 items-center gap-2 rounded-sm border px-3 text-sm font-medium",
                   current
                     ? "border-neon-cyan text-ink-cyan"
                     : "border-line-strong text-fg-muted hover:border-neon-cyan hover:text-fg",

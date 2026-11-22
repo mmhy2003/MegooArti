@@ -18,7 +18,8 @@ The first version.
   can be limited and can expire; anonymous access.
 - **Browsing, search, upload and delete** without a package client, through the API
   and the web UI.
-- **A web UI** for all of it, usable by keyboard, in light and dark, that fetches
+- **A web UI** for all of it, with its navigation in a sidebar that collapses to a
+  rail, usable by keyboard, in light and dark in the Cyberpunk palette, that fetches
   nothing from another host.
 - **Blob stores** on the file system, with identical content stored once.
 - **Docker Compose** for the whole installation, a database migrated at start, and
@@ -72,7 +73,6 @@ The first version.
     until the form is sent again;
   - a password made with "Generate one" is put into the field, and is not announced
     to a screen reader;
-  - at 1024 pixels of width the navigation takes three rows;
   - a notification covers the buttons under it for a few seconds;
   - a proxy's page does not say that saving it clears what it last met at its remote;
   - the hint under a proxy's secret says it may be left empty also after the kind of

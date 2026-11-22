@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test } from "vitest";
 
@@ -100,17 +100,67 @@ describe("the shell", () => {
     ]);
   });
 
-  test("has the navigation in a row of its own, which wraps where it does not fit", () => {
+  test("has the navigation in a sidebar beside the content, and search in the header", () => {
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
-    const [wide] = screen.getAllByRole("navigation", { name: "Main" });
+    const [nav] = screen.getAllByRole("navigation", { name: "Main" });
+    const banner = screen.getByRole("banner");
 
-    // Not beside the search box, where an administrator's items ran under it.
-    expect(wide?.querySelector('[role="search"]')).toBeNull();
-    expect(wide?.closest("header > div")).toBeNull();
-    expect(within(wide as HTMLElement).getAllByRole("list")[0]).toHaveClass("lg:flex-wrap");
+    expect(nav?.closest("#sidebar")).not.toBeNull();
+    expect(within(banner).queryByRole("navigation", { name: "Main" })).toBeNull();
+    expect(screen.getByRole("main").closest("#sidebar")).toBeNull();
+    expect(
+      within(banner).getAllByRole("search", { name: "Search components", hidden: true })[0],
+    ).toBeInTheDocument();
   });
 
-  test("has the search box in its header, and in the navigation of a narrow window", async () => {
+  test("collapses to a rail that keeps every link's name, and remembers it (decision 4)", async () => {
+    const user = userEvent.setup();
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const collapse = screen.getByRole("button", { name: "Collapse the navigation" });
+    const sidebar = document.getElementById("sidebar") as HTMLElement;
+
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    expect(collapse).toHaveAttribute("aria-controls", "sidebar");
+
+    await user.click(collapse);
+
+    const expand = screen.getByRole("button", { name: "Expand the navigation" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    expect(document.documentElement).toHaveAttribute("data-sidebar", "rail");
+    expect(window.localStorage.getItem("megooarti-sidebar")).toBe("rail");
+    // Only their names are out of sight: a screen reader still hears them.
+    expect(within(sidebar).getByRole("link", { name: "Repositories" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("link", { name: "Audit log" })).toBeInTheDocument();
+
+    await user.click(expand);
+
+    expect(document.documentElement).not.toHaveAttribute("data-sidebar");
+    expect(window.localStorage.getItem("megooarti-sidebar")).toBeNull();
+    expect(screen.getByRole("button", { name: "Collapse the navigation" })).toBeVisible();
+  });
+
+  test("starts as a rail when that was chosen before", () => {
+    window.localStorage.setItem("megooarti-sidebar", "rail");
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+
+    expect(screen.getByRole("button", { name: "Expand the navigation" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  test("shows a link's name beside it in the rail, on keyboard focus", async () => {
+    window.localStorage.setItem("megooarti-sidebar", "rail");
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const sidebar = document.getElementById("sidebar") as HTMLElement;
+    const search = within(sidebar).getByRole("link", { name: "Search" });
+
+    act(() => search.focus());
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Search");
+  });
+
+  test("has the search box in its header, and in the drawer of a narrow window", async () => {
     const user = userEvent.setup();
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
     const boxes = within(screen.getByRole("banner")).getAllByRole("search", {
@@ -118,10 +168,15 @@ describe("the shell", () => {
       hidden: true,
     });
 
-    expect(boxes).toHaveLength(2); // one is shown, by the width of the window
+    expect(boxes).toHaveLength(1); // the drawer's is there only while it is open
     expect(boxes[0]).toHaveClass("hidden", "md:block");
-    expect(boxes[1]).toHaveClass("md:hidden");
-    expect(boxes[1]?.closest("#narrow-navigation")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Open the navigation" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("search", { name: "Search components" })).toHaveClass(
+      "md:hidden",
+    );
+    await user.keyboard("{Escape}");
 
     await user.type(within(boxes[0] as HTMLElement).getByRole("searchbox"), "guava{Enter}");
     expect(navigation.router.push).toHaveBeenCalledWith("/search?q=guava");
@@ -135,26 +190,68 @@ describe("the shell", () => {
     expect(screen.getAllByText("Browse")[0]).toBeVisible();
   });
 
-  test("opens its navigation from a button where the window is narrow (UI-3)", async () => {
+  test("opens its navigation in a drawer from a button where the window is narrow (UI-3)", async () => {
     const user = userEvent.setup();
     renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
     const button = screen.getByRole("button", { name: "Open the navigation" });
-    const narrow = document.getElementById("narrow-navigation");
 
     expect(button).toHaveAttribute("aria-expanded", "false");
-    expect(narrow).not.toBeVisible();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(button);
 
-    expect(screen.getByRole("button", { name: "Close the navigation" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(narrow).toBeVisible();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const dialog = screen.getByRole("dialog");
+    const nav = within(dialog).getByRole("navigation", { name: "Main" });
+    expect(within(dialog).getByRole("button", { name: "Close the navigation" })).toBeVisible();
+    await expectAccessible();
 
-    await user.click(within(narrow as HTMLElement).getByRole("link", { name: "Repositories" }));
+    await user.click(within(nav).getByRole("link", { name: "Repositories" }));
 
-    expect(narrow).not.toBeVisible(); // following a link closes it
+    expect(screen.queryByRole("dialog")).toBeNull(); // following a link closes it
+  });
+
+  test("closes the drawer by its button, by Escape and by a click outside", async () => {
+    const user = userEvent.setup();
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+    const open = screen.getByRole("button", { name: "Open the navigation" });
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Close the navigation" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await user.click(open);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await user.click(document.querySelector("[data-drawer-scrim]") as HTMLElement);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("closes the drawer when the window grows wide enough for the sidebar", async () => {
+    const user = userEvent.setup();
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: (_: string, callback: (event: MediaQueryListEvent) => void) => {
+          if (query.includes("1024")) listener = callback;
+        },
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
+    renderUi(<AppShell session={ADMIN}>Content</AppShell>, { session: ADMIN });
+
+    await user.click(screen.getByRole("button", { name: "Open the navigation" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+
+    act(() => listener?.({ matches: true } as MediaQueryListEvent));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   test("has no navigation for whoever must change their password first", () => {
@@ -169,6 +266,8 @@ describe("the shell", () => {
     expect(screen.queryByRole("navigation")).toBeNull();
     expect(screen.queryByRole("search")).toBeNull(); // nothing can be searched for yet
     expect(screen.queryByRole("button", { name: "Open the navigation" })).toBeNull();
+    expect(document.getElementById("sidebar")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Collapse the navigation" })).toBeNull();
     expect(screen.getByRole("button", { name: "Account of Ada Admin" })).toBeVisible();
   });
 });

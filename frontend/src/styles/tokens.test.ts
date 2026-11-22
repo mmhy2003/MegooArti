@@ -35,23 +35,12 @@ function contrast(one: string, other: string): number {
 const MODES = { dark: tokensOf("dark"), light: tokensOf("light") };
 const SURFACES = ["page", "panel", "raised", "field"];
 // What is read: 4.5 to 1 on every surface it may stand on (WCAG 2.1 AA, 1.4.3).
-const TEXT = [
-  "fg",
-  "fg-muted",
-  "fg-subtle",
-  "ink-cyan",
-  "ink-magenta",
-  "ink-acid",
-  "ink-ok",
-  "ink-warn",
-  "ink-bad",
-];
+const TEXT = ["fg", "fg-muted", "ink-cyan", "ink-violet", "ink-ok", "ink-warn", "ink-bad"];
 // What is seen, not read: borders of controls, icons, the focus ring. 3 to 1 (1.4.11).
 const SEEN = [
   "line-strong",
   "neon-cyan",
-  "neon-magenta",
-  "neon-acid",
+  "neon-violet",
   "ok",
   "warn",
   "bad",
@@ -72,6 +61,83 @@ function colour(tokens: Tokens, name: string): string {
   }
   return value;
 }
+
+// The KB's "Cyberpunk Theme", rev 3, under this project's names (MA-1). The light mode's
+// ink-cyan, ink-ok, ink-warn and ink-bad are left out: they are the KB's colour darkened
+// by the least that can be read on every surface.
+const KB: Record<"light" | "dark", Tokens> = {
+  light: {
+    page: "#f6f3ff",
+    panel: "#ffffff",
+    raised: "#ece6ff",
+    field: "#ffffff",
+    line: "#d6ccf5",
+    "line-strong": "#6b5f99",
+    fg: "#1a0b3d",
+    "fg-muted": "#6b5f99",
+    primary: "#007a8f",
+    "on-primary": "#ffffff",
+    danger: "#d4004f",
+    "on-danger": "#ffffff",
+    "neon-cyan": "#0090a8",
+    "neon-violet": "#6d28d9",
+    "ink-violet": "#6d28d9",
+    ok: "#1f8f2c",
+    warn: "#a16207",
+    bad: "#d4004f",
+    focus: "#6d28d9",
+    grid: "rgba(80, 40, 200, 0.06)",
+  },
+  dark: {
+    page: "#0e0f13",
+    panel: "#17191f",
+    raised: "#121318",
+    field: "#0e0f13",
+    line: "#2a2d36",
+    "line-strong": "#8e94a3",
+    fg: "#eceef3",
+    "fg-muted": "#8e94a3",
+    primary: "#22e4ff",
+    "on-primary": "#0e0f13",
+    danger: "#ff3d81",
+    "on-danger": "#0e0f13",
+    "neon-cyan": "#22e4ff",
+    "ink-cyan": "#22e4ff",
+    "neon-violet": "#c084fc",
+    "ink-violet": "#c084fc",
+    ok: "#5bff9a",
+    "ink-ok": "#5bff9a",
+    warn: "#ffe14d",
+    "ink-warn": "#ffe14d",
+    bad: "#ff3d81",
+    "ink-bad": "#ff3d81",
+    focus: "#c084fc",
+    grid: "rgba(255, 255, 255, 0.03)",
+  },
+};
+// What the light mode's ink tones were darkened from.
+const KB_INK = {
+  "ink-cyan": "#007a8f",
+  "ink-ok": "#1a7a27",
+  "ink-warn": "#a16207",
+  "ink-bad": "#d4004f",
+};
+
+test.each(["light", "dark"] as const)("the %s mode has the KB theme's colours", (mode) => {
+  const ours = Object.fromEntries(Object.keys(KB[mode]).map((name) => [name, MODES[mode][name]]));
+  expect(ours).toEqual(KB[mode]);
+});
+
+test.each(Object.entries(KB_INK))("the light %s is the KB's, or darker", (name, theirs) => {
+  expect(luminance(colour(MODES.light, name))).toBeLessThanOrEqual(luminance(theirs));
+});
+
+test("there is one secondary text tone, and no magenta or acid", () => {
+  for (const gone of ["fg-subtle", "neon-magenta", "ink-magenta", "neon-acid", "ink-acid"]) {
+    expect(Object.keys(MODES.dark)).not.toContain(gone);
+    expect(Object.keys(MODES.light)).not.toContain(gone);
+  }
+});
 
 describe.each(Object.entries(MODES))("the %s mode", (_mode, tokens) => {
   test.each(TEXT.flatMap((text) => SURFACES.map((surface) => [text, surface] as const)))(
