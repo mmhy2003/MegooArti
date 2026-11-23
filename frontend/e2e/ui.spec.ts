@@ -1518,6 +1518,7 @@ test("a group is made of members in an order set by keyboard, and answers throug
 });
 
 test("an APT repository is made with its suite, signs with a key replaced only after asking, and says how a machine uses it", async () => {
+  test.slow();
   await page.goto("/admin/repositories/~new");
   await page.getByLabel("Format").selectOption("apt");
   await page.getByLabel("Name", { exact: true }).fill(DEBS);
@@ -1550,8 +1551,10 @@ test("an APT repository is made with its suite, signs with a key replaced only a
     `Every machine that uses ${DEBS} must install the new public key`,
   );
   await dialog.getByRole("button", { name: "Generate a new key" }).click();
+  // An RSA key of 4096 bits takes a slow machine many seconds to make.
   await expect(page.getByRole("region", { name: "Notifications" })).toContainText(
     `${DEBS} signs with a new key.`,
+    { timeout: 90_000 },
   );
   const replaced = await key();
   expect(replaced.fingerprint).not.toBe(made.fingerprint);
