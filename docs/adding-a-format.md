@@ -46,8 +46,8 @@ raises.
    `backend/tests/test_documents.py`. A test fails until every registered format has
    a guide that names them.
 6. **If its clients reach it at an address of its own**, as Docker's do at `/v2/`,
-   send that address to the backend in `gateway/nginx.conf`, and add it to the table
-   in [Installation](installation.md#behind-your-own-reverse-proxy).
+   add the path to the `@backend` matcher in `gateway/Caddyfile`, and add it to
+   the table in [Installation](installation.md#behind-your-own-reverse-proxy).
 
 ## What a format says of itself
 

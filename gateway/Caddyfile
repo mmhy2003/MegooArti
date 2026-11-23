@@ -1,0 +1,42 @@
+# The one address of a MegooArti installation, over plain HTTP on port 80.
+#
+# The API, the repositories, the registry, MCP and its OAuth go to the backend. Everything else is the web UI.
+# TLS is your own reverse proxy's, in front of this or in its place: these are the rules to copy.
+# docs/installation.md says what each is for.
+{
+	# Plain HTTP only: no certificate is asked for, and nothing listens on 443.
+	auto_https off
+	servers {
+		# Every peer is trusted with X-Forwarded-For, so Caddy adds the address it sees at the right of what
+		# came instead of replacing it. The backend reads it from the right, past the proxies an administrator
+		# trusts (none, unless set): what a client wrote there itself is never believed.
+		trusted_proxies static 0.0.0.0/0 ::/0
+	}
+}
+
+# What both upstreams are sent, and how.
+(upstream) {
+	# Caddy's own scheme, never what the client says. Host goes on as the client sent it (Caddy's default).
+	header_up X-Forwarded-Proto {scheme}
+	# An answer goes to the client as the upstream produces it. A request body has no size limit and goes on
+	# as it arrives: Caddy streams it by default.
+	flush_interval -1
+	# A proxy repository may wait this long for its remote.
+	transport http {
+		response_header_timeout 600s
+		read_timeout 600s
+		write_timeout 600s
+	}
+}
+
+:80 {
+	# No address is rewritten: the request's own path goes on exactly as it was sent. An npm scope is an
+	# encoded slash and must stay one.
+	@backend path /api/* /repository/* /v2/* /mcp* /.well-known/* /oauth/*
+	reverse_proxy @backend backend:8000 {
+		import upstream
+	}
+	reverse_proxy frontend:3000 {
+		import upstream
+	}
+}

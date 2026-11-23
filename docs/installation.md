@@ -1,16 +1,19 @@
 # Installation
 
-MegooArti is installed with Docker Compose, from this repository: the images are built
-on the machine that runs them. It needs Docker with Compose (`docker compose`, version
-2.1.1 or later, which has `up --wait`), and nothing else: the database is one of its
+MegooArti is installed with Docker Compose. Its images are pulled from GitHub's
+registry, `ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend`;
+an installation runs from this repository, or from just three of its files:
+`docker-compose.yml`, `gateway/Caddyfile` and `.env.example`, laid out as they are
+here. It needs Docker with Compose (`docker compose`, version 2.1.1 or
+later, which has `up --wait`), and nothing else: the database is one of its
 containers.
 
 ## What runs
 
 Compose starts four containers: the database (PostgreSQL), the backend, the frontend,
-and a gateway (nginx) that is the one published address and sends each request to the
-backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
-development and testing. In production, put
+and a gateway (Caddy) that is the one published address, on port 80, and sends each
+request to the backend or the frontend. The gateway speaks plain HTTP: as it is, it is
+for development and testing. In production, put
 [your own reverse proxy](#behind-your-own-reverse-proxy), with TLS, in front of it or
 in its place.
 
@@ -30,7 +33,9 @@ and choose, in `.env`:
 - **`MEGOOARTI_DB_PASSWORD`**, the database's password. Nothing starts without it. It
   is set when the database is first made: changing it later changes nothing in a
   database that exists.
-- **`MEGOOARTI_HTTP_PORT`**, if the gateway is not to be at port 8000.
+- **`MEGOOARTI_HTTP_PORT`**, if the gateway is not to be at port 80: where something
+  on this machine has port 80 already, or under rootless Docker, which may not
+  publish a port below 1024. `MEGOOARTI_HTTP_PORT=8080` puts it at port 8080.
 - **`MEGOOARTI_DB_PORT`**, if something on this machine has port 5432 already: the
   database is published there, on `127.0.0.1` only, and nothing starts while the port
   is taken.
@@ -39,23 +44,24 @@ and choose, in `.env`:
 
 [Configuration](configuration.md) has every variable.
 
+### Choosing a version
+
+Without `MEGOOARTI_VERSION`, an installation runs `latest`, the newest
+[release](https://github.com/mmhy2003/MegooArti/releases), and `docker compose pull`
+moves it to the next one. To upgrade only when you choose to, pin a release in `.env`
+(`MEGOOARTI_VERSION=0.1.0`): [Upgrading](upgrade.md) then means changing it.
+
 ## Starting
 
 ```bash
-docker compose up --build --detach --wait
-curl http://localhost:8000/api/v1/status/ready
+docker compose pull
+docker compose up --detach --wait
+curl http://localhost/api/v1/status/ready
 ```
 
-The second command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
-The web UI is at <http://localhost:8000>, and the API's documentation at
-<http://localhost:8000/api/docs>.
-
-On Windows, run Compose from the repository's path with its drive letter as a capital
-(`cd C:\path\to\MegooArti`). From `c:\...`, which is where a VS Code terminal may
-open, Docker Compose 5 stops the build with `additional privileges requested: pass
-"--allow=fs.read=backend\\Dockerfile"`: it writes the drive letter of the build's
-directory one way and of its Dockerfile the other, and Bake takes the Dockerfile
-for a file outside the build.
+The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
+The web UI is at <http://localhost>, and the API's documentation at
+<http://localhost/api/docs>.
 
 A new installation has one blob store, `default`, and no repository:
 [Repositories](repositories.md) makes the first.
@@ -77,18 +83,18 @@ In Git Bash on Windows, write the path with two slashes at its start
 The password is also in the line of `docker compose logs backend` that says
 `initial_admin_password`.
 
-Sign in with it, as `admin`, at <http://localhost:8000>. You must then choose a new
+Sign in with it, as `admin`, at <http://localhost>. You must then choose a new
 password, after which the file is deleted. The same with `curl`:
 
 ```bash
 curl -c cookies.txt -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<the generated password>"}' \
-  http://localhost:8000/api/v1/auth/login
+  http://localhost/api/v1/auth/login
 
 curl -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   -H 'X-CSRF-Token: <the csrf_token of the first answer>' \
   -d '{"current_password":"<the generated password>","new_password":"<one of your own>"}' \
-  http://localhost:8000/api/v1/me/password
+  http://localhost/api/v1/me/password
 ```
 
 The first answer contains a `csrf_token`. Requests that use the session cookie and
@@ -127,7 +133,7 @@ of the web UI, or:
 ```bash
 curl -u admin -X PUT -H 'Content-Type: application/json' \
   -d '{"base_url":"https://repo.example.com"}' \
-  http://localhost:8000/api/v1/settings/base-url
+  http://localhost/api/v1/settings/base-url
 ```
 
 It is an `http` or `https` address without a user name, a password, a query or a
@@ -148,7 +154,7 @@ One address serves everything, and each request goes to the right service:
 | `/oauth/` | backend, port 8000 | Where they register, and trade a code for tokens |
 | everything else | frontend, port 3000 | The web UI |
 
-[gateway/nginx.conf](../gateway/nginx.conf) does that: it is what Compose runs, and
+[gateway/Caddyfile](../gateway/Caddyfile) does that: it is what Compose runs, and
 the real-client tests of this project (Maven, npm, pip, Docker and a browser) pass
 through it. It speaks plain HTTP, so something of yours terminates TLS, in one of two
 places.
@@ -157,7 +163,7 @@ places.
 in it changes. Your proxy sends every request to the gateway's port, and:
 
 1. The gateway is published where only your proxy reaches it. For a proxy on the
-   same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8000` in `.env` publishes it on that
+   same machine, `MEGOOARTI_HTTP_PORT=127.0.0.1:8080` in `.env` publishes it on that
    machine alone.
 2. Your proxy is trusted: add its address (or its network) under Administration,
    Authentication, Trusted proxies, or at `PUT /api/v1/settings/trusted-proxies`. The
@@ -167,14 +173,15 @@ in it changes. Your proxy sends every request to the gateway's port, and:
    all of them share one limit of failed sign-ins, and the log names the proxy for
    each. What a client writes in `X-Forwarded-For` itself is never believed.
 3. For the backend to know that clients came by HTTPS, the gateway passes on what your
-   proxy says, in `gateway/nginx.conf`:
+   proxy says: remove this line from `gateway/Caddyfile`,
 
-   ```nginx
-   proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+   ```caddy
+   header_up X-Forwarded-Proto {scheme}
    ```
 
-   and then `docker compose up --detach --force-recreate gateway`. Or set the
-   [base URL](#the-base-url), from which the backend writes its addresses.
+   and Caddy sends on the `X-Forwarded-Proto` your proxy sets (it trusts every peer
+   with it). Then run `docker compose up --detach --force-recreate gateway`. Or set
+   the [base URL](#the-base-url), from which the backend writes its addresses.
 
 **In the gateway's place.** Your proxy does what the gateway does, by the table
 above. The Compose file has to be changed for that: it publishes neither the backend
@@ -186,25 +193,35 @@ proxy's requests come from.
 Either way, your proxy must do what the gateway does towards the backend:
 
 - **Pass the path on exactly as it was sent.** An npm scope arrives as an encoded
-  slash (`@scope%2fname`) and must stay one. In nginx that means `proxy_pass` with no
-  path after the address.
-- **Put no limit on the size of a body** (`client_max_body_size 0`), and do not buffer
-  it: an artifact can be gigabytes, and goes to the backend as it arrives
-  (`proxy_request_buffering off`). Do not buffer answers either
-  (`proxy_buffering off`).
+  slash (`@scope%2fname`) and must stay one. In Caddy that means no `rewrite`, `uri`
+  or `handle_path` (in nginx, `proxy_pass` with no path after the address).
+- **Put no limit on the size of a body**, and do not buffer it: an artifact can be
+  gigabytes, and goes to the backend as it arrives. Caddy does both by default: set
+  no `max_size` and no `request_buffers` (in nginx, `client_max_body_size 0` and
+  `proxy_request_buffering off`). Do not buffer answers either: `flush_interval -1`
+  (in nginx, `proxy_buffering off`).
 - **Wait long enough.** A proxy repository may take minutes to fetch a large file
-  from its remote before the first byte comes back (`proxy_read_timeout 600s`).
-- **Speak HTTP/1.1 to the backend** (`proxy_http_version 1.1`), so that a body of
-  unknown length can be passed on as it arrives.
+  from its remote before the first byte comes back: `response_header_timeout`,
+  `read_timeout` and `write_timeout` of `600s` in the `http` transport (in nginx,
+  `proxy_read_timeout 600s` and `proxy_send_timeout 600s`).
+- **Speak HTTP/1.1 to the backend**, so that a body of unknown length can be passed
+  on as it arrives. Caddy does by default (in nginx, `proxy_http_version 1.1`).
 - **Send `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`.** The backend writes
   the addresses it gives to clients (tarball links, the registry's token address)
   from them, unless the base URL is set in the system settings. It believes them
-  only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`.
-- **Add the address you see to `X-Forwarded-For`** (`$proxy_add_x_forwarded_for` in
-  nginx), as the gateway does. The backend reads it from the right, past the trusted
-  proxies only: the address before the first one it does not trust is the client's, by
-  which it counts failed sign-ins and which it logs. Trust the proxies in front of
-  yours under Administration, Authentication, Trusted proxies.
+  only from the addresses in `MEGOOARTI_FORWARDED_ALLOW_IPS`. Caddy sends all three,
+  `Host` as the client sent it; the gateway sets `X-Forwarded-Proto` to its own
+  scheme (`header_up X-Forwarded-Proto {scheme}`). In nginx that is
+  `proxy_set_header` for each, with `$http_host`, `$proxy_add_x_forwarded_for` and
+  `$scheme`.
+- **Add the address you see to `X-Forwarded-For`**, as the gateway does. Without
+  `trusted_proxies`, Caddy replaces the header with the address it sees: the gateway
+  trusts every peer with it (`trusted_proxies static 0.0.0.0/0 ::/0`) so that it is
+  added to instead (in nginx, `$proxy_add_x_forwarded_for`). The backend reads it from
+  the right, past the trusted proxies only: the address before the first one it does
+  not trust is the client's, by which it counts failed sign-ins and which it logs.
+  Trust the proxies in front of yours under Administration, Authentication, Trusted
+  proxies.
 - **Terminate TLS**, and add `Strict-Transport-Security` if you want it. The frontend
   leaves compression to you as well.
 

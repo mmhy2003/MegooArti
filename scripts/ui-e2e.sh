@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 export COMPOSE_ENV_FILES="$PWD/backend/tests/compose.env"
 stack() {
   docker compose --project-name "$MEGOO_SERVICES_PROJECT" \
-    -f docker-compose.yml -f tools/test-services/ui.yml "$@"
+    -f docker-compose.yml -f docker-compose.build.yml -f tools/test-services/ui.yml "$@"
 }
 
 # The password the backend made for admin when it first started.

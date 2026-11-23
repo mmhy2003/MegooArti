@@ -5,7 +5,7 @@
 
 [services.ui]
 description = "The whole installation, built from this tree, fresh for the web UI's browser tests"
-compose = ["docker-compose.yml", "tools/test-services/ui.yml"]
+compose = ["docker-compose.yml", "docker-compose.build.yml", "tools/test-services/ui.yml"]
 ports = ["MEGOOARTI_HTTP_PORT", "MEGOOARTI_DB_PORT"]
 
 [services.ui.env]

@@ -1,0 +1,20 @@
+# Builds MegooArti's images from this checkout instead of pulling the published ones:
+# for development and the tests (make up, megoocolab.toml, backend/tests/containers.py).
+# Use it on top of the main file:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build --detach --wait
+# What it builds is tagged dev unless MEGOOARTI_VERSION says otherwise, and never latest:
+# that is a release's, and a build of whatever is checked out must not stand in for one.
+services:
+  backend:
+    image: ghcr.io/mmhy2003/megooarti-backend:${MEGOOARTI_VERSION:-dev}
+    build:
+      context: ./backend
+      args:
+        VERSION: ${MEGOOARTI_VERSION:-dev}
+
+  frontend:
+    image: ghcr.io/mmhy2003/megooarti-frontend:${MEGOOARTI_VERSION:-dev}
+    build:
+      context: ./frontend
+      args:
+        VERSION: ${MEGOOARTI_VERSION:-dev}

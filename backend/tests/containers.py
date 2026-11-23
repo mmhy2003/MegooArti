@@ -24,6 +24,10 @@ ENVIRONMENT = {
     # Not the .env beside the Compose file: what a developer's own installation is
     # given, a secret key for one, must not decide what the tests' stack is.
     "COMPOSE_ENV_FILES": str(BACKEND_DIR / "tests" / "compose.env"),
+    # Built from this checkout, not pulled. The scripts the tests run see it too.
+    "COMPOSE_FILE": os.pathsep.join(
+        str(REPOSITORY_ROOT / name) for name in ("docker-compose.yml", "docker-compose.build.yml")
+    ),
 }
 DATA_FILE = "/var/lib/megooarti/admin.password"
 

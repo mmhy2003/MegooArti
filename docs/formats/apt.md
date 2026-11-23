@@ -10,7 +10,7 @@ of its own:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apt-hosted", "format": "apt", "type": "hosted",
   "format_config": {"suite": "stable"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u ci --upload-file megooarti-hello_1.0_all.deb https://repo.example.com/repository/apt-hosted/
 ```
@@ -39,7 +39,7 @@ signatures, with the keyring it already has:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apt-debian", "format": "apt", "type": "proxy",
   "proxy": {"remote_url": "http://deb.debian.org/debian"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://repo.example.com/repository/apt-debian trixie main" \
   > /etc/apt/sources.list.d/debian.list
@@ -64,12 +64,12 @@ jq -n --arg keys "$keys" '{
   proxy: {remote_url: "http://deb.debian.org/debian"},
   format_config: {remote_keys: $keys}
 }' | curl -u admin -H 'Content-Type: application/json' -d @- \
-  http://localhost:8000/api/v1/repositories
+  http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apt-public", "format": "apt", "type": "group",
   "group": {"members": ["apt-hosted", "apt-debian"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 On each machine, the group's key and a line for each suite:

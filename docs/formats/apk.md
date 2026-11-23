@@ -11,7 +11,7 @@ of your choosing (`v3.24/main/x86_64/`). It writes each directory's
 ```bash
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apk-hosted", "format": "apk", "type": "hosted"
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u ci --upload-file megooarti-hello-1.0-r0.apk \
   https://repo.example.com/repository/apk-hosted/v3.24/main/x86_64/
@@ -39,7 +39,7 @@ keys it already has:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apk-alpine", "format": "apk", "type": "proxy",
   "proxy": {"remote_url": "https://dl-cdn.alpinelinux.org/alpine"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 echo "https://repo.example.com/repository/apk-alpine/v3.24/main" > /etc/apk/repositories
 ```
@@ -111,12 +111,12 @@ jq -n --arg keys "$keys" '{
   proxy: {remote_url: "https://dl-cdn.alpinelinux.org/alpine"},
   format_config: {remote_keys: $keys}
 }' | curl -u admin -H 'Content-Type: application/json' -d @- \
-  http://localhost:8000/api/v1/repositories
+  http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "apk-public", "format": "apk", "type": "group",
   "group": {"members": ["apk-hosted", "apk-alpine"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 On each machine, the group's key, under the name apk finds it by, and the group in

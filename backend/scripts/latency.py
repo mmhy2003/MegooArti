@@ -3,7 +3,7 @@
 Run from the backend/ directory, against an installation that is running, with an API
 token of an administrator. Against the Compose stack of this repository:
 
-    uv run python scripts/latency.py --url http://localhost:8000 --token mga_... \\
+    uv run python scripts/latency.py --url http://localhost --token mga_... \\
         --network megooarti_default --inside-url http://gateway
 
 It makes a repository of each format, named `latency-...`, and puts one small thing

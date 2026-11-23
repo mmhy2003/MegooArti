@@ -1,24 +1,27 @@
 # Upgrading
 
-An upgrade is a new build of the two images, started on the database and the data
-directory that are there. The backend brings the database to its version when it
-starts.
+An upgrade pulls the new version's images and starts them on the database and the
+data directory that are there. The backend brings the database to its version when
+it starts.
 
-1. Read the [changelog](../CHANGELOG.md) for the version: it says what a caller of
+1. Read the version's [release note](releases/): it says what a caller of
    the API and an operator must know, and whether there is something to do afterwards.
 2. [Back up](backup.md). A backup made just before is the way back.
-3. Get the version's sources (`git pull`, or a checkout of the version you want),
-   then build and start:
+3. Get the version's Compose file and Caddyfile (`git pull`, or
+   `git checkout vX.Y.Z` for an exact version). If your `.env` pins
+   `MEGOOARTI_VERSION`, change it to the new version.
+4. Pull and start:
 
    ```bash
-   docker compose up --build --detach --wait
-   curl http://localhost:8000/api/v1/status/ready
+   docker compose pull && docker compose up --detach --wait
+   curl http://localhost/api/v1/status/ready
    ```
 
-Both images have one version, which `docker compose build` tags them with
-(`MEGOOARTI_VERSION` to choose another tag). If your `.env` sets `MEGOOARTI_VERSION`,
-change it with the version: otherwise the new build takes the old tag, and the image
-of the version you came from no longer has it.
+Both images have one version, the tag Compose pulls. Without `MEGOOARTI_VERSION` it is
+`latest`, which is whatever was released last: every `docker compose pull` may bring a
+new version, and with it a migration. Pinning a release in `.env`
+(`MEGOOARTI_VERSION=0.1.0`) makes an upgrade happen only when you change it, and is
+what lets you go back.
 
 ## What happens to the database
 
@@ -56,9 +59,10 @@ the migration, and the older version does not start: its entrypoint finds a revi
 it does not know (`Can't locate revision identified by ...`, in
 `docker compose logs backend`) and the container exits. The gateway then answers
 `502` for the API and the repositories, while the pages of the web UI still load.
-To go back, restore the backup made before the upgrade into an installation of the
-older version, as [Backup and restore](backup.md) says. What was stored after that
-backup is not in it.
+To go back, set `MEGOOARTI_VERSION` to the older version, restore the backup made
+before the upgrade, as [Backup and restore](backup.md) says, and start that version
+(`docker compose pull && docker compose up --detach --wait`). What was stored after
+that backup is not in it.
 
 ## After an upgrade
 
@@ -66,7 +70,7 @@ backup is not in it.
   administrator) goes through a repository again: every file is given to the
   component its path says it belongs to, and every component's words are written
   again. It answers with how many files and components it looked at and changed.
-  Run it for a repository when the changelog of a version says that what was
+  Run it for a repository when a version's release note says that what was
   stored before is to be gone through again. The work is done in the request, a
   piece at a time, and takes minutes on a large
   repository. It is safe to repeat: if the request is cut off, for example by a

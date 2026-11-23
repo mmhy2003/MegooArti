@@ -1,0 +1,61 @@
+name: CI
+
+# The fast checks, on every push and pull request. The release workflow runs them too (workflow_call) before it
+# publishes anything. The real-client suite (pytest -m docker) is run by hand before a release: docs/releasing.md.
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      # what the tests expect by default (MEGOOARTI_TEST_DATABASE_URL in tests/conftest.py)
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: megooarti
+          POSTGRES_PASSWORD: megooarti
+          POSTGRES_DB: megooarti
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U megooarti -d megooarti"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+      - run: python ../tools/release/versions.py check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      # pnpm in the version package.json names (packageManager)
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build

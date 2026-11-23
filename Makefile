@@ -12,7 +12,7 @@ ARGS ?=
 
 help:
 	$(info The stack, under Docker Compose:)
-	$(info make up                Build the images and start the stack, waiting until it is healthy)
+	$(info make up                Build the images from this checkout and start the stack)
 	$(info make down              Stop the stack and remove its containers; the data stays)
 	$(info make ps                What is running)
 	$(info make logs              Follow the logs, of SERVICE=backend alone if it is given)
@@ -29,7 +29,7 @@ help:
 	@exit 0
 
 up:
-	docker compose up --build --detach --wait
+	docker compose -f docker-compose.yml -f docker-compose.build.yml up --build --detach --wait
 
 down:
 	docker compose down

@@ -7,7 +7,7 @@ what is this format's own.
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "npm-hosted", "format": "npm", "type": "hosted",
   "hosted": {"deployment_policy": "disable_redeploy"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 Point npm at it and sign in. `npm login` asks for a user name and a password, and
@@ -33,12 +33,12 @@ ones behind one address:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "npm-proxy", "format": "npm", "type": "proxy",
   "proxy": {"remote_url": "https://registry.npmjs.org"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "npm-public", "format": "npm", "type": "group",
   "group": {"members": ["npm-hosted", "npm-proxy"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 Install through the group and publish to the hosted repository. In `.npmrc`:

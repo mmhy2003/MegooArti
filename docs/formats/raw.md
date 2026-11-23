@@ -7,11 +7,11 @@ all of them is all there is to say of this one.
 ```bash
 curl -u admin -H 'Content-Type: application/json' \
   -d '{"name":"files","format":"raw","type":"hosted"}' \
-  http://localhost:8000/api/v1/repositories
+  http://localhost/api/v1/repositories
 
-curl -u admin -T ./build/app.tar.gz http://localhost:8000/repository/files/releases/app.tar.gz
-curl -u admin -O http://localhost:8000/repository/files/releases/app.tar.gz
-curl -u admin -X DELETE http://localhost:8000/repository/files/releases/app.tar.gz
+curl -u admin -T ./build/app.tar.gz http://localhost/repository/files/releases/app.tar.gz
+curl -u admin -O http://localhost/repository/files/releases/app.tar.gz
+curl -u admin -X DELETE http://localhost/repository/files/releases/app.tar.gz
 ```
 
 - **Any HTTP client is its client**: `PUT` stores a file (`201` for a new path, `204`

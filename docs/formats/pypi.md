@@ -7,7 +7,7 @@ what is this format's own.
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "pypi-hosted", "format": "pypi", "type": "hosted",
   "hosted": {"deployment_policy": "disable_redeploy"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 Upload to the repository's address, with the slash at its end, and install from
@@ -28,12 +28,12 @@ one address:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "pypi-proxy", "format": "pypi", "type": "proxy",
   "proxy": {"remote_url": "https://pypi.org"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "pypi-public", "format": "pypi", "type": "group",
   "group": {"members": ["pypi-hosted", "pypi-proxy"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 Install through the group, and upload to the hosted repository:

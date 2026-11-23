@@ -1,19 +1,20 @@
 """Checks of the Compose file that need no Docker daemon."""
 
+import os
 import re
 from pathlib import Path
 
 import pytest
 import yaml
 
-from megooarti import __version__
 from megooarti.config import Settings
 
 COMPOSE_FILE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+BUILD_FILE = COMPOSE_FILE.parent / "docker-compose.build.yml"
 
 
-def services() -> dict:
-    return yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]
+def services(file: Path = COMPOSE_FILE) -> dict:
+    return yaml.safe_load(file.read_text(encoding="utf-8"))["services"]
 
 
 def test_database_is_published_on_the_loopback_interface_only():
@@ -29,7 +30,9 @@ def test_container_stop_period_outlasts_the_application_shutdown_grace():
     assert int(stop_period.removesuffix("s")) > app_default
 
 
-GATEWAY = (COMPOSE_FILE.parent / "gateway" / "nginx.conf").read_text(encoding="utf-8")
+GATEWAY = (COMPOSE_FILE.parent / "gateway" / "Caddyfile").read_text(encoding="utf-8")
+# The same text without its comments, which may name what the code must not hold.
+CODE = re.sub(r"#.*", "", GATEWAY)
 
 
 def test_only_the_gateway_is_published_to_the_network():
@@ -38,7 +41,18 @@ def test_only_the_gateway_is_published_to_the_network():
     }
 
     assert set(published) == {"db", "gateway"}
-    assert published["gateway"] == ["${MEGOOARTI_HTTP_PORT:-8000}:80"]
+    assert published["gateway"] == ["${MEGOOARTI_HTTP_PORT:-80}:80"]
+
+
+def test_the_gateway_is_caddy_with_its_file_and_nothing_kept():
+    gateway = services()["gateway"]
+
+    assert gateway["image"] == "caddy:2"
+    assert gateway["volumes"] == ["./gateway/Caddyfile:/etc/caddy/Caddyfile:ro"]
+    # It asks for no certificate, so what Caddy writes there may go with the container.
+    assert gateway["tmpfs"] == ["/data", "/config"]
+    # Plain HTTP only: TLS is your own proxy's.
+    assert not any("443" in port for port in gateway["ports"])
 
 
 def test_the_gateway_waits_for_what_it_stands_in_front_of():
@@ -54,7 +68,7 @@ def test_the_frontend_is_given_no_secret_and_no_way_to_the_data():
     frontend = services()["frontend"]
 
     # It renders the shell. The browser, not this container, calls the backend.
-    assert set(frontend) == {"image", "build", "healthcheck"}
+    assert set(frontend) == {"image", "healthcheck"}
 
 
 def test_the_backend_takes_the_gateways_word_for_who_is_calling():
@@ -65,44 +79,58 @@ def test_the_backend_takes_the_gateways_word_for_who_is_calling():
 
 
 def test_the_gateway_sends_the_api_the_repositories_the_registry_mcp_and_oauth_to_the_backend():
-    routes = dict(re.findall(r"location (\S+) \{\s*proxy_pass (\$\w+);\s*\}", GATEWAY))
+    matchers = dict(re.findall(r"(@\w+) path (.+)", CODE))
 
-    assert routes == {
-        "/api/": "$backend",
-        "/repository/": "$backend",
-        "/v2/": "$backend",
-        "/mcp": "$backend",
-        "/.well-known/": "$backend",
-        "/oauth/": "$backend",
-        "/": "$frontend",
-    }
+    assert matchers["@backend"].split() == [
+        "/api/*",
+        "/repository/*",
+        "/v2/*",
+        "/mcp*",
+        "/.well-known/*",
+        "/oauth/*",
+    ]
+    # Caddy tries a reverse_proxy with a matcher before the one without: everything
+    # else is the web UI.
+    assert re.findall(r"reverse_proxy (?:(@\w+) )?([\w.-]+:\d+) \{", CODE) == [
+        ("@backend", "backend:8000"),
+        ("", "frontend:3000"),
+    ]
 
 
 def test_the_gateway_passes_a_path_on_exactly_as_it_was_sent():
-    # With anything after the upstream's address nginx decodes the path and writes it
-    # again: an npm scope's encoded slash would become a real one.
-    # The API, the repositories, the registry, MCP and its OAuth; then the web UI.
-    assert re.findall(r"proxy_pass ([^;]+);", GATEWAY) == ["$backend"] * 6 + ["$frontend"]
-    assert "rewrite" not in GATEWAY
+    # A directive that writes the path again would decode it on the way: an npm scope's
+    # encoded slash would become a real one.
+    directives = [line.strip() for line in CODE.splitlines()]
+
+    assert not [
+        line for line in directives if line.startswith(("rewrite", "uri", "handle_path", "strip_"))
+    ]
 
 
 @pytest.mark.parametrize(
     "directive",
     [
-        "client_max_body_size 0;",
-        "proxy_request_buffering off;",
-        "proxy_buffering off;",
-        "proxy_http_version 1.1;",
-        "proxy_set_header Host $http_host;",
+        # Plain HTTP only: no certificate is asked for.
+        "auto_https off",
         # The address the gateway sees, added: the backend reads from the right, past
         # trusted proxies only, so what the client wrote of itself is never believed.
-        "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "proxy_set_header X-Forwarded-Proto $scheme;",
-        "proxy_read_timeout 600s;",
+        "trusted_proxies static 0.0.0.0/0 ::/0",
+        "header_up X-Forwarded-Proto {scheme}",
+        "flush_interval -1",
+        "response_header_timeout 600s",
+        "read_timeout 600s",
+        "write_timeout 600s",
     ],
 )
 def test_the_gateway_does_what_artifacts_and_package_clients_need(directive):
-    assert directive in GATEWAY
+    assert directive in CODE
+
+
+def test_both_upstreams_are_sent_the_same_and_nothing_is_limited_or_held():
+    assert CODE.count("import upstream") == 2
+    # Caddy streams a body of any size by default, and passes Host on as it came.
+    for directive in ["max_size", "request_buffers", "header_up Host"]:
+        assert directive not in CODE
 
 
 def dockerfile(name: str) -> str:
@@ -127,19 +155,38 @@ def test_nothing_starts_with_a_password_everybody_knows():
 @pytest.mark.parametrize("name", ["backend", "frontend"])
 def test_the_images_are_named_as_a_registry_would_hold_them(name):
     service = services()[name]
-    tag = f"${{MEGOOARTI_VERSION:-{__version__}}}"
 
     # In the place of a registry that is this project's own, where only its owner puts
     # an image. A short name on the public registry is whoever's took it there, and
     # `docker compose pull` would have run what they put under it.
-    assert service["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:{tag}"
+    assert service["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:${{MEGOOARTI_VERSION:-latest}}"
     source = re.search(r'image\.source="https://github\.com/([^"]+)"', dockerfile(name))[1]
     assert service["image"].startswith(f"ghcr.io/{source.split('/')[0].lower()}/")
-    # The image is told the version it is built as, for its label.
-    assert service["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
-    # Not built again at every command: what `docker compose run` prints must be what
-    # was run, and a build writes into the same place.
+    # An installation runs the published images: docker-compose.build.yml builds them.
+    assert "build" not in service
     assert "pull_policy" not in service
+
+
+@pytest.mark.parametrize("name", ["backend", "frontend"])
+def test_the_build_overlay_builds_both_images_from_this_checkout_as_dev(name):
+    overlay = services(BUILD_FILE)
+    tag = "${MEGOOARTI_VERSION:-dev}"
+
+    assert set(overlay) == {"backend", "frontend"}
+    # Never latest, which is a release's: a build here must not stand in for one.
+    assert overlay[name]["image"] == f"ghcr.io/mmhy2003/megooarti-{name}:{tag}"
+    # The image is told the version it is built as, for its label.
+    assert overlay[name]["build"] == {"context": f"./{name}", "args": {"VERSION": tag}}
+
+
+def test_the_tests_stack_is_built_from_this_checkout():
+    from tests.containers import ENVIRONMENT
+
+    root = COMPOSE_FILE.parent
+    assert ENVIRONMENT["COMPOSE_FILE"].split(os.pathsep) == [
+        str(root / "docker-compose.yml"),
+        str(root / "docker-compose.build.yml"),
+    ]
 
 
 def test_the_secret_key_is_passed_on_only_if_it_is_set():

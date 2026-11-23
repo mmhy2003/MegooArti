@@ -11,7 +11,7 @@ protocol, as nuget.org does. Its address for a client is the repository's own, t
 ```bash
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "nuget-hosted", "format": "nuget", "type": "hosted"
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 On each machine that pushes to it or restores from it: the repository as a source, with
@@ -94,7 +94,7 @@ Its remote is the feed's service index:
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "nuget-org", "format": "nuget", "type": "proxy",
   "proxy": {"remote_url": "https://api.nuget.org/v3/index.json"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 
 dotnet nuget add source https://repo.example.com/repository/nuget-org/index.json \
   --name nuget-org --username ci --password "$MEGOOARTI_TOKEN" \
@@ -110,7 +110,7 @@ curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "choco-community", "format": "nuget", "type": "proxy",
   "format_config": {"protocol": "v2"},
   "proxy": {"remote_url": "https://community.chocolatey.org/api/v2/"}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 A group is one feed of its members': a machine whose one source is the group restores
@@ -120,7 +120,7 @@ the packages you push and nuget.org's alike. Push to a hosted member, not to the
 curl -u admin -H 'Content-Type: application/json' -d '{
   "name": "nuget-public", "format": "nuget", "type": "group",
   "group": {"members": ["nuget-hosted", "nuget-org"]}
-}' http://localhost:8000/api/v1/repositories
+}' http://localhost/api/v1/repositories
 ```
 
 - **Credentials.** A push's API key is an API token (`--api-key`, sent as

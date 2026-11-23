@@ -5,7 +5,8 @@ Docker, APT, YUM, apk, NuGet and Raw repositories, each of them hosted, a proxy 
 remote one, or a group of several behind one address, with a web UI and a REST API.
 See the
 [business requirements](docs/BRD.md) for scope and roadmap, and the
-[changelog](CHANGELOG.md) for what this version has and what is known of it.
+[release notes](docs/releases/) for what each version has and what is known of it,
+also on [GitHub](https://github.com/mmhy2003/MegooArti/releases).
 
 It is two services and a database: a backend (FastAPI) that is the REST API, the
 repositories and the Docker registry, and a web UI (Next.js) that uses that API.
@@ -16,19 +17,22 @@ Requires Docker with Compose.
 
 ```bash
 cp .env.example .env          # then set MEGOOARTI_DB_PASSWORD in it
-docker compose up --build --detach --wait
-curl http://localhost:8000/api/v1/status/ready
+docker compose pull
+docker compose up --detach --wait
+curl http://localhost/api/v1/status/ready
 ```
 
 Nothing starts until the database has a password of your choosing: `.env.example`
-says what else an installation may choose. `docker compose build` makes the images
-`ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend`,
-tagged with the version. They are named for the project's own place in GitHub's
-registry; nothing is published there yet, so they are built here.
+says what else an installation may choose. `docker compose pull` fetches the images
+`ghcr.io/mmhy2003/megooarti-backend` and `ghcr.io/mmhy2003/megooarti-frontend` from
+GitHub's registry: `latest`, the newest
+[release](https://github.com/mmhy2003/MegooArti/releases), unless
+`MEGOOARTI_VERSION` pins one. Building them from this checkout is in
+[Development](docs/development.md).
 
 The last command prints `{"status":"ok","checks":{"database":"ok","schema":"ok"}}`.
-The web UI is at <http://localhost:8000>, and interactive API documentation at
-<http://localhost:8000/api/docs>.
+The web UI is at <http://localhost>, and interactive API documentation at
+<http://localhost/api/docs>.
 
 The first start makes an administrator, and writes its password to a file:
 
@@ -37,12 +41,12 @@ docker compose exec backend cat /var/lib/megooarti/admin.password
 ```
 
 (In Git Bash on Windows, with two slashes: `//var/lib/megooarti/admin.password`.)
-Sign in with it, as `admin`, at <http://localhost:8000>, and choose a password of
+Sign in with it, as `admin`, at <http://localhost>, and choose a password of
 your own. [Installation](docs/installation.md) says the rest, and what to do when
 `admin` cannot sign in.
 
 Compose starts four containers: the database, the backend, the frontend, and a
-gateway (nginx) that is the one published address and sends each request to the
+gateway (Caddy) that is the one published address and sends each request to the
 backend or the frontend. The gateway speaks plain HTTP: as it is, it is for
 development and testing. In production, put
 [your own reverse proxy](docs/installation.md#behind-your-own-reverse-proxy), with
@@ -64,6 +68,7 @@ TLS, in front of it or in its place.
 | [AI agents (MCP)](docs/mcp.md) | Connecting an AI agent with an API token, and the tools it is given |
 | [Development](docs/development.md) | Running from source, the tests, and the rules of the code |
 | [Adding a format](docs/adding-a-format.md) | The interface a format implements, and what is expected of one |
+| [Releasing](docs/releasing.md) | The branches, version numbers and the release routine |
 
 ## Licence
 
